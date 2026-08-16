@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>우리반 학생 개별 상담 관리 시스템</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <script>
+    /* ═══════════════════════════════════════════════════════════
+       ★★★ 여기만 바꾸면 됩니다 ★★★
+
+       Apps Script에서 [배포] → [새 배포] → [웹 앱] 으로 배포한 뒤
+       나온 주소(https://script.google.com/macros/s/...../exec)를
+       아래 따옴표 안에 붙여넣으세요.
+       ═══════════════════════════════════════════════════════════ */
+
+    const API_URL = 'https://script.google.com/macros/s/AKfycbyUeTPW83l2Gxy04d931284z-YEtaKo803W5q_mFEzCrpeMpGPbUcYKgmY2QLvmTcaF/exec';
+
+    </script>
+
+    <style>
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f1f5f9;
+        }
+
+        /* 인터넷이 느려 디자인 파일이 늦게 와도
+           로그인 전 화면이 잠깐 보이는 일이 없도록 미리 숨깁니다. */
+        .hidden { display: none !important; }
+
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 0.5cm 0.7cm;
+            }
+            body {
+                background-color: white !important;
+                color: black !important;
+                font-size: 8pt !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+
+            .print-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                border: none !important;
+            }
+            .print-card {
+                border: 1px solid #cbd5e1 !important;
+                border-radius: 6px !important;
+                padding: 5px 7px !important;
+                margin-bottom: 5px !important;
+                page-break-inside: avoid;
+            }
+            .print-table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+            .print-table th, .print-table td {
+                border: 1px solid #94a3b8 !important;
+                padding: 2px 1px !important;
+                text-align: center !important;
+                font-size: 7pt !important;
+                line-height: 1.15 !important;
+            }
+            .print-text {
+                font-size: 7.5pt !important;
+                line-height: 1.25 !important;
+            }
+            h1.print-title {
+                font-size: 14pt !important;
+                margin-bottom: 2px !important;
+                padding-bottom: 2px !important;
+            }
+            h3.print-section-title {
+                font-size: 8.5pt !important;
+                margin-bottom: 3px !important;
+                padding-bottom: 1px !important;
+            }
+            #counseling-history-list {
+                max-height: none !important;
+                overflow: visible !important;
+            }
+            .target-value {
+                white-space: normal !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+                word-break: break-all !important;
+            }
+        }
+    </style>
+</head>
+<body class="text-slate-800 min-h-screen">
+
+<!-- ══════════════════════════════════════════════════════════
+     로그인 화면
+     ══════════════════════════════════════════════════════════ -->
+<div id="login-screen" class="fixed inset-0 z-50 flex items-center justify-center p-4 no-print"
+     style="background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 100%)">
+
+    <div class="w-full max-w-sm">
+
+        <div class="text-center mb-6">
+            <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-3 shadow-2xl">📋</div>
+            <h1 class="text-2xl font-extrabold text-white">학생 상담 관리 시스템</h1>
+            <p class="text-blue-200 text-xs mt-1.5">담임 선생님 전용 · 승인된 계정만 이용할 수 있습니다</p>
+        </div>
+
+        <!-- 로그인 -->
+        <div id="login-box" class="bg-white rounded-2xl shadow-2xl p-6">
+            <label class="block text-xs font-bold text-slate-500 mb-2">비밀번호</label>
+            <input type="password" id="login-pw" autocomplete="current-password"
+                   placeholder="발급받은 비밀번호를 입력하세요"
+                   class="w-full p-3 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
+
+            <div id="login-error" class="hidden mt-2.5 text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-2.5"></div>
+
+            <button id="login-btn" onclick="doLogin()"
+                    class="w-full mt-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm shadow-lg transition">
+                로그인
+            </button>
+
+            <div class="mt-5 pt-4 border-t border-slate-100 text-center">
+                <button onclick="showPanel('request')" class="text-xs font-semibold text-slate-500 hover:text-blue-600 transition">
+                    비밀번호가 없으신가요? <span class="text-blue-600 underline">계정 신청하기</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 계정 신청 -->
+        <div id="request-box" class="hidden bg-white rounded-2xl shadow-2xl p-6">
+            <h2 class="font-extrabold text-slate-900 mb-1">계정 신청</h2>
+            <p class="text-xs text-slate-500 mb-4 leading-relaxed">
+                신청하시면 관리자가 확인한 뒤 비밀번호를 발급해 드립니다.<br>
+                발급 전까지는 접속할 수 없습니다.
+            </p>
+
+            <label class="block text-xs font-bold text-slate-500 mb-1.5">선생님 성함</label>
+            <input type="text" id="req-name" placeholder="예: 홍길동"
+                   class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none mb-3">
+
+            <label class="block text-xs font-bold text-slate-500 mb-1.5">담당 반</label>
+            <select id="req-class"
+                    class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none mb-3 bg-white"></select>
+
+            <label class="block text-xs font-bold text-slate-500 mb-1.5">전달 사항 <span class="font-normal text-slate-400">(선택)</span></label>
+            <input type="text" id="req-memo" placeholder="예: 3월부터 3반 담임입니다"
+                   class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+
+            <div id="req-msg" class="hidden mt-3 text-xs font-semibold rounded-lg p-2.5"></div>
+
+            <button id="req-btn" onclick="doRequestAccount()"
+                    class="w-full mt-4 py-3 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-sm shadow-lg transition">
+                신청서 보내기
+            </button>
+
+            <div class="mt-4 text-center">
+                <button onclick="showPanel('login')" class="text-xs font-semibold text-slate-500 hover:text-blue-600 transition">
+                    ← 로그인 화면으로 돌아가기
+                </button>
+            </div>
+        </div>
+
+        <p class="text-center text-[11px] text-blue-300/70 mt-5 leading-relaxed">
+            학생 개인정보가 담긴 시스템입니다.<br>비밀번호를 다른 사람과 공유하지 마세요.
+        </p>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════
+     본 화면 (로그인 후에만 보입니다)
+     ══════════════════════════════════════════════════════════ -->
+<div id="app" class="hidden min-h-screen flex flex-col md:flex-row">
+
+    <aside class="w-full md:w-64 bg-slate-900 text-white p-5 flex flex-col justify-between no-print shadow-2xl z-10">
+        <div>
+            <div class="flex items-center space-x-3 mb-6 pb-4 border-b border-slate-700">
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center font-bold text-xl text-white shadow-lg">
+                    📋
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight">학생 상담 시스템</h1>
+                    <span class="text-xs text-blue-300">Google Sheets 실시간 연동</span>
+                </div>
+            </div>
+
+            <!-- 로그인한 사람 -->
+            <div class="mb-4 bg-slate-800/60 rounded-xl p-3 border border-slate-700 flex items-center justify-between gap-2">
+                <div class="min-w-0">
+                    <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">접속 중</div>
+                    <div class="text-sm font-bold truncate"><span id="user-name">-</span>
+                        <span id="user-role" class="hidden ml-1 text-[10px] bg-amber-500 text-slate-900 px-1.5 py-0.5 rounded font-extrabold align-middle">관리자</span>
+                    </div>
+                    <div class="text-[11px] text-blue-300 font-semibold" id="user-class">-</div>
+                </div>
+                <button onclick="doLogout()" title="로그아웃"
+                        class="shrink-0 text-[11px] font-bold text-slate-300 hover:text-white bg-slate-700 hover:bg-rose-600 px-2.5 py-1.5 rounded-lg transition">
+                    로그아웃
+                </button>
+            </div>
+
+            <div class="mb-6 bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-inner">
+                <label for="class-select" class="block text-xs font-bold text-slate-400 uppercase mb-2 tracking-wider">
+                    📌 조회할 학급
+                </label>
+                <select id="class-select" onchange="changeClass()" class="w-full bg-slate-900 border border-slate-600 text-white text-sm rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 font-semibold outline-none transition cursor-pointer"></select>
+            </div>
+
+            <nav class="space-y-2">
+                <button onclick="switchView('home')" id="nav-home" class="w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl bg-blue-600 text-white font-semibold shadow-md transition hover:bg-blue-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                    <span>우리반 학생 목록</span>
+                </button>
+                <button onclick="switchView('counseling')" id="nav-counseling" class="w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-slate-300 hover:bg-slate-800 font-semibold transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                    <span>개별 상담하기</span>
+                </button>
+            </nav>
+        </div>
+
+        <div class="mt-8 text-xs text-slate-500 text-center font-medium bg-slate-950 py-2 rounded-lg border border-slate-800">
+            🟢 구글 시트 자동 동기화
+        </div>
+    </aside>
+
+    <main class="flex-1 p-4 md:p-8 w-full max-w-7xl mx-auto overflow-y-auto">
+
+        <section id="view-home" class="block no-print">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h2 class="text-2xl font-extrabold text-slate-900 flex items-center gap-2">
+                        <span id="home-title">-</span> 학생 목록
+                    </h2>
+                    <p class="text-slate-500 text-sm mt-1">학생 카드를 클릭하면 즉시 개별 상담 화면으로 이동합니다.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2.5 rounded-xl text-xs font-bold flex items-center shadow-sm">
+                        🎯 목표 입력 <span id="target-count" class="mx-1 text-sm font-black text-amber-800">0</span> 명
+                    </div>
+                    <div class="bg-blue-50 border border-blue-100 text-blue-700 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center shadow-sm">
+                        총 <span id="student-count" class="mx-1.5 text-lg font-black text-blue-800">0</span> 명
+                    </div>
+                </div>
+            </div>
+
+            <div id="student-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            </div>
+        </section>
+
+        <section id="view-counseling" class="hidden">
+
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-blue-100 mb-6 no-print">
+                <h3 class="text-sm font-bold text-blue-700 mb-3 flex items-center gap-2">
+                    🔍 상담 학생 검색 및 선택
+                </h3>
+                <div class="flex flex-col sm:flex-row items-end gap-3">
+                    <div class="flex-1 flex gap-2 w-full">
+                        <div class="w-1/3">
+                            <label class="block text-xs font-semibold text-slate-500 mb-1">반</label>
+                            <input type="number" id="search-class" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 bg-slate-50 font-bold" readonly>
+                        </div>
+                        <div class="w-1/3">
+                            <label class="block text-xs font-semibold text-slate-500 mb-1">번호</label>
+                            <input type="number" id="search-num" placeholder="예: 15" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500" onkeypress="handleEnter(event)">
+                        </div>
+                        <div class="w-1/3">
+                            <label class="block text-xs font-semibold text-slate-500 mb-1">이름</label>
+                            <input type="text" id="search-name" placeholder="예: 홍길동" class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500" onkeypress="handleEnter(event)">
+                        </div>
+                    </div>
+                    <button onclick="searchAndStartCounseling()" class="w-full sm:w-auto px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg text-sm transition shadow-md whitespace-nowrap">
+                        상담 시작
+                    </button>
+
+                    <div class="hidden sm:flex border border-slate-200 rounded-lg overflow-hidden ml-auto">
+                        <button onclick="prevStudent()" class="px-3 py-2.5 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium transition border-r border-slate-200" title="이전 번호 학생">◀</button>
+                        <button onclick="nextStudent()" class="px-3 py-2.5 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium transition" title="다음 번호 학생">▶</button>
+                    </div>
+                </div>
+                <div id="search-error" class="text-xs text-rose-500 font-medium mt-2 hidden">⚠️ 해당 정보와 일치하는 학생을 찾을 수 없습니다.</div>
+            </div>
+
+            <div class="flex justify-end mb-3 no-print">
+                <button onclick="triggerPrint()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-md transition flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                    A4 1장 인쇄하기
+                </button>
+            </div>
+
+            <div id="printable-area" class="bg-white p-4 md:p-6 rounded-2xl shadow-lg border border-slate-200 print-container relative">
+
+                <div class="text-center pb-2 mb-2 border-b-2 border-slate-800">
+                    <h1 class="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight print-title">학생 개별 상담 및 성적 기록지</h1>
+                </div>
+
+                <div class="print-card mb-2 bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+                    <h3 class="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-2 border-b border-slate-200 pb-1 print-section-title">
+                        👤 기본 인적사항 및 희망 목표
+                        <span class="no-print ml-auto flex items-center gap-2">
+                            <span id="target-save-status" class="text-[11px] font-bold hidden"></span>
+                            <button id="target-save-btn" onclick="saveTargetToSheet()" class="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[11px] font-bold shadow transition whitespace-nowrap">
+                                💾 목표 저장
+                            </button>
+                        </span>
+                    </h3>
+                    <div class="grid grid-cols-4 gap-2 text-xs">
+                        <div class="flex flex-col">
+                            <span class="text-[10px] text-slate-500 font-semibold mb-0.5">학급 번호</span>
+                            <span id="c-info-class-num" class="font-bold text-xs md:text-sm text-slate-900">-</span>
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="text-[10px] text-slate-500 font-semibold mb-0.5">학생 이름</span>
+                            <span id="c-info-name" class="font-bold text-xs md:text-sm text-slate-900">-</span>
+                        </div>
+                        <div class="flex flex-col bg-blue-50 p-1.5 rounded-lg border border-blue-100">
+                            <span class="text-[9px] text-blue-600 font-bold mb-0.5">🎯 희망 대학</span>
+                            <input type="text" id="input-target-uni" placeholder="예: 서울대학교"
+                                   onkeypress="handleTargetEnter(event)"
+                                   class="no-print w-full bg-white border border-blue-200 rounded px-1.5 py-1 text-xs font-bold text-blue-900 placeholder-slate-300 focus:ring-1 focus:ring-blue-500 outline-none transition">
+                            <span id="c-info-target-uni" class="hidden print-only target-value font-extrabold text-blue-900 text-xs leading-tight">-</span>
+                        </div>
+                        <div class="flex flex-col bg-blue-50 p-1.5 rounded-lg border border-blue-100">
+                            <span class="text-[9px] text-blue-600 font-bold mb-0.5">🎯 희망 학과</span>
+                            <input type="text" id="input-target-major" placeholder="예: 컴퓨터공학과"
+                                   onkeypress="handleTargetEnter(event)"
+                                   class="no-print w-full bg-white border border-blue-200 rounded px-1.5 py-1 text-xs font-bold text-blue-900 placeholder-slate-300 focus:ring-1 focus:ring-blue-500 outline-none transition">
+                            <span id="c-info-target-major" class="hidden print-only target-value font-extrabold text-blue-900 text-xs leading-tight">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="print-card mb-2">
+                    <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 print-section-title">
+                        📊 내신 성적 상세
+                    </h3>
+                    <div class="overflow-hidden rounded-lg border border-slate-300">
+                        <table class="print-table w-full text-xs text-center">
+                            <thead class="bg-slate-100 text-slate-700 font-bold">
+                                <tr>
+                                    <th class="p-1 border-b border-r border-slate-300">과목</th>
+                                    <th class="p-1 border-b border-r border-slate-300">1차점수</th>
+                                    <th class="p-1 border-b border-r border-slate-300">1차등급</th>
+                                    <th class="p-1 border-b border-r border-slate-300">2차점수</th>
+                                    <th class="p-1 border-b border-r border-slate-300">2차등급</th>
+                                    <th class="p-1 border-b border-r border-slate-300">1차수행</th>
+                                    <th class="p-1 border-b border-r border-slate-300">2차수행</th>
+                                    <th class="p-1 border-b border-r border-slate-300 bg-emerald-100 text-emerald-900">환산총점</th>
+                                    <th class="p-1 border-b border-r border-slate-300 bg-blue-100 text-blue-900">최종등급</th>
+                                    <th class="p-1 border-b border-slate-300 bg-blue-100 text-blue-900">성취도</th>
+                                </tr>
+                            </thead>
+                            <tbody id="school-grades-tbody" class="text-slate-800 bg-white">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="print-card mb-2">
+                    <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 print-section-title">
+                        📈 전국 연합 학력평가(모의고사) 성적 추이
+                    </h3>
+                    <div id="mock-exams-container" class="overflow-x-auto rounded-lg border border-slate-300 bg-white">
+                    </div>
+                </div>
+
+                <div class="print-card mb-2">
+                    <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 border-b border-slate-200 pb-1 print-section-title">
+                        💬 개별 상담 종합 코멘트
+                    </h3>
+
+                    <div class="no-print">
+                        <textarea id="counsel-text" rows="3" class="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-xs leading-relaxed transition shadow-inner bg-slate-50" placeholder="상담 내용을 입력하세요. 저장 시 구글 시트의 다음 열(D열: 1차, E열: 2차...)에 자동으로 축적됩니다."></textarea>
+
+                        <div class="mt-2 flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-200">
+                            <div class="text-[11px] text-slate-500 font-medium">
+                                <span class="bg-slate-200 px-1.5 py-0.5 rounded text-slate-700 mr-1">자동열확장</span>구글 시트 '상담내용' D열부터 순차 기록됩니다.
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="save-status" class="text-xs font-bold hidden"></span>
+                                <button id="save-btn" onclick="saveCounselingToSheet()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow transition flex items-center gap-1">
+                                    💾 구글시트에 저장
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="hidden print-only p-2 border border-slate-300 rounded bg-white text-xs print-text min-h-[50px] whitespace-pre-wrap" id="print-counsel-display">
+                        (상담 작성 내용 없음)
+                    </div>
+                </div>
+
+                <div class="print-card border-t border-slate-300 pt-1.5">
+                    <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 print-section-title">
+                        📚 이전 상담 누적 기록 (총 <span id="history-count" class="text-blue-600">0</span>건)
+                    </h3>
+                    <div id="counseling-history-list" class="space-y-1.5 text-xs print-text max-h-40 overflow-y-auto">
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════
+   서버와 대화하기
+   ══════════════════════════════════════════════════════════ */
+
+let TOKEN = sessionStorage.getItem('sc_token') || '';
+let ME = null;
+
+let currentClass = null;
+let studentsData = [];
+let selectedStudent = null;
+let loadToken = 0;
+
+/** 예비 통로: 브라우저가 POST를 막을 때 사용합니다. */
+function jsonpCall(action, payload) {
+    return new Promise((resolve, reject) => {
+        const cb = '__sc_cb_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+        const script = document.createElement('script');
+        const timer = setTimeout(() => { cleanup(); reject(new Error('서버 응답이 없습니다.')); }, 25000);
+
+        function cleanup() {
+            clearTimeout(timer);
+            try { delete window[cb]; } catch (e) { window[cb] = undefined; }
+            if (script.parentNode) script.parentNode.removeChild(script);
+        }
+
+        window[cb] = (res) => { cleanup(); resolve(res); };
+        script.onerror = () => { cleanup(); reject(new Error('서버에 연결하지 못했습니다.')); };
+        script.src = API_URL
+            + '?action=' + encodeURIComponent(action)
+            + '&payload=' + encodeURIComponent(JSON.stringify(payload || {}))
+            + '&callback=' + cb;
+        document.body.appendChild(script);
+    });
+}
+
+async function api(action, payload) {
+    if (!API_URL || API_URL.indexOf('script.google.com') === -1) {
+        throw new Error('index.html 맨 위의 API_URL에 웹 앱 주소를 넣어 주세요.');
+    }
+
+    const body = Object.assign({ action: action }, payload || {});
+    if (TOKEN) body.token = TOKEN;
+
+    let res = null;
+    try {
+        const r = await fetch(API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify(body),
+            redirect: 'follow'
+        });
+        res = await r.json();
+    } catch (e) {
+        // POST가 막히면 예비 통로로 다시 시도합니다.
+        res = await jsonpCall(action, body);
+    }
+
+    if (!res) throw new Error('서버 응답이 비어 있습니다.');
+    if (res.needLogin) { forceLogout('로그인이 만료되었습니다. 다시 로그인해 주세요.'); throw new Error('needLogin'); }
+    if (!res.ok) throw new Error(res.error || '요청을 처리하지 못했습니다.');
+    return res.data;
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   로그인 / 계정 신청
+   ══════════════════════════════════════════════════════════ */
+
+function showPanel(which) {
+    document.getElementById('login-box').classList.toggle('hidden', which !== 'login');
+    document.getElementById('request-box').classList.toggle('hidden', which !== 'request');
+}
+
+function showLoginError(msg) {
+    const el = document.getElementById('login-error');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+}
+
+async function doLogin() {
+    const pw = document.getElementById('login-pw').value.trim();
+    const btn = document.getElementById('login-btn');
+    document.getElementById('login-error').classList.add('hidden');
+
+    if (!pw) { showLoginError('비밀번호를 입력해 주세요.'); return; }
+
+    btn.disabled = true;
+    btn.textContent = '확인 중…';
+
+    try {
+        const data = await api('login', { password: pw });
+        TOKEN = data.token;
+        sessionStorage.setItem('sc_token', TOKEN);
+        startApp(data);
+    } catch (e) {
+        showLoginError(e.message || '로그인하지 못했습니다.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '로그인';
+        document.getElementById('login-pw').value = '';
+    }
+}
+
+async function doRequestAccount() {
+    const name = document.getElementById('req-name').value.trim();
+    const cls = document.getElementById('req-class').value;
+    const memo = document.getElementById('req-memo').value.trim();
+    const btn = document.getElementById('req-btn');
+    const msg = document.getElementById('req-msg');
+
+    msg.classList.add('hidden');
+    if (!name) {
+        msg.textContent = '성함을 입력해 주세요.';
+        msg.className = 'mt-3 text-xs font-semibold rounded-lg p-2.5 text-rose-600 bg-rose-50 border border-rose-200';
+        msg.classList.remove('hidden');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '보내는 중…';
+
+    try {
+        const data = await api('requestAccount', { name: name, classNum: cls, memo: memo });
+        msg.textContent = '✓ ' + (data.message || '신청이 접수되었습니다.');
+        msg.className = 'mt-3 text-xs font-semibold rounded-lg p-2.5 text-emerald-700 bg-emerald-50 border border-emerald-200';
+        msg.classList.remove('hidden');
+        document.getElementById('req-name').value = '';
+        document.getElementById('req-memo').value = '';
+    } catch (e) {
+        msg.textContent = e.message || '신청하지 못했습니다.';
+        msg.className = 'mt-3 text-xs font-semibold rounded-lg p-2.5 text-rose-600 bg-rose-50 border border-rose-200';
+        msg.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '신청서 보내기';
+    }
+}
+
+function startApp(me) {
+    ME = me;
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+
+    document.getElementById('user-name').textContent = me.name || '선생님';
+    document.getElementById('user-class').textContent = (me.gradeLabel || '') + ' ' + me.classNum + '반 담임';
+    document.getElementById('user-role').classList.toggle('hidden', me.role !== '관리자');
+
+    buildClassSelect(me.classList || [1,2,3,4,5,6,7], me.classNum);
+
+    currentClass = Number(me.classNum);
+    document.getElementById('home-title').textContent = classLabel(currentClass);
+    document.getElementById('search-class').value = currentClass;
+
+    switchView('home');
+    loadClassData(currentClass);
+}
+
+function buildClassSelect(list, selected) {
+    const sel = document.getElementById('class-select');
+    sel.innerHTML = '';
+    list.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = classLabel(c);
+        if (Number(c) === Number(selected)) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
+
+function classLabel(c) {
+    return ((ME && ME.gradeLabel) || '1학년') + ' ' + c + '반';
+}
+
+async function doLogout() {
+    try { await api('logout', {}); } catch (e) { /* 무시 */ }
+    forceLogout();
+}
+
+function forceLogout(msg) {
+    TOKEN = '';
+    ME = null;
+    studentsData = [];
+    selectedStudent = null;
+    sessionStorage.removeItem('sc_token');
+
+    document.getElementById('app').classList.add('hidden');
+    document.getElementById('login-screen').classList.remove('hidden');
+    showPanel('login');
+    if (msg) showLoginError(msg);
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   학생 데이터
+   ══════════════════════════════════════════════════════════ */
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function targetLabel(s) {
+    const parts = [];
+    if (s.targetUni && s.targetUni !== '-') parts.push(s.targetUni);
+    if (s.targetMajor && s.targetMajor !== '-') parts.push(s.targetMajor);
+    return parts.join(' · ');
+}
+
+async function loadClassData(targetClass) {
+    const myToken = ++loadToken;
+
+    studentsData = [];
+    selectedStudent = null;
+    showLoading();
+
+    try {
+        const data = await api('getStudents', { classNum: targetClass });
+        if (myToken !== loadToken) return;
+        onDataLoaded(data.students || []);
+    } catch (e) {
+        if (myToken !== loadToken) return;
+        if (e.message === 'needLogin') return;
+        onDataLoadError(e);
+    }
+}
+
+function showLoading() {
+    document.getElementById('student-count').textContent = '…';
+    document.getElementById('target-count').textContent = '…';
+    document.getElementById('student-grid').innerHTML =
+        '<div class="col-span-full bg-white border border-slate-200 text-slate-500 p-6 rounded-xl text-sm text-center">' +
+        '학생 명단을 불러오는 중입니다…</div>';
+}
+
+function onDataLoaded(data) {
+    studentsData = (data || [])
+        .filter(s => Number(s.classNum) === Number(currentClass))
+        .sort((a, b) => Number(a.number) - Number(b.number));
+
+    document.getElementById('student-count').textContent = studentsData.length;
+    updateTargetCount();
+    renderStudentGrid();
+}
+
+function onDataLoadError(err) {
+    console.error('데이터 로드 실패:', err);
+    studentsData = [];
+    document.getElementById('student-count').textContent = '0';
+    document.getElementById('target-count').textContent = '0';
+    document.getElementById('student-grid').innerHTML =
+        '<div class="col-span-full bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-xl text-sm">' +
+        '명단을 불러오지 못했습니다.<br><span class="text-xs">' + escapeHtml(err && err.message) + '</span></div>';
+}
+
+function renderStudentGrid() {
+    const grid = document.getElementById('student-grid');
+    grid.innerHTML = '';
+
+    if (studentsData.length === 0) {
+        grid.innerHTML =
+            '<div class="col-span-full bg-white border border-slate-200 text-slate-500 p-6 rounded-xl text-sm text-center">' +
+            classLabel(currentClass) + '에 등록된 학생이 없습니다.</div>';
+        return;
+    }
+
+    studentsData.forEach(s => {
+        const card = document.createElement('div');
+        card.className = "bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:border-blue-500 hover:shadow-md transition cursor-pointer flex flex-col justify-between";
+        card.onclick = () => selectStudent(s.number);
+
+        const historyCount = s.counselingHistory ? s.counselingHistory.length : 0;
+        const historyBadge = historyCount > 0
+            ? `<span class="text-[11px] font-extrabold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-full border border-blue-200">💬 상담 ${historyCount}회</span>`
+            : `<span class="text-[11px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">상담 없음</span>`;
+
+        const target = targetLabel(s);
+        const targetLine = target
+            ? `<div class="text-xs text-blue-600 font-semibold truncate" title="${escapeHtml(target)}">🎯 ${escapeHtml(target)}</div>`
+            : `<div class="text-xs text-slate-400 font-medium truncate">🎯 목표 미설정</div>`;
+
+        card.innerHTML = `
+            <div class="flex justify-between items-start mb-2">
+                <span class="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">${s.number}번</span>
+                <span class="text-[10px] text-slate-400 font-mono">${escapeHtml(s.lastCounselingDate || '기록 없음')}</span>
+            </div>
+            <div class="text-lg font-bold text-slate-900 mb-1 flex items-center justify-between gap-2">
+                <span>${escapeHtml(s.name)}</span>
+                ${historyBadge}
+            </div>
+            ${targetLine}
+        `;
+        grid.appendChild(card);
+    });
+}
+
+function selectStudent(num) {
+    selectedStudent = studentsData.find(s => Number(s.number) === Number(num));
+    if (!selectedStudent) return;
+
+    document.getElementById('search-class').value = currentClass;
+    document.getElementById('search-num').value = selectedStudent.number;
+    document.getElementById('search-name').value = selectedStudent.name;
+
+    document.getElementById('c-info-class-num').textContent =
+        classLabel(selectedStudent.classNum || currentClass) + ' ' + selectedStudent.number + '번';
+    document.getElementById('c-info-name').textContent = selectedStudent.name;
+
+    document.getElementById('input-target-uni').value = (selectedStudent.targetUni || '').trim();
+    document.getElementById('input-target-major').value = (selectedStudent.targetMajor || '').trim();
+    syncTargetPrint();
+
+    renderSchoolGrades(selectedStudent.schoolGrades);
+    renderMockExams(selectedStudent.mockExams);
+    renderHistory(selectedStudent.counselingHistory);
+
+    document.getElementById('counsel-text').value = '';
+    document.getElementById('print-counsel-display').textContent = '(상담 작성 내용 없음)';
+
+    switchView('counseling');
+}
+
+function renderSchoolGrades(grades) {
+    const tbody = document.getElementById('school-grades-tbody');
+    tbody.innerHTML = '';
+
+    if (!grades || grades.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="p-3 text-slate-400">등록된 내신 성적이 없습니다.</td></tr>`;
+        return;
+    }
+
+    const cell = v => (v === undefined || v === null || v === '-') ? '' : String(v);
+
+    grades.forEach(g => {
+        const tr = document.createElement('tr');
+        const hasData = (g.hasData !== undefined)
+            ? g.hasData
+            : !!(cell(g.exam1) || cell(g.exam2) || cell(g.eval1) || cell(g.eval2));
+
+        tr.className = hasData
+            ? "border-b border-slate-200 hover:bg-slate-50"
+            : "border-b border-slate-200 bg-slate-50/40";
+
+        tr.innerHTML = `
+            <td class="p-1 font-semibold border-r border-slate-200${hasData ? '' : ' text-slate-400'}">${g.subject}</td>
+            <td class="p-1 border-r border-slate-200">${cell(g.exam1)}</td>
+            <td class="p-1 border-r border-slate-200 font-bold">${cell(g.grade1)}</td>
+            <td class="p-1 border-r border-slate-200">${cell(g.exam2)}</td>
+            <td class="p-1 border-r border-slate-200 font-bold">${cell(g.grade2)}</td>
+            <td class="p-1 border-r border-slate-200">${cell(g.eval1)}</td>
+            <td class="p-1 border-r border-slate-200">${cell(g.eval2)}</td>
+            <td class="p-1 border-r border-slate-200 font-bold text-emerald-700${hasData ? ' bg-emerald-50/50' : ''}">${cell(g.totalScore)}</td>
+            <td class="p-1 border-r border-slate-200 font-extrabold text-blue-700${hasData ? ' bg-blue-50/50' : ''}">${cell(g.finalGrade)}</td>
+            <td class="p-1 font-bold text-slate-700">${cell(g.finalAchievement)}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function renderMockExams(mockExams) {
+    const container = document.getElementById('mock-exams-container');
+    const subjects = ['국어', '수학', '영어', '통합사회', '통합과학', '한국사'];
+
+    let html = `
+        <table class="print-table w-full text-xs text-center">
+            <thead class="bg-slate-100 text-slate-700 font-bold">
+                <tr>
+                    <th rowspan="2" class="p-1 border-b border-r border-slate-300 align-middle">구분</th>
+                    ${subjects.map(s => `<th colspan="2" class="p-1 border-b border-r border-slate-300">${s}</th>`).join('')}
+                </tr>
+                <tr class="bg-slate-50 text-[10px]">
+                    ${subjects.map(() => `<th class="p-1 border-b border-r border-slate-300">점수</th><th class="p-1 border-b border-r border-slate-300">등급</th>`).join('')}
+                </tr>
+            </thead>
+            <tbody class="text-slate-800">
+    `;
+
+    const months = [
+        { key: 'm3',  name: '3월 모의고사'  },
+        { key: 'm6',  name: '6월 모의고사'  },
+        { key: 'm9',  name: '9월 모의고사'  },
+        { key: 'm10', name: '10월 모의고사' }
+    ];
+
+    months.forEach(m => {
+        const examList = (mockExams && mockExams[m.key]) ? mockExams[m.key] : [];
+
+        const hasAnyValue = examList.some(item =>
+            (item.score && item.score !== '-') || (item.grade && item.grade !== '-'));
+
+        html += `<tr class="border-b border-slate-200${hasAnyValue ? '' : ' bg-slate-50/40'}">
+                    <td class="p-1 font-bold bg-slate-50 border-r border-slate-200 whitespace-nowrap">${m.name}</td>`;
+
+        subjects.forEach(subName => {
+            const found = hasAnyValue ? examList.find(item => item.subject === subName) : null;
+            const score = (found && found.score && found.score !== '-') ? found.score : (hasAnyValue ? '-' : '');
+            const grade = (found && found.grade && found.grade !== '-') ? found.grade : (hasAnyValue ? '-' : '');
+            html += `
+                <td class="p-1 border-r border-slate-200">${score}</td>
+                <td class="p-1 border-r border-slate-200 font-bold text-blue-700">${grade}</td>
+            `;
+        });
+        html += `</tr>`;
+    });
+
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+}
+
+function renderHistory(history) {
+    const list = document.getElementById('counseling-history-list');
+    const count = document.getElementById('history-count');
+    list.innerHTML = '';
+
+    if (!history || history.length === 0) {
+        list.innerHTML = `<div class="text-slate-400 text-xs py-1">이전 상담 기록이 없습니다.</div>`;
+        count.textContent = '0';
+        return;
+    }
+
+    count.textContent = history.length;
+    history.forEach(item => {
+        const div = document.createElement('div');
+        div.className = "bg-slate-50 p-2 rounded-lg border border-slate-200 whitespace-pre-wrap text-slate-800";
+        div.textContent = item;
+        list.appendChild(div);
+    });
+}
+
+function switchView(view) {
+    document.getElementById('view-home').classList.toggle('hidden', view !== 'home');
+    document.getElementById('view-counseling').classList.toggle('hidden', view !== 'counseling');
+
+    const btnHome = document.getElementById('nav-home');
+    const btnCounseling = document.getElementById('nav-counseling');
+    const active = "w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl bg-blue-600 text-white font-semibold shadow-md transition";
+    const idle = "w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-slate-300 hover:bg-slate-800 font-semibold transition";
+
+    if (view === 'home') {
+        btnHome.className = active;
+        btnCounseling.className = idle;
+    } else {
+        btnCounseling.className = active;
+        btnHome.className = idle;
+    }
+}
+
+function changeClass() {
+    currentClass = parseInt(document.getElementById('class-select').value, 10);
+    document.getElementById('home-title').textContent = classLabel(currentClass);
+
+    document.getElementById('search-class').value = currentClass;
+    document.getElementById('search-num').value = '';
+    document.getElementById('search-name').value = '';
+    document.getElementById('search-error').classList.add('hidden');
+
+    switchView('home');
+    loadClassData(currentClass);
+}
+
+function searchAndStartCounseling() {
+    const numVal = parseInt(document.getElementById('search-num').value, 10);
+    const nameVal = document.getElementById('search-name').value.trim();
+    const errorEl = document.getElementById('search-error');
+
+    let found = null;
+    if (!isNaN(numVal)) {
+        found = studentsData.find(s => Number(s.number) === numVal);
+    } else if (nameVal) {
+        found = studentsData.find(s => s.name === nameVal);
+    }
+
+    if (found) {
+        errorEl.classList.add('hidden');
+        selectStudent(found.number);
+    } else {
+        errorEl.classList.remove('hidden');
+    }
+}
+
+function handleEnter(e) {
+    if (e.key === 'Enter') searchAndStartCounseling();
+}
+
+function prevStudent() {
+    if (!selectedStudent) return;
+    const idx = studentsData.findIndex(s => Number(s.number) === Number(selectedStudent.number));
+    if (idx > 0) selectStudent(studentsData[idx - 1].number);
+}
+
+function nextStudent() {
+    if (!selectedStudent) return;
+    const idx = studentsData.findIndex(s => Number(s.number) === Number(selectedStudent.number));
+    if (idx > -1 && idx < studentsData.length - 1) selectStudent(studentsData[idx + 1].number);
+}
+
+
+/* ── 희망 대학 · 희망 학과 ───────────────────── */
+
+function updateTargetCount() {
+    document.getElementById('target-count').textContent =
+        studentsData.filter(s => targetLabel(s) !== '').length;
+}
+
+function syncTargetPrint() {
+    const uni = document.getElementById('input-target-uni').value.trim();
+    const major = document.getElementById('input-target-major').value.trim();
+    document.getElementById('c-info-target-uni').textContent = uni || '미정';
+    document.getElementById('c-info-target-major').textContent = major || '미정';
+}
+
+function handleTargetEnter(e) {
+    if (e.key === 'Enter') saveTargetToSheet();
+}
+
+async function saveTargetToSheet() {
+    if (!selectedStudent) {
+        showTargetStatus('먼저 학생을 선택해 주세요.', false);
+        return;
+    }
+
+    const uni = document.getElementById('input-target-uni').value.trim();
+    const major = document.getElementById('input-target-major').value.trim();
+    const btn = document.getElementById('target-save-btn');
+
+    btn.disabled = true;
+    btn.textContent = '저장 중…';
+
+    try {
+        await api('saveTarget', {
+            classNum: currentClass,
+            studentNum: selectedStudent.number,
+            studentName: selectedStudent.name,
+            targetUni: uni,
+            targetMajor: major
+        });
+        selectedStudent.targetUni = uni;
+        selectedStudent.targetMajor = major;
+        syncTargetPrint();
+        updateTargetCount();
+        renderStudentGrid();
+        showTargetStatus('✓ 목표 저장 완료!', true);
+    } catch (e) {
+        if (e.message !== 'needLogin') showTargetStatus(e.message || '저장하지 못했습니다.', false);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '💾 목표 저장';
+    }
+}
+
+function showTargetStatus(message, ok) {
+    const el = document.getElementById('target-save-status');
+    el.textContent = message;
+    el.className = ok
+        ? 'text-[11px] font-bold text-emerald-600'
+        : 'text-[11px] font-bold text-rose-600';
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
+async function saveCounselingToSheet() {
+    const textarea = document.getElementById('counsel-text');
+    const text = textarea.value.trim();
+    if (!text || !selectedStudent) return;
+
+    const now = new Date();
+    const timeStr = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    btn.textContent = '저장 중…';
+
+    try {
+        await api('saveCounseling', {
+            classNum: currentClass,
+            studentNum: selectedStudent.number,
+            studentName: selectedStudent.name,
+            text: text,
+            timeStr: timeStr
+        });
+        applySaveResult(`[${timeStr}]\n${text}`, timeStr, text);
+    } catch (e) {
+        if (e.message !== 'needLogin') showSaveStatus(e.message || '저장하지 못했습니다.', false);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '💾 구글시트에 저장';
+    }
+}
+
+function applySaveResult(record, timeStr, rawText) {
+    if (!selectedStudent.counselingHistory) selectedStudent.counselingHistory = [];
+    selectedStudent.counselingHistory.unshift(record);
+    selectedStudent.lastCounselingDate = timeStr;
+
+    renderHistory(selectedStudent.counselingHistory);
+    renderStudentGrid();
+
+    document.getElementById('print-counsel-display').textContent = rawText;
+    document.getElementById('counsel-text').value = '';
+
+    showSaveStatus('✓ 저장 완료!', true);
+}
+
+function showSaveStatus(message, ok) {
+    const status = document.getElementById('save-status');
+    status.textContent = message;
+    status.className = ok
+        ? 'text-xs font-bold text-emerald-600'
+        : 'text-xs font-bold text-rose-600';
+    status.classList.remove('hidden');
+    setTimeout(() => status.classList.add('hidden'), 4000);
+}
+
+function triggerPrint() {
+    const counselVal = document.getElementById('counsel-text').value.trim();
+    const displayEl = document.getElementById('print-counsel-display');
+    if (counselVal) displayEl.textContent = counselVal;
+    window.print();
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   시작
+   ══════════════════════════════════════════════════════════ */
+
+document.addEventListener('DOMContentLoaded', async () => {
+
+    // 신청 화면의 반 목록 채우기
+    const reqSel = document.getElementById('req-class');
+    [1, 2, 3, 4, 5, 6, 7].forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = '1학년 ' + c + '반';
+        reqSel.appendChild(opt);
+    });
+
+    document.getElementById('login-pw').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') doLogin();
+    });
+
+    const textarea = document.getElementById('counsel-text');
+    if (textarea) {
+        textarea.addEventListener('input', (e) => {
+            document.getElementById('print-counsel-display').textContent =
+                e.target.value || '(상담 작성 내용 없음)';
+        });
+    }
+    ['input-target-uni', 'input-target-major'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', syncTargetPrint);
+    });
+
+    // 새로고침해도 로그인이 유지되도록 확인합니다.
+    if (TOKEN) {
+        try {
+            const me = await api('me', {});
+            startApp(me);
+        } catch (e) {
+            forceLogout();
+        }
+    }
+});
+</script>
+</body>
+</html>
