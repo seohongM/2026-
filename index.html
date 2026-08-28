@@ -16,7 +16,7 @@
        아래 따옴표 안에 붙여넣으세요.
        ═══════════════════════════════════════════════════════════ */
 
-    const API_URL = 'https://script.google.com/macros/s/AKfycbyUeTPW83l2Gxy04d931284z-YEtaKo803W5q_mFEzCrpeMpGPbUcYKgmY2QLvmTcaF/exec';
+    const API_URL = '여기에_웹앱_주소를_붙여넣으세요';
 
     </script>
 
@@ -339,8 +339,10 @@
                 </div>
 
                 <div class="print-card mb-2">
-                    <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 print-section-title">
+                    <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 flex-wrap print-section-title">
                         📊 내신 성적 상세
+                        <span class="font-medium text-[10px] text-slate-400">등급 표기 = 5등급제 → 9등급제 환산</span>
+                        <span id="grade-summary" class="ml-auto flex items-center gap-1.5 flex-wrap"></span>
                     </h3>
                     <div class="overflow-hidden rounded-lg border border-slate-300">
                         <table class="print-table w-full text-xs text-center">
@@ -348,18 +350,20 @@
                                 <tr>
                                     <th class="p-1 border-b border-r border-slate-300">과목</th>
                                     <th class="p-1 border-b border-r border-slate-300">1차점수</th>
-                                    <th class="p-1 border-b border-r border-slate-300">1차등급</th>
+                                    <th class="p-1 border-b border-r border-slate-300">1차등급<div class="text-[8px] font-medium text-slate-400 leading-none">5→9</div></th>
                                     <th class="p-1 border-b border-r border-slate-300">2차점수</th>
-                                    <th class="p-1 border-b border-r border-slate-300">2차등급</th>
+                                    <th class="p-1 border-b border-r border-slate-300">2차등급<div class="text-[8px] font-medium text-slate-400 leading-none">5→9</div></th>
                                     <th class="p-1 border-b border-r border-slate-300">1차수행</th>
                                     <th class="p-1 border-b border-r border-slate-300">2차수행</th>
                                     <th class="p-1 border-b border-r border-slate-300 bg-emerald-100 text-emerald-900">환산총점</th>
-                                    <th class="p-1 border-b border-r border-slate-300 bg-blue-100 text-blue-900">최종등급</th>
+                                    <th class="p-1 border-b border-r border-slate-300 bg-blue-100 text-blue-900">최종등급<div class="text-[8px] font-medium text-blue-500 leading-none">5→9</div></th>
                                     <th class="p-1 border-b border-slate-300 bg-blue-100 text-blue-900">성취도</th>
                                 </tr>
                             </thead>
                             <tbody id="school-grades-tbody" class="text-slate-800 bg-white">
                             </tbody>
+                            <tfoot id="school-grades-tfoot" class="bg-slate-50 font-bold text-slate-800">
+                            </tfoot>
                         </table>
                     </div>
                 </div>
@@ -696,6 +700,16 @@ function renderStudentGrid() {
             ? `<div class="text-xs text-blue-600 font-semibold truncate" title="${escapeHtml(target)}">🎯 ${escapeHtml(target)}</div>`
             : `<div class="text-xs text-slate-400 font-medium truncate">🎯 목표 미설정</div>`;
 
+        const sm = s.summary || {};
+        const avgLine = (sm.avg5 != null || sm.avg9 != null)
+            ? `<div class="text-xs text-slate-600 font-semibold truncate" title="5등급제 평균 → 9등급제 평균">
+                   📊 평균 ${sm.avg5 != null ? Number(sm.avg5).toFixed(2) : '-'}
+                   <span class="text-slate-300">→</span>
+                   <span class="text-blue-700 font-extrabold">${sm.avg9 != null ? Number(sm.avg9).toFixed(2) : '-'}</span>
+                   <span class="text-slate-400 font-medium">등급</span>
+               </div>`
+            : `<div class="text-xs text-slate-400 font-medium truncate">📊 내신 성적 없음</div>`;
+
         card.innerHTML = `
             <div class="flex justify-between items-start mb-2">
                 <span class="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">${s.number}번</span>
@@ -705,6 +719,7 @@ function renderStudentGrid() {
                 <span>${escapeHtml(s.name)}</span>
                 ${historyBadge}
             </div>
+            ${avgLine}
             ${targetLine}
         `;
         grid.appendChild(card);
@@ -727,7 +742,7 @@ function selectStudent(num) {
     document.getElementById('input-target-major').value = (selectedStudent.targetMajor || '').trim();
     syncTargetPrint();
 
-    renderSchoolGrades(selectedStudent.schoolGrades);
+    renderSchoolGrades(selectedStudent.schoolGrades, selectedStudent.summary);
     renderMockExams(selectedStudent.mockExams);
     renderHistory(selectedStudent.counselingHistory);
 
@@ -737,9 +752,24 @@ function selectStudent(num) {
     switchView('counseling');
 }
 
-function renderSchoolGrades(grades) {
+/** '2 → 3' 처럼 5등급과 9등급을 나란히 보여줍니다. */
+function gradePair(g5, g9, strong) {
+    const a = (g5 === undefined || g5 === null || g5 === '-') ? '' : String(g5);
+    const b = (g9 === undefined || g9 === null || g9 === '-') ? '' : String(g9);
+    if (!a && !b) return '';
+    if (!b) return `<span class="${strong ? 'font-extrabold' : 'font-bold'}">${escapeHtml(a)}</span>`;
+    return `<span class="${strong ? 'font-extrabold' : 'font-bold'} text-slate-600">${escapeHtml(a)}</span>`
+         + `<span class="text-slate-300 mx-0.5">→</span>`
+         + `<span class="font-extrabold text-blue-700">${escapeHtml(b)}</span>`;
+}
+
+function renderSchoolGrades(grades, summary) {
     const tbody = document.getElementById('school-grades-tbody');
+    const tfoot = document.getElementById('school-grades-tfoot');
+    const badges = document.getElementById('grade-summary');
     tbody.innerHTML = '';
+    tfoot.innerHTML = '';
+    badges.innerHTML = '';
 
     if (!grades || grades.length === 0) {
         tbody.innerHTML = `<tr><td colspan="10" class="p-3 text-slate-400">등록된 내신 성적이 없습니다.</td></tr>`;
@@ -761,17 +791,54 @@ function renderSchoolGrades(grades) {
         tr.innerHTML = `
             <td class="p-1 font-semibold border-r border-slate-200${hasData ? '' : ' text-slate-400'}">${g.subject}</td>
             <td class="p-1 border-r border-slate-200">${cell(g.exam1)}</td>
-            <td class="p-1 border-r border-slate-200 font-bold">${cell(g.grade1)}</td>
+            <td class="p-1 border-r border-slate-200">${gradePair(g.grade1, g.grade1_9, false)}</td>
             <td class="p-1 border-r border-slate-200">${cell(g.exam2)}</td>
-            <td class="p-1 border-r border-slate-200 font-bold">${cell(g.grade2)}</td>
+            <td class="p-1 border-r border-slate-200">${gradePair(g.grade2, g.grade2_9, false)}</td>
             <td class="p-1 border-r border-slate-200">${cell(g.eval1)}</td>
             <td class="p-1 border-r border-slate-200">${cell(g.eval2)}</td>
             <td class="p-1 border-r border-slate-200 font-bold text-emerald-700${hasData ? ' bg-emerald-50/50' : ''}">${cell(g.totalScore)}</td>
-            <td class="p-1 border-r border-slate-200 font-extrabold text-blue-700${hasData ? ' bg-blue-50/50' : ''}">${cell(g.finalGrade)}</td>
+            <td class="p-1 border-r border-slate-200${hasData ? ' bg-blue-50/50' : ''}">${gradePair(g.finalGrade, g.finalGrade9, true)}</td>
             <td class="p-1 font-bold text-slate-700">${cell(g.finalAchievement)}</td>
         `;
         tbody.appendChild(tr);
     });
+
+    // ── 맨 아랫줄: 평균 ──
+    const s = summary || {};
+    const has = v => (v !== null && v !== undefined && v !== '');
+    const avg5 = has(s.avg5) ? Number(s.avg5).toFixed(2) : '';
+    const avg9 = has(s.avg9) ? Number(s.avg9).toFixed(2) : '';
+
+    tfoot.innerHTML = `
+        <tr class="border-t-2 border-slate-400">
+            <td class="p-1 font-extrabold border-r border-slate-300 bg-slate-100">평균</td>
+            <td class="p-1 border-r border-slate-300" colspan="6">
+                <span class="text-[10px] font-medium text-slate-500">
+                    성적이 입력된 ${has(s.subjectCount) ? s.subjectCount : 0}과목 기준
+                    ${has(s.avgPct) ? ' · 전교 석차백분율 평균 상위 ' + s.avgPct + '%' : ''}
+                </span>
+            </td>
+            <td class="p-1 border-r border-slate-300 font-extrabold text-emerald-700 bg-emerald-50">
+                ${has(s.avgScore) ? s.avgScore : '-'}
+            </td>
+            <td class="p-1 border-r border-slate-300 bg-blue-50">
+                ${gradePair(avg5, avg9, true)}
+            </td>
+            <td class="p-1 text-slate-400 text-[10px]">-</td>
+        </tr>
+    `;
+
+    // ── 제목 옆 요약 배지 ──
+    if (has(s.avg5) || has(s.avg9)) {
+        badges.innerHTML = `
+            <span class="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 rounded-md px-2 py-0.5">
+                5등급제 평균 <b class="text-slate-900 text-xs">${avg5 || '-'}</b>
+            </span>
+            <span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-md px-2 py-0.5">
+                9등급제 평균 <b class="text-blue-900 text-xs">${avg9 || '-'}</b>
+            </span>
+        `;
+    }
 }
 
 function renderMockExams(mockExams) {
