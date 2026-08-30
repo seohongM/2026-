@@ -11,9 +11,12 @@
     /* ═══════════════════════════════════════════════════════════
        ★★★ 여기만 바꾸면 됩니다 ★★★
 
-       Apps Script에서 [배포] → [새 배포] → [웹 앱] 으로 배포한 뒤
-       나온 주소(https://script.google.com/macros/s/...../exec)를
+       Apps Script의 [배포] → [배포 관리] 에 있는 웹 앱 URL
+       (https://script.google.com/macros/s/...../exec)을
        아래 따옴표 안에 붙여넣으세요.
+
+       ※ 처음 한 번만 [새 배포]로 만들고, 그 뒤로는 이 주소를
+         계속 그대로 씁니다. 코드를 고쳐도 주소는 바뀌지 않습니다.
        ═══════════════════════════════════════════════════════════ */
 
     const API_URL = '여기에_웹앱_주소를_붙여넣으세요';
@@ -539,8 +542,10 @@ async function runDiagnostics() {
         lines.push('   정상: https://script.google.com/macros/s/....../exec');
         urlOk = false;
     } else if (API_URL.slice(-4) === '/dev') {
-        lines.push('❌ [1] 주소가 /dev 로 끝납니다. (테스트용 주소)');
-        lines.push('   → [배포 → 새 배포]로 만든 /exec 주소를 쓰세요.');
+        lines.push('❌ [1] 주소가 /dev 로 끝납니다. (본인만 접속 가능한 주소)');
+        lines.push('   → [배포 → 배포 관리]를 열면 웹 앱 URL이 있습니다.');
+        lines.push('   → /exec 로 끝나는 그 주소를 복사해 쓰세요.');
+        lines.push('   ※ [새 배포]는 누르지 마세요. 주소가 바뀝니다.');
         urlOk = false;
     } else if (API_URL.slice(-5) !== '/exec') {
         lines.push('❌ [1] 주소가 /exec 로 끝나야 합니다.');
