@@ -411,6 +411,7 @@ function onOpen() {
         .addItem('⑤ 선택한 줄 사용 정지 / 해제', 'menuToggleSelected')
         .addSeparator()
         .addItem('⑥ 시트 연결 상태 점검', 'menuCheckSetup')
+        .addItem('⑦ 전체 점검 (문제 생겼을 때)', '연결테스트')
         .addToUi();
   } catch (e) { /* 메뉴를 못 만들어도 무시 */ }
 }
@@ -1284,6 +1285,90 @@ function saveStudentTarget(classNum, studentNum, studentName, targetUni, targetM
 /* ══════════════════════════════════════════════════════════
    7. 점검용 함수 (스크립트 편집기에서 직접 실행)
    ══════════════════════════════════════════════════════════ */
+
+/**
+ * ★ 문제가 생기면 이 함수를 실행해 보세요. ★
+ * 편집기 위쪽 함수 목록에서 '연결테스트' 선택 → ▶ 실행 → 아래 실행 로그 확인
+ */
+function 연결테스트() {
+  var L = [];
+  function log(s) { L.push(s); }
+
+  log('════════ 상담 시스템 연결 점검 ════════');
+
+  // 1. 스프레드시트
+  var ss = null;
+  try { ss = getSpreadsheet_(); } catch (e) { log('❌ 오류: ' + e); }
+  if (!ss) {
+    log('❌ [1] 스프레드시트를 열 수 없습니다.');
+    log('      SPREADSHEET_ID 값을 확인해 주세요.');
+    Logger.log(L.join('\n'));
+    return;
+  }
+  log('✅ [1] 스프레드시트 연결: ' + ss.getName());
+
+  // 2. 시트 확인
+  log('');
+  log('── [2] 시트 확인 ──');
+  var need = [
+    { n: SHEET_COUNSEL, k: ['상담'] },
+    { n: SHEET_GRADE,   k: ['내신'] },
+    { n: SHEET_TARGET,  k: TARGET_KEYWORDS }
+  ].concat(MOCK_SHEETS.map(function (m) { return { n: m.name, k: m.keywords }; }));
+
+  need.forEach(function (it) {
+    var f = findSheet_(ss, it.n, it.k);
+    log((f ? '   ✅ ' : '   ❌ ') + it.n + (f ? ' → [' + f.getName() + ']' : ' → 찾지 못함'));
+  });
+
+  // 3. 계정
+  log('');
+  log('── [3] 계정 확인 ──');
+  var acc = ensureAccountSheet_(ss);
+  var data = acc.getDataRange().getValues();
+  var admin = 0, teacher = 0, pending = 0;
+  for (var i = 1; i < data.length; i++) {
+    var st = String(data[i][ACC.status] || '').trim();
+    var rl = String(data[i][ACC.role] || '').trim();
+    if (st === '대기') pending++;
+    else if (st === '승인') { if (rl === '관리자') admin++; else teacher++; }
+  }
+  log('   관리자 ' + admin + '명 / 담임 ' + teacher + '명 / 승인대기 ' + pending + '명');
+  if (admin === 0) {
+    log('   ❌ 관리자 계정이 없습니다!');
+    log('      → 함수 목록에서 [초기설정]을 실행해 비밀번호를 받으세요.');
+  } else {
+    log('   ✅ 관리자 계정 있음');
+  }
+
+  // 4. 학생 수
+  log('');
+  log('── [4] 반별 학생 수 ──');
+  var total = 0;
+  CLASS_LIST.forEach(function (c) {
+    var n = getStudentsByClass(c).length;
+    total += n;
+    log('   ' + c + '반: ' + n + '명');
+  });
+  if (total === 0) log('   ❌ 학생이 한 명도 읽히지 않습니다. 시트 탭 이름을 확인해 주세요.');
+
+  // 5. 응답 테스트
+  log('');
+  log('── [5] 서버 응답 테스트 ──');
+  var ping = handle_({ action: 'ping' });
+  log('   ping → ' + (ping.ok ? '✅ 정상' : '❌ 실패'));
+
+  // 6. 배포 안내
+  log('');
+  log('── [6] 배포 확인 (직접 눈으로 확인) ──');
+  log('   [배포 → 배포 관리] 에서 아래 두 가지를 확인하세요.');
+  log('   · 실행: 나(본인 이메일)');
+  log('   · 액세스 권한이 있는 사용자: 모든 사용자');
+  log('   코드를 고쳤다면 [연필 ✏️ → 버전: 새 버전 → 배포] 를 꼭 눌러야 합니다.');
+  log('════════════════════════════════════');
+
+  Logger.log(L.join('\n'));
+}
 
 function checkSetup() {
   var ss = getSpreadsheet_();
