@@ -45,22 +45,30 @@ var TARGET_MAP_FALLBACK = { c: 0, n: 1, nm: 2, uni: 3, major: 4 };
 
 // 모의고사 시트 설정 (시트가 없으면 자동으로 건너뜁니다)
 var MOCK_SHEETS = [
-  { key: 'm3',  name: '모의고사_3월',  keywords: ['3월',  '모의'] },
-  { key: 'm6',  name: '모의고사_6월',  keywords: ['6월',  '모의'] },
-  { key: 'm9',  name: '모의고사_9월',  keywords: ['9월',  '모의'] },
-  { key: 'm10', name: '모의고사_10월', keywords: ['10월', '모의'] }
+  { key: 'm3',  name: '모의고사_3월',  label: '3월',  keywords: ['3월',  '모의'] },
+  { key: 'm6',  name: '모의고사_6월',  label: '6월',  keywords: ['6월',  '모의'] },
+  { key: 'm9',  name: '모의고사_9월',  label: '9월',  keywords: ['9월',  '모의'] },
+  { key: 'm10', name: '모의고사_10월', label: '10월', keywords: ['10월', '모의'] }
 ];
 
 var MOCK_SUBJECTS = ['국어', '수학', '영어', '통합사회', '통합과학', '한국사'];
 
+// s=원점수 / t=표준점수 / p=백분위 / g=등급  (-1 이면 그 열이 없다는 뜻)
+// 영어·한국사는 절대평가라 표준점수·백분위 열이 없습니다.
 var MOCK_MAP_FALLBACK = {
-  '국어':     { s: 3,  g: 6  },
-  '수학':     { s: 7,  g: 10 },
-  '영어':     { s: 11, g: 12 },
-  '통합사회': { s: 13, g: 16 },
-  '통합과학': { s: 17, g: 20 },
-  '한국사':   { s: 21, g: 22 }
+  '국어':     { s: 3,  t: 4,  p: 5,  g: 6  },
+  '수학':     { s: 7,  t: 8,  p: 9,  g: 10 },
+  '영어':     { s: 11, t: -1, p: -1, g: 12 },
+  '통합사회': { s: 13, t: 14, p: 15, g: 16 },
+  '통합과학': { s: 17, t: 18, p: 19, g: 20 },
+  '한국사':   { s: 21, t: -1, p: -1, g: 22 }
 };
+
+// 상담_2차목표 시트 : 1차 점수 기준 '한 등급 올리려면 몇 점 더 필요한가'
+var SHEET_GOAL     = '상담_2차목표';
+var GOAL_KEYWORDS  = ['상담', '목표'];
+var GOAL_START_COL = 3;   // D열부터
+var GOAL_PER_SUBJ  = 3;   // +0 1차점수 / +1 1차등급 / +2 +1등급필요
 
 var SUBJECTS = [
   { name: '공통국어1', start: 3   },
@@ -168,6 +176,7 @@ function handle_(req) {
       /* 아래는 모두 로그인(토큰)이 필요한 요청 */
       case 'me':
       case 'getStudents':
+      case 'getGradeAll':
       case 'saveCounseling':
       case 'saveTarget':
       case 'logout':
@@ -176,6 +185,7 @@ function handle_(req) {
 
         if (action === 'me')            return ok_(publicUser_(user));
         if (action === 'getStudents')   return apiGetStudents_(req, user);
+        if (action === 'getGradeAll')   return apiGetGradeAll_(req, user);
         if (action === 'saveCounseling')return apiSaveCounseling_(req, user);
         if (action === 'saveTarget')    return apiSaveTarget_(req, user);
         if (action === 'logout')        { dropToken_(req.token); return ok_({ message: '로그아웃되었습니다.' }); }
@@ -383,6 +393,132 @@ function apiGetStudents_(req, user) {
   if (isNaN(cls)) cls = user.cls;
   return ok_({ classNum: cls, students: getStudentsByClass(cls) });
 }
+
+/**
+ * '통합 성적 관리' 화면이 쓰는 전교생 데이터입니다.
+ *
+ *  - 로그인한 선생님만 받을 수 있습니다. (verifyToken_ 통과 필수)
+ *  - 구글 시트를 공개하지 않고, 이 API 를 통해서만 내보냅니다.
+ *  - 크기를 줄이려고 이름표 없이 '숫자 배열' 로 보냅니다.
+ *
+ *    g : 내신  — 과목 12개 × 항목 11개 = 132칸
+ *        (1차시험 1차등급 2차시험 2차등급 1차수행 2차수행
+ *         환산총점 최종등급 1차성취도 2차성취도 최종성취도)
+ *    t : 상담_2차목표 — 과목 12개 × 3칸 (1차점수 1차등급 +1등급필요)
+ *    m : 모의고사 — 월별로 과목 6개 × 4칸 (원점수 표준점수 백분위 등급)
+ */
+function apiGetGradeAll_(req, user) {
+  var ss = getSpreadsheet_();
+  if (!ss) return err_('스프레드시트를 열 수 없습니다.');
+
+  var G_LEN = SUBJECTS.length * 11;
+  var T_LEN = SUBJECTS.length * 3;
+  var M_LEN = MOCK_SUBJECTS.length * 4;
+
+  var index = {};
+  var list  = [];
+
+  function ensure_(c, n, nm) {
+    var key = c + '-' + n;
+    if (!index[key]) {
+      var st = { c: c, n: n, nm: nm || '', g: [], t: [], m: {} };
+      var i;
+      for (i = 0; i < G_LEN; i++) st.g.push(null);
+      for (i = 0; i < T_LEN; i++) st.t.push(null);
+      MOCK_SHEETS.forEach(function (cfg) {
+        var arr = [];
+        for (var k = 0; k < M_LEN; k++) arr.push(null);
+        st.m[cfg.key] = arr;
+      });
+      index[key] = st;
+      list.push(st);
+    }
+    if (nm && !index[key].nm) index[key].nm = nm;
+    return index[key];
+  }
+
+  // 1. 내신성적
+  var gradeSheet = findSheet_(ss, SHEET_GRADE, ['내신']);
+  if (gradeSheet) {
+    var gData = gradeSheet.getDataRange().getValues();
+    for (var r = 1; r < gData.length; r++) {
+      var gRow = gData[r];
+      var gc = toInt_(gRow[0]), gn = toInt_(gRow[1]);
+      if (isNaN(gc) || isNaN(gn) || !gn) continue;
+
+      var st1 = ensure_(gc, gn, String(gRow[2] || '').trim());
+      for (var si = 0; si < SUBJECTS.length; si++) {
+        var base = SUBJECTS[si].start;
+        for (var f = 0; f < 11; f++) st1.g[si * 11 + f] = cellVal_(gRow[base + f]);
+      }
+    }
+  }
+
+  // 2. 상담_2차목표
+  var goalSheet = loadGoalSheet_(ss);
+  if (goalSheet) {
+    for (var gk in goalSheet.rows) {
+      if (!goalSheet.rows.hasOwnProperty(gk)) continue;
+      var parts = gk.split('-');
+      var st2 = ensure_(toInt_(parts[0]), toInt_(parts[1]), '');
+      var tRow = goalSheet.rows[gk];
+      for (var ti = 0; ti < SUBJECTS.length; ti++) {
+        var tc = goalSheet.info.cols[ti];
+        st2.t[ti * 3 + 0] = cellVal_(tRow[tc.s]);
+        st2.t[ti * 3 + 1] = cellVal_(tRow[tc.g]);
+        st2.t[ti * 3 + 2] = cellVal_(tRow[tc.need]);
+      }
+    }
+  }
+
+  // 3. 모의고사 (3·6·9·10월)
+  MOCK_SHEETS.forEach(function (cfg) {
+    var sheet = findSheet_(ss, cfg.name, cfg.keywords);
+    if (!sheet) return;
+
+    var mData = sheet.getDataRange().getValues();
+    if (mData.length < 2) return;
+
+    var info = analyzeMockSheet_(mData);
+    for (var m = info.startRow; m < mData.length; m++) {
+      var mRow = mData[m];
+      var mc = toInt_(mRow[0]), mn = toInt_(mRow[1]);
+      if (isNaN(mc) || isNaN(mn) || !mn) continue;
+
+      var st3 = ensure_(mc, mn, String(mRow[2] || '').trim());
+      var slot = st3.m[cfg.key];
+      for (var ui = 0; ui < MOCK_SUBJECTS.length; ui++) {
+        var col = info.cols[MOCK_SUBJECTS[ui]] || {};
+        slot[ui * 4 + 0] = cellVal_(mRow[col.s]);
+        slot[ui * 4 + 1] = (col.t >= 0) ? cellVal_(mRow[col.t]) : null;
+        slot[ui * 4 + 2] = (col.p >= 0) ? cellVal_(mRow[col.p]) : null;
+        slot[ui * 4 + 3] = cellVal_(mRow[col.g]);
+      }
+    }
+  });
+
+  list.sort(function (a, b) { return (a.c - b.c) || (a.n - b.n); });
+
+  return ok_({
+    gradeLabel:  GRADE_LABEL,
+    subjects:    SUBJECTS.map(function (x) { return x.name; }),
+    mockSubjects: MOCK_SUBJECTS,
+    mockMonths:  MOCK_SHEETS.map(function (x) { return { key: x.key, label: x.label }; }),
+    goalSheet:   goalSheet ? goalSheet.name : '',
+    students:    list,
+    updated:     nowStr_()
+  });
+}
+
+/** 시트 칸 하나를 화면용 값으로 바꿉니다. 빈 칸은 null, 숫자는 숫자, 나머지는 글자. */
+function cellVal_(v) {
+  if (v === undefined || v === null) return null;
+  var t = String(v).trim();
+  if (t === '' || t === '-') return null;
+  var n = Number(t);
+  return isNaN(n) ? t : n;
+}
+
 
 function apiSaveCounseling_(req, user) {
   var res = saveCounseling(req.classNum, req.studentNum, req.studentName,
@@ -818,7 +954,7 @@ function analyzeMockSheet_(values) {
   var found = 0;
   MOCK_SUBJECTS.forEach(function (sub) {
     var key = normalize_(sub);
-    var scoreCol = -1, gradeCol = -1, prefer = 99;
+    var scoreCol = -1, gradeCol = -1, stdCol = -1, pctCol = -1, prefer = 99;
 
     for (var c2 = 0; c2 < labels.length; c2++) {
       var lb = labels[c2];
@@ -827,10 +963,12 @@ function analyzeMockSheet_(values) {
       if (lb.indexOf('등급') !== -1) {
         if (gradeCol === -1) gradeCol = c2;
       } else if (lb.indexOf('백분위') !== -1) {
-        // 백분위는 점수로 쓰지 않습니다.
+        // 백분위는 점수로 쓰지 않고 따로 보관합니다.
+        if (pctCol === -1) pctCol = c2;
       } else if (lb.indexOf('원점수') !== -1) {
         if (prefer > 1) { scoreCol = c2; prefer = 1; }
       } else if (lb.indexOf('표준점수') !== -1) {
+        if (stdCol === -1) stdCol = c2;
         if (prefer > 2) { scoreCol = c2; prefer = 2; }
       } else if (lb.indexOf('점수') !== -1) {
         if (prefer > 3) { scoreCol = c2; prefer = 3; }
@@ -838,7 +976,7 @@ function analyzeMockSheet_(values) {
     }
 
     if (scoreCol !== -1 || gradeCol !== -1) {
-      result.cols[sub] = { s: scoreCol, g: gradeCol };
+      result.cols[sub] = { s: scoreCol, t: stdCol, p: pctCol, g: gradeCol };
       found++;
     }
   });
@@ -852,6 +990,99 @@ function analyzeMockSheet_(values) {
     result.cols = MOCK_MAP_FALLBACK;
   }
   return result;
+}
+
+
+/* ── 상담_2차목표 시트 구조 자동 분석 ─────────────────
+   기본 구조 : 머리글 2줄 / A반 B번호 C이름 / D열부터 과목당 3칸 × 12과목
+               +0 1차점수  +1 1차등급  +2 +1등급필요
+
+   시트가 이 모양이 아닐 수도 있어서, 머리글에 '필요' 라고 적힌 열을
+   먼저 찾아봅니다. 12개가 정확히 나오면 그 위치를 쓰고,
+   아니면 위의 기본 구조(3칸씩)를 씁니다.
+   → 어떻게 인식했는지는 check상담목표시트() 로 확인할 수 있습니다.
+   ────────────────────────────────────────────────── */
+
+function analyzeGoalSheet_(values) {
+  var result = { startRow: 2, cols: [], how: '기본 구조(3칸씩)', detected: false };
+
+  if (!values || !values.length) return result;
+
+  // 1) 데이터가 시작되는 줄 = 반·번호가 모두 숫자인 첫 줄
+  var start = -1;
+  for (var r = 0; r < Math.min(values.length, 8); r++) {
+    if (!isNaN(toInt_(values[r][0])) && !isNaN(toInt_(values[r][1]))) { start = r; break; }
+  }
+  result.startRow = (start === -1) ? 2 : start;
+
+  // 2) 머리글(데이터 시작 줄 위쪽)을 열별로 이어 붙입니다.
+  var width = 0;
+  for (var w = 0; w < values.length; w++) {
+    if (values[w].length > width) width = values[w].length;
+  }
+  var labels = [];
+  for (var c = 0; c < width; c++) {
+    var txt = '';
+    for (var hr = 0; hr < result.startRow; hr++) {
+      txt += String((values[hr] || [])[c] || '');
+    }
+    labels[c] = normalize_(txt);
+  }
+
+  // 3) '필요' 가 들어간 열 찾기
+  var needCols = [];
+  for (var c2 = GOAL_START_COL; c2 < width; c2++) {
+    if (labels[c2] && labels[c2].indexOf('필요') !== -1) needCols.push(c2);
+  }
+
+  if (needCols.length === SUBJECTS.length) {
+    for (var i = 0; i < SUBJECTS.length; i++) {
+      result.cols.push({ s: needCols[i] - 2, g: needCols[i] - 1, need: needCols[i] });
+    }
+    result.how = "머리글의 '필요' 열 " + SUBJECTS.length + '개로 자동 인식';
+    result.detected = true;
+  } else {
+    for (var j = 0; j < SUBJECTS.length; j++) {
+      var base = GOAL_START_COL + j * GOAL_PER_SUBJ;
+      result.cols.push({ s: base, g: base + 1, need: base + 2 });
+    }
+  }
+  return result;
+}
+
+/** 상담_2차목표 시트를 읽어 둡니다. 시트가 없으면 null 을 돌려줍니다. */
+function loadGoalSheet_(ss) {
+  try {
+    var sheet = findSheet_(ss, SHEET_GOAL, GOAL_KEYWORDS);
+    if (!sheet) return null;
+    var values = sheet.getDataRange().getValues();
+    if (!values || values.length < 2) return null;
+
+    var info = analyzeGoalSheet_(values);
+    var rows = {};
+    for (var r = info.startRow; r < values.length; r++) {
+      var row = values[r];
+      var c = toInt_(row[0]), n = toInt_(row[1]);
+      if (isNaN(c) || isNaN(n) || !n) continue;
+      rows[c + '-' + n] = row;
+    }
+    return { info: info, rows: rows, name: sheet.getName() };
+  } catch (e) {
+    Logger.log('상담_2차목표 시트를 읽지 못했습니다: ' + e.toString());
+    return null;
+  }
+}
+
+/** 열 번호(0부터)를 A, B, C … 로 바꿉니다. 로그를 보기 쉽게 하려는 용도입니다. */
+function colLetter_(index) {
+  if (index === undefined || index === null || index < 0) return '없음';
+  var n = index + 1, out = '';
+  while (n > 0) {
+    var m = (n - 1) % 26;
+    out = String.fromCharCode(65 + m) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out + '열';
 }
 
 
@@ -997,6 +1228,8 @@ function getStudentsByClass(classNum) {
     }
 
     // 2. 내신 성적
+    var goalSheet = loadGoalSheet_(ss);             // 상담_2차목표 (없으면 null)
+
     var gradeSheet = findSheet_(ss, SHEET_GRADE, ['내신']);
     if (gradeSheet) {
       var gData = gradeSheet.getDataRange().getValues();
@@ -1010,6 +1243,8 @@ function getStudentsByClass(classNum) {
 
         var stu = ensureStudent(gNum, String(gRow[2] || '').trim());
         stu.schoolGrades = [];
+
+        var goalRow = goalSheet ? goalSheet.rows[classInt + '-' + gNum] : null;
 
         // 평균 계산용 누적값
         var acc = { n5: 0, s5: 0, n9: 0, s9: 0, nSc: 0, sSc: 0, nP: 0, sP: 0 };
@@ -1033,6 +1268,12 @@ function getStudentsByClass(classNum) {
           var has1 = (exam1 !== '' || eval1 !== '');
           var has2 = (exam2 !== '' || eval2 !== '');
           var hasAny = has1 || has2;
+
+          // ── 상담_2차목표 (1차 점수 · 1차 등급 · +1등급 필요 점수) ──
+          var gCol = (goalSheet && goalRow) ? goalSheet.info.cols[si] : null;
+          var cScore1 = gCol ? cellPlain_(goalRow, gCol.s)    : '';
+          var cGrade1 = gCol ? cellPlain_(goalRow, gCol.g)    : '';
+          var needUp  = gCol ? cellPlain_(goalRow, gCol.need) : '';
 
           // ── 9등급 환산 ──
           var n1 = toNum_(gRow[i + 0]);
@@ -1077,7 +1318,12 @@ function getStudentsByClass(classNum) {
             finalGrade9: (gFnine === null) ? '' : String(gFnine),
             pct1:      (pct1 === null) ? '' : round_(pct1, 1),
             pct2:      (pct2 === null) ? '' : round_(pct2, 1),
-            pctFinal:  (pctF === null) ? '' : round_(pctF, 1)
+            pctFinal:  (pctF === null) ? '' : round_(pctF, 1),
+
+            // 상담_2차목표 시트에서 온 값
+            cScore1: cScore1,
+            cGrade1: cGrade1,
+            needUp:  needUp
           });
         });
 
@@ -1109,11 +1355,13 @@ function getStudentsByClass(classNum) {
 
         var stu2 = ensureStudent(mNum, String(mRow[2] || '').trim());
         stu2.mockExams[cfg.key] = MOCK_SUBJECTS.map(function (sub) {
-          var col = info.cols[sub] || { s: -1, g: -1 };
+          var col = info.cols[sub] || { s: -1, t: -1, p: -1, g: -1 };
           return {
             subject: sub,
-            score: cellText_(mRow, col.s),
-            grade: cellText_(mRow, col.g)
+            score:   cellText_(mRow, col.s),
+            std:     cellText_(mRow, col.t),
+            percent: cellText_(mRow, col.p),
+            grade:   cellText_(mRow, col.g)
           };
         });
       }
@@ -1462,4 +1710,63 @@ function checkMockSheets() {
       Logger.log(v[info.startRow].slice(0, 25).join(' | '));
     }
   });
+}
+
+
+/**
+ * '상담_2차목표' 시트를 어떻게 읽고 있는지 확인합니다.
+ *
+ *  Apps Script 편집기 위쪽 함수 목록에서 check상담목표시트 를 고르고
+ *  ▷실행 을 누른 뒤, 아래 '실행 로그'에 나온 내용을 알려 주세요.
+ */
+function check상담목표시트() {
+  var ss = getSpreadsheet_();
+  if (!ss) { Logger.log('❌ 스프레드시트를 열 수 없습니다.'); return; }
+
+  var sheet = findSheet_(ss, SHEET_GOAL, GOAL_KEYWORDS);
+  if (!sheet) {
+    Logger.log("❌ '" + SHEET_GOAL + "' 시트를 찾지 못했습니다.");
+    Logger.log('   현재 시트 탭 목록: ' + ss.getSheets().map(function (s) { return s.getName(); }).join(', '));
+    return;
+  }
+
+  var v = sheet.getDataRange().getValues();
+  Logger.log('✅ 시트를 찾았습니다: [' + sheet.getName() + ']');
+  Logger.log('   전체 ' + v.length + '행 / ' + (v[0] ? v[0].length : 0) + '열');
+  Logger.log('');
+
+  Logger.log('── 맨 위 3줄 (앞 20칸만) ──');
+  for (var r = 0; r < Math.min(v.length, 3); r++) {
+    Logger.log((r + 1) + '행: ' + v[r].slice(0, 20).join(' | '));
+  }
+  Logger.log('');
+
+  var info = analyzeGoalSheet_(v);
+  Logger.log('── 자동 인식 결과 ──');
+  Logger.log('   인식 방법  : ' + info.how);
+  Logger.log('   데이터 시작: ' + (info.startRow + 1) + '행');
+  Logger.log('');
+
+  Logger.log('── 과목별 열 위치 ──');
+  for (var i = 0; i < SUBJECTS.length; i++) {
+    var c = info.cols[i];
+    Logger.log('   ' + SUBJECTS[i].name +
+               ' : 1차점수 ' + colLetter_(c.s) +
+               ' / 1차등급 ' + colLetter_(c.g) +
+               ' / +1등급필요 ' + colLetter_(c.need));
+  }
+  Logger.log('');
+
+  if (v.length > info.startRow) {
+    Logger.log('── 첫 학생 줄로 실제 읽어 본 값 ──');
+    var row = v[info.startRow];
+    Logger.log('   ' + row[0] + '반 ' + row[1] + '번 ' + row[2]);
+    for (var j = 0; j < SUBJECTS.length; j++) {
+      var cc = info.cols[j];
+      Logger.log('   ' + SUBJECTS[j].name +
+                 ' → 점수 ' + cellText_(row, cc.s) +
+                 ' / 등급 ' + cellText_(row, cc.g) +
+                 ' / 필요 ' + cellText_(row, cc.need));
+    }
+  }
 }

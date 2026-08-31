@@ -34,6 +34,138 @@
            로그인 전 화면이 잠깐 보이는 일이 없도록 미리 숨깁니다. */
         .hidden { display: none !important; }
 
+        /* ══════════════════════════════════════════════════════
+           통합 성적 관리 화면 전용 디자인
+           ('통합성적관리' 파일의 CSS 를 이 화면 안에서만 쓰도록 옮긴 것)
+           ══════════════════════════════════════════════════════ */
+:root{--ink:#0f172a; --ink2:#475569; --muted:#94a3b8;
+    --accent:#2563eb; --accent2:#4f46e5; --accent-soft:#eff6ff; --accent-ink:#1d4ed8;
+    --up:#16a34a; --down:#ef4444;
+    --card:#ffffff; --bg:#f1f5f9; --border:#e2e8f0; --hair:#eef2f6;
+    --g1:#2563eb; --g2:#4f46e5; --g3:#0891b2; --g4:#0d9488; --g5:#64748b; --g6:#d97706; --g7:#ea580c; --g8:#dc2626; --g9:#b91c1c; --g0:#cbd5e1;
+    --r:16px; --r-sm:12px;
+    --shadow:0 1px 3px rgba(15,23,42,.07),0 1px 2px rgba(15,23,42,.04);
+    --shadow-lg:0 14px 30px rgba(15,23,42,.13);}
+#view-stats, #view-stats *{box-sizing:border-box;}
+
+#view-stats .wrap{max-width:1200px;margin:0 auto;padding:0 20px;}
+#view-stats button{font-family:inherit;cursor:pointer;}
+#view-stats .display{font-weight:800;letter-spacing:-.025em;}
+#view-stats .upd{font-size:11px;color:var(--muted);text-align:right;line-height:1.3;}
+#view-stats .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:#fff;color:var(--ink2);border-radius:10px;padding:8px 13px;font-size:13px;font-weight:700;transition:.15s;}
+#view-stats .btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);}
+#view-stats .glass{background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);}
+#view-stats .view{display:none;animation:fade .35s ease both;padding:20px 0 70px;}
+#view-stats .view.active{display:block;}
+@keyframes fade{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+#view-stats .panel{background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:24px;margin:16px 0;}
+#view-stats .sec{display:flex;align-items:center;gap:10px;margin:28px 0 4px;}
+#view-stats .sec .ico{width:30px;height:30px;border-radius:9px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+#view-stats .sec .ico svg{width:17px;height:17px;}
+#view-stats .sec h2{font-weight:800;font-size:17px;margin:0;letter-spacing:-.02em;color:var(--ink);}
+#view-stats .sub{color:var(--muted);font-size:12px;margin:2px 0 12px 40px;}
+#view-stats .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:#fff;border:1px solid var(--border);border-radius:var(--r-sm);box-shadow:var(--shadow);padding:12px 14px;margin-bottom:14px;}
+#view-stats label{font-size:13px;color:var(--ink2);font-weight:600;}
+#view-stats select, #view-stats input[type=text]{font-family:inherit;font-size:14px;padding:9px 12px;border:1px solid var(--border);border-radius:10px;background:#fff;color:var(--ink);}
+#view-stats select:focus, #view-stats input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+#view-stats .seg{display:inline-flex;padding:4px;border-radius:11px;gap:3px;background:#f1f5f9;border:1px solid var(--border);}
+#view-stats .seg button{border:none;background:transparent;padding:8px 16px;font-size:13px;font-weight:700;color:var(--ink2);border-radius:8px;transition:.16s;}
+#view-stats .seg button:hover{color:var(--ink);}
+#view-stats .seg button.on{background:var(--accent);color:#fff;box-shadow:0 2px 7px rgba(37,99,235,.28);}
+#view-stats .seg.big button{padding:11px 26px;font-size:15px;}
+#view-stats .seg.sm button{padding:5px 12px;font-size:12px;}
+#view-stats .iconbtn{border:1px solid var(--border);background:#fff;width:38px;height:38px;border-radius:10px;font-size:18px;font-weight:700;color:var(--accent);display:inline-flex;align-items:center;justify-content:center;transition:.15s;}
+#view-stats .iconbtn:hover{background:var(--accent-soft);}
+#view-stats .iconbtn:disabled{opacity:.4;cursor:default;}
+#view-stats .tscroll{overflow:auto;border-radius:var(--r-sm);border:1px solid var(--border);background:#fff;}
+#view-stats .tscroll.tall{max-height:460px;}
+#view-stats table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap;}
+#view-stats th, #view-stats td{padding:9px 10px;text-align:center;border-bottom:1px solid var(--hair);}
+#view-stats thead th{background:#f8fafc;font-weight:700;color:var(--ink2);position:sticky;top:0;font-size:12px;z-index:2;}
+#view-stats tbody tr:hover{background:#f8fafc;}
+#view-stats td.name, #view-stats th.name{font-weight:700;text-align:left;position:sticky;left:0;background:#fff;z-index:1;color:var(--ink);}
+#view-stats tbody tr:hover td.name{background:#f8fafc;}
+#view-stats .grp th{background:#f1f5f9;font-size:11px;color:var(--ink2);}
+#view-stats .raw{font-weight:700;color:var(--ink);}
+#view-stats .mut{color:var(--muted);font-size:11px;}
+#view-stats .gb{display:inline-block;min-width:20px;padding:2px 7px;border-radius:7px;color:#fff;font-size:11px;font-weight:800;}
+#view-stats .ach{display:inline-block;min-width:18px;padding:2px 6px;border-radius:6px;font-size:11px;font-weight:800;border:1px solid var(--border);background:#f8fafc;color:var(--ink2);}
+#view-stats .du{color:var(--up);font-weight:800;}
+#view-stats .dd{color:var(--down);font-weight:800;}
+#view-stats .dz{color:var(--muted);}
+#view-stats .cellsub{display:block;font-size:10px;margin-top:1px;}
+#view-stats th.sortable{cursor:pointer;user-select:none;}
+#view-stats th.sortable:hover{background:#eef2f6;color:var(--ink);}
+#view-stats th.sorted{background:var(--accent-soft)!important;color:var(--accent-ink)!important;}
+#view-stats .arr{font-size:9px;margin-left:2px;}
+#view-stats .need{display:inline-block;min-width:22px;padding:2px 8px;border-radius:7px;font-size:11px;font-weight:800;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;}
+#view-stats .need.zero{background:#f0fdf4;color:#15803d;border-color:#bbf7d0;}
+#view-stats .need.dash{background:transparent;color:var(--muted);border:none;font-weight:600;}
+#view-stats .rhead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;align-items:center;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;margin:-24px -24px 22px;padding:30px 28px;border-radius:var(--r) var(--r) 0 0;}
+#view-stats .rhead .who{font-weight:800;font-size:28px;letter-spacing:-.025em;color:#fff;}
+#view-stats .rhead .who small{font-size:13px;color:#94a3b8;font-weight:600;margin-left:10px;}
+#view-stats .rhead .ranks{display:flex;gap:22px;text-align:right;background:rgba(255,255,255,.06);padding:14px 20px;border-radius:16px;border:1px solid rgba(255,255,255,.1);}
+#view-stats .rhead .ranks .k{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;}
+#view-stats .rhead .ranks .v{font-weight:800;font-size:22px;letter-spacing:-.02em;color:#fff;}
+#view-stats .rhead .ranks .v .mut{color:#64748b;}
+#view-stats .rhead.grade-head{background:linear-gradient(135deg,var(--accent),var(--accent2));}
+#view-stats .rhead.grade-head .who small, #view-stats .rhead.grade-head .mut{color:#dbeafe;}
+#view-stats .rgrid{display:grid;grid-template-columns:1.12fr .88fr;gap:18px;margin-top:6px;}
+#view-stats .sbox{background:var(--accent-soft);border:1px solid #dbeafe;border-radius:var(--r-sm);padding:16px 18px;}
+#view-stats .sbox .lead{font-size:14px;line-height:1.7;color:#1e3a8a;}
+#view-stats ul.points{list-style:none;padding:0;margin:8px 0 0;}
+#view-stats ul.points li{position:relative;padding:7px 0 7px 18px;font-size:13.5px;line-height:1.55;border-bottom:1px solid var(--hair);}
+#view-stats ul.points li:last-child{border-bottom:none;}
+#view-stats ul.points li::before{content:"";position:absolute;left:2px;top:14px;width:7px;height:7px;border-radius:50%;background:var(--accent);}
+#view-stats ul.points li.good::before{background:var(--up);}
+#view-stats ul.points li.warn::before{background:var(--down);}
+#view-stats .radarwrap{display:flex;flex-direction:column;align-items:center;justify-content:center;}
+#view-stats .mini{font-size:11px;color:var(--muted);letter-spacing:.04em;margin-bottom:6px;text-align:center;}
+#view-stats .legend{display:flex;flex-wrap:wrap;gap:5px 12px;margin-top:12px;justify-content:center;font-size:11px;color:var(--ink2);}
+#view-stats .legend span{display:inline-flex;align-items:center;gap:4px;}
+#view-stats .legend i{width:10px;height:10px;border-radius:3px;}
+#view-stats .disc{font-size:11.5px;color:var(--muted);margin-top:14px;line-height:1.5;border-top:1px solid var(--hair);padding-top:10px;}
+#view-stats .avgwrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
+#view-stats .avgwrap.avg4{grid-template-columns:1fr 1fr;}
+#view-stats .avgwrap.avg4 .avgcard{padding:14px 16px;}
+#view-stats .avgwrap.avg4 .big{font-size:34px;}
+#view-stats .avgcard.yr{background:linear-gradient(135deg,#eefcf3,#dcfce9);border-color:#bbf7d0;}
+#view-stats .avgcard.yr .big{color:#15803d;}
+#view-stats .avgcard{border-radius:var(--r);padding:20px 22px;border:1px solid var(--border);background:#fff;box-shadow:var(--shadow);position:relative;overflow:hidden;}
+#view-stats .avgcard.naesin{background:linear-gradient(135deg,#eff6ff,#e0eaff);border-color:#c7d7fe;}
+#view-stats .avgcard.mock{background:linear-gradient(135deg,#eef2ff,#e7e9ff);border-color:#c7cdfe;}
+#view-stats .avgcard .lab{font-size:13px;font-weight:700;color:var(--ink2);margin-bottom:2px;}
+#view-stats .avgcard .big{font-weight:800;font-size:48px;line-height:1.05;letter-spacing:-.03em;color:var(--accent-ink);}
+#view-stats .avgcard.mock .big{color:#4338ca;}
+#view-stats .avgcard .big .unit{font-size:18px;font-weight:700;color:var(--ink2);margin-left:3px;}
+#view-stats .avgcard .when{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;}
+@media(max-width:560px){#view-stats .avgwrap{grid-template-columns:1fr;}
+#view-stats .avgcard .big{font-size:40px;}}
+#view-stats .avgrow{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 4px;}
+#view-stats .avgline{display:flex;align-items:baseline;gap:8px;background:var(--accent-soft);border:1px solid #dbeafe;border-radius:10px;padding:9px 14px;}
+#view-stats .avgline .al-lab{font-size:12.5px;font-weight:700;color:var(--ink2);}
+#view-stats .avgline .al-val{font-size:18px;font-weight:800;color:var(--accent-ink);letter-spacing:-.01em;}
+#view-stats .avgline .al-note{font-size:11px;color:var(--muted);font-weight:600;}
+#view-stats .hint{display:inline-block;margin:0 0 12px;font-size:13px;font-weight:700;color:var(--accent-ink);background:var(--accent-soft);border:1px solid #dbeafe;border-radius:8px;padding:6px 12px;}
+#view-stats .twocol{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+#view-stats .chartbox{position:relative;height:290px;}
+#view-stats .chartbox.tallc{height:330px;}
+#view-stats .stat4{display:flex;flex-wrap:wrap;gap:14px;margin:6px 0 4px;}
+#view-stats .stat4 .s{flex:1 1 0;min-width:140px;background:#fff;border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:var(--r-sm);box-shadow:var(--shadow);padding:16px 18px;}
+#view-stats .stat4 .k{font-size:12px;color:var(--ink2);font-weight:600;}
+#view-stats .stat4 .v{font-weight:800;font-size:24px;letter-spacing:-.02em;color:var(--ink);margin-top:3px;}
+#view-stats .stat4 .d{font-size:12px;font-weight:700;color:var(--muted);margin-top:2px;}
+#view-stats .notice{padding:34px;text-align:center;color:var(--muted);font-size:14px;}
+#view-stats .pend{display:inline-block;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:999px;padding:3px 11px;font-size:11px;font-weight:700;margin-left:8px;vertical-align:middle;}
+#view-stats .err{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:14px;padding:14px 16px;font-size:13.5px;margin:14px 0;}
+#view-stats .loading{display:flex;align-items:center;justify-content:center;gap:12px;padding:70px;color:var(--ink2);}
+#view-stats .spin{width:18px;height:18px;border:2px solid #e2e8f0;border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite;}
+@keyframes sp{to{transform:rotate(360deg);}}
+@media(max-width:820px){#view-stats .rgrid, #view-stats .twocol{grid-template-columns:1fr;}
+#view-stats .rhead{flex-direction:column;align-items:flex-start;}}
+        #view-stats{color:var(--ink);font-size:15px;line-height:1.6;}
+        #view-stats h2,#view-stats h3{margin:0;}
+
         @media print {
             @page {
                 size: A4 portrait;
@@ -457,66 +589,53 @@
         <!-- ══════════ 통합 성적 관리 ══════════ -->
         <section id="view-stats" class="hidden no-print">
 
-            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6">
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div class="panel glass" style="padding:18px 22px;margin:0 0 4px;">
+                <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:14px;">
                     <div>
-                        <h2 class="text-2xl font-extrabold text-slate-900">통합 성적 관리</h2>
-                        <p class="text-slate-500 text-sm mt-1">
-                            <span id="stats-total" class="font-bold text-slate-700">-</span>명 전체를 기준으로 계산합니다.
-                            <span class="text-slate-400">· 시트를 고치면 바로 반영됩니다</span>
-                        </p>
+                        <h2 class="display" style="font-size:22px;">통합 성적 관리</h2>
+                        <div class="sub" style="margin:3px 0 0;">
+                            내신 · 모의고사를 전교생 기준으로 분석합니다.
+                            시트를 고친 뒤 [↻ 새로고침]을 누르면 바로 반영됩니다.
+                        </div>
                     </div>
-                    <button onclick="loadStats(true)" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-sm font-bold shadow transition whitespace-nowrap">
-                        ↻ 새로고침
-                    </button>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <div class="upd" id="statsUpd">불러오는 중…</div>
+                        <button class="btn" id="statsRefresh">↻ 새로고침</button>
+                    </div>
                 </div>
-
-                <div class="mt-4 inline-flex bg-slate-100 p-1 rounded-xl">
-                    <button id="tab-analysis" onclick="switchStatsTab('analysis')"
-                            class="px-4 py-2 rounded-lg text-sm font-bold transition bg-white text-slate-900 shadow-sm">
-                        학년 성적 분석 리포트
-                    </button>
-                    <button id="tab-data" onclick="switchStatsTab('data')"
-                            class="px-4 py-2 rounded-lg text-sm font-bold transition text-slate-500 hover:text-slate-800">
-                        성적 데이터 열람
-                    </button>
+                <div style="margin-top:14px;">
+                    <span class="seg big" id="statsSeg">
+                        <button data-v="grade" class="on">학년 성적 분석 리포트</button>
+                        <button data-v="data">성적 데이터 열람</button>
+                    </span>
                 </div>
             </div>
 
-            <!-- 학년 성적 분석 -->
-            <div id="stats-analysis">
-                <div id="stats-loading" class="bg-white border border-slate-200 text-slate-500 p-8 rounded-2xl text-sm text-center">
-                    전교생 성적을 계산하는 중입니다… <span class="text-slate-400">(몇 초 걸립니다)</span>
+            <div id="statsLoading" class="loading"><div class="spin"></div><span>구글 시트에서 데이터를 불러오는 중…</span></div>
+            <div id="statsError"></div>
+
+            <!-- 학년 성적 분석 리포트 -->
+            <section id="sview-grade" class="view">
+                <div class="controls glass" style="justify-content:center;">
+                    <span class="seg big" id="gradeSeg">
+                        <button data-g="naesin" class="on">내신 성적</button>
+                        <button data-g="mock">모의고사 성적</button>
+                    </span>
                 </div>
-                <div id="stats-body" class="hidden space-y-6"></div>
-            </div>
+                <div id="gradeReport"></div>
+            </section>
 
             <!-- 성적 데이터 열람 -->
-            <div id="stats-data" class="hidden">
-                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-4 flex flex-wrap items-end gap-3">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 mb-1">구분</label>
-                        <select id="data-mode" onchange="onDataModeChange()" class="p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-semibold">
-                            <option value="naesin">내신 성적</option>
-                            <option value="mock">모의고사 성적</option>
-                        </select>
-                    </div>
-                    <div id="data-month-wrap" class="hidden">
-                        <label class="block text-xs font-bold text-slate-500 mb-1">시기</label>
-                        <select id="data-month" onchange="loadDataTable()" class="p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-semibold"></select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 mb-1">항목</label>
-                        <select id="data-field" onchange="loadDataTable()" class="p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-semibold"></select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 mb-1">반</label>
-                        <select id="data-class" onchange="loadDataTable()" class="p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-semibold"></select>
-                    </div>
-                    <div class="ml-auto text-xs text-slate-500 font-medium" id="data-count"></div>
+            <section id="sview-data" class="view">
+                <div class="controls glass" style="justify-content:center;">
+                    <span class="seg big" id="dataSeg">
+                        <button data-d="naesin" class="on">내신 성적</button>
+                        <button data-d="mock">모의고사 성적</button>
+                    </span>
                 </div>
-                <div id="data-table-wrap" class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-auto" style="max-height:70vh"></div>
-            </div>
+                <div id="dataControls"></div>
+                <div id="dataTable"></div>
+            </section>
 
         </section>
 
@@ -868,8 +987,7 @@ function forceLogout(msg) {
     ME = null;
     studentsData = [];
     selectedStudent = null;
-    statsData = null;
-    dataInited = false;
+    statsReset();
     sessionStorage.removeItem('sc_token');
 
     document.getElementById('app').classList.add('hidden');
@@ -1213,7 +1331,7 @@ function switchView(view) {
         if (btn) btn.className = (v === view) ? active : idle;
     });
 
-    if (view === 'stats' && !statsData) loadStats(false);
+    if (view === 'stats') statsBoot(false);
 }
 
 function changeClass() {
@@ -1386,7 +1504,6 @@ function showSaveStatus(message, ok) {
    통합 성적 관리
    ══════════════════════════════════════════════════════════ */
 
-let statsData = null;
 const CHARTS = {};
 
 function drawChart(id, config) {
@@ -1396,256 +1513,697 @@ function drawChart(id, config) {
     CHARTS[id] = new Chart(el, config);
 }
 
-const G5_COLORS = ['#2563eb', '#0891b2', '#64748b', '#f59e0b', '#dc2626'];
 const SUBJ_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#ea580c', '#7c3aed', '#0891b2'];
 
-function num(v, d) { return (v === null || v === undefined || v === '') ? (d === undefined ? '-' : d) : v; }
 
-function switchStatsTab(tab) {
-    const on = 'px-4 py-2 rounded-lg text-sm font-bold transition bg-white text-slate-900 shadow-sm';
-    const off = 'px-4 py-2 rounded-lg text-sm font-bold transition text-slate-500 hover:text-slate-800';
-    document.getElementById('tab-analysis').className = (tab === 'analysis') ? on : off;
-    document.getElementById('tab-data').className = (tab === 'data') ? on : off;
-    document.getElementById('stats-analysis').classList.toggle('hidden', tab !== 'analysis');
-    document.getElementById('stats-data').classList.toggle('hidden', tab !== 'data');
-    if (tab === 'data') initDataControls();
+/* ══════════════════════════════════════════════════════════
+   통합 성적 관리
+   ──────────────────────────────────────────────────────────
+   보내주신 '통합성적관리' 파일의 화면 구성 · 표 · 그래프 · 계산 방식을
+   그대로 옮겼습니다.
+
+   다만 데이터를 가져오는 곳만 다릅니다.
+     · 원본  : 구글 시트를 '웹에 게시(CSV)' 해서 누구나 읽음
+     · 여기  : 로그인한 뒤 Apps Script(getGradeAll)를 통해서만 읽음
+   시트를 공개하지 않으므로 주소만 알아도 성적을 볼 수 없습니다.
+
+   바깥에서 부르는 것은 statsBoot() / statsReset() 두 개뿐입니다.
+   ══════════════════════════════════════════════════════════ */
+(function () {
+
+/* ===== 과목·시기 정의 ===== */
+// 내신 교과 (학기별로 1/2 접미사가 붙음)
+const NAESIN_SUBJECTS=['공통국어','공통수학','공통영어','통합사회','통합과학','한국사'];
+const SEMESTERS=[{key:1,label:'1학기',sfx:'1'},{key:2,label:'2학기',sfx:'2'}];
+// 내신 1과목 블록 = 11열 (2025.xx 시트 개편: 1·2차 등급/성취도 분리)
+const NAESIN_FIELDS=['1차시험','1차등급','2차시험','2차등급','1차수행','2차수행','환산총점','최종등급','1차성취도','2차성취도','최종성취도'];
+const NAESIN_GRADE_FIELDS=['1차등급','2차등급','최종등급'];
+const NAESIN_ACH_FIELDS=['1차성취도','2차성취도','최종성취도'];
+// 상담 1과목 블록 = 3열
+const COUNSEL_FIELDS=['1차점수','1차등급','+1등급필요'];
+
+// 모의고사 과목 (전국연합 척도)
+const MOCK_SUBJECTS=[
+  {key:'국어',max:100,rel:true,color:'#2563eb'},
+  {key:'수학',max:100,rel:true,color:'#dc2626'},
+  {key:'영어',max:100,rel:false,color:'#16a34a'},
+  {key:'통합사회',max:50,rel:true,color:'#ea580c'},
+  {key:'통합과학',max:50,rel:true,color:'#7c3aed'},
+  {key:'한국사',max:50,rel:false,color:'#64748b'}
+];
+const MOCK_MONTHS=[
+  {key:'m3',label:'3월',m:3},
+  {key:'m6',label:'6월',m:6},
+  {key:'m9',label:'9월',m:9},
+  {key:'m10',label:'10월',m:10}
+];
+
+/* ===== 상태 ===== */
+let students=new Map(), dataReady=false;
+let charts={};
+
+
+/* ===== 유틸 ===== */
+function numOrNull(v){if(v==null)return null;const t=(''+v).trim();if(t===''||t==='-')return null;const n=Number(t);return isNaN(n)?null:n;}
+function strOrNull(v){if(v==null)return null;const t=(''+v).trim();return (t===''||t==='-')?null:t;}
+function gColor(g){return {1:'var(--g1)',2:'var(--g2)',3:'var(--g3)',4:'var(--g4)',5:'var(--g5)',6:'var(--g6)',7:'var(--g7)',8:'var(--g8)',9:'var(--g9)'}[g]||'var(--g0)';}
+function gb(g){return g==null?'<span class="mut">-</span>':'<span class="gb" style="background:'+gColor(g)+'">'+g+'</span>';}
+/* 셀 배경 히트맵: 값이 높을수록(=상위 반) 진한 파랑, 낮을수록 흰색. 열 단위 min~max 정규화 */
+function heatStyle(val,min,max){
+  if(val==null||min==null||max==null||max===min)return '';
+  let t=(val-min)/(max-min);if(t<0)t=0;if(t>1)t=1;
+  const a=(t*0.55).toFixed(3);
+  return ' style="background:rgba(37,99,235,'+a+')"';
+}
+function ach(a){return a==null?'<span class="mut">-</span>':'<span class="ach">'+esc(a)+'</span>';}
+function esc(s){return (''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function fmt(n,d){return (n==null||n==='')?'-':(d!=null&&typeof n==='number'?Number(n).toFixed(d):n);}
+function hak(s){return '1'+String(s.ban).padStart(2,'0')+String(s.num).padStart(2,'0');}
+
+/* ===== 학생 객체 빈 틀 =====
+   naesin[semKey][subject] = {1차시험,2차시험,1차수행,2차수행,환산총점,최종등급,1차성취도,최종성취도}
+   counsel[semKey?] : 상담 시트는 12과목(=학기×과목)이라 동일하게 학기로 분배
+   mock[monthKey][subject] = {raw,std,pct,grade} */
+function blankStudent(ban,num,name){
+  const s={ban:+ban,num:+num,name:(name||'').trim(),naesin:{1:{},2:{}},counsel:{1:{},2:{}},mock:{}};
+  MOCK_MONTHS.forEach(mm=>s.mock[mm.key]={});
+  return s;
+}
+function ensure(ban,num,name){
+  const k=ban+'-'+num;
+  if(!students.has(k))students.set(k,blankStudent(ban,num,name));
+  const s=students.get(k); if(name&&!s.name)s.name=name.trim(); return s;
 }
 
-async function loadStats(force) {
-    if (statsData && !force) return;
-    document.getElementById('stats-loading').classList.remove('hidden');
-    document.getElementById('stats-body').classList.add('hidden');
-    try {
-        statsData = await api('getGradeStats', {});
-        renderStats(statsData);
-    } catch (e) {
-        if (e.message === 'needLogin') return;
-        document.getElementById('stats-loading').innerHTML =
-            '<span class="text-rose-600 font-semibold">계산하지 못했습니다.</span><br>' +
-            '<span class="text-xs">' + escapeHtml(e.message) + '</span>';
-    }
-}
+/* ===== 서버에서 받아 채우기 =====
+   구글 시트를 공개해서 읽지 않습니다.
+   로그인한 뒤 Apps Script(getGradeAll)가 보내 준 숫자 배열을 풀어 씁니다.
 
-function renderStats(d) {
-    document.getElementById('stats-total').textContent = d.totalStudents || 0;
-    document.getElementById('stats-loading').classList.add('hidden');
-    const body = document.getElementById('stats-body');
-    body.classList.remove('hidden');
+     g : 내신  — 과목 12개 × 항목 11개
+     t : 상담_2차목표 — 과목 12개 × 3칸
+     m : 모의고사 — 월별 과목 6개 × 4칸 (원점수 표준점수 백분위 등급)   */
+function fillFromServer(d){
+  students=new Map();
+  (d.students||[]).forEach(row=>{
+    const s=blankStudent(row.c,row.n,row.nm);
+    const g=row.g||[], t=row.t||[];
 
-    const subj = (d.naesin && d.naesin.subjects) ? d.naesin.subjects.filter(s => s.n > 0) : [];
-    const box = (title, desc, inner) => `
-        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-            <h3 class="text-base font-extrabold text-slate-900">${title}</h3>
-            ${desc ? `<p class="text-xs text-slate-500 mt-1 mb-3 leading-relaxed">${desc}</p>` : '<div class="mb-3"></div>'}
-            ${inner}
-        </div>`;
-
-    if (!subj.length) {
-        body.innerHTML = box('내신 성적', '', '<p class="text-sm text-slate-400">아직 입력된 내신 성적이 없습니다.</p>');
-        return;
-    }
-
-    /* ① 과목별 통계 요약 */
-    let t1 = `<div class="overflow-x-auto"><table class="w-full text-xs text-center border border-slate-200 rounded-lg">
-        <thead class="bg-slate-100 text-slate-700 font-bold"><tr>
-        <th class="p-2 border-b border-r border-slate-200 text-left">과목</th>
-        <th class="p-2 border-b border-r border-slate-200">인원</th>
-        <th class="p-2 border-b border-r border-slate-200">평균</th>
-        <th class="p-2 border-b border-r border-slate-200">표준편차</th>
-        <th class="p-2 border-b border-r border-slate-200">최저</th>
-        <th class="p-2 border-b border-r border-slate-200">Q1</th>
-        <th class="p-2 border-b border-r border-slate-200">중앙값</th>
-        <th class="p-2 border-b border-r border-slate-200">Q3</th>
-        <th class="p-2 border-b border-slate-200">최고</th></tr></thead><tbody>`;
-    subj.forEach(s => {
-        t1 += `<tr class="border-b border-slate-100 hover:bg-slate-50">
-            <td class="p-2 border-r border-slate-100 font-bold text-left">${escapeHtml(s.name)}</td>
-            <td class="p-2 border-r border-slate-100 text-slate-500">${s.n}</td>
-            <td class="p-2 border-r border-slate-100 font-extrabold text-blue-700">${num(s.mean)}</td>
-            <td class="p-2 border-r border-slate-100">${num(s.sd)}</td>
-            <td class="p-2 border-r border-slate-100 text-slate-500">${num(s.min)}</td>
-            <td class="p-2 border-r border-slate-100">${num(s.q1)}</td>
-            <td class="p-2 border-r border-slate-100 font-bold">${num(s.med)}</td>
-            <td class="p-2 border-r border-slate-100">${num(s.q3)}</td>
-            <td class="p-2 text-slate-500">${num(s.max)}</td></tr>`;
-    });
-    t1 += '</tbody></table></div>';
-
-    /* ② 과목별 등급 분포 */
-    const t2 = '<div class="h-72"><canvas id="chart-dist"></canvas></div>';
-
-    /* ③ 반별 × 과목 평균 히트맵 */
-    const names = subj.map(s => s.name);
-    const idxOf = d.naesin.subjectNames;
-    let allVals = [];
-    d.naesin.byClass.forEach(c => c.values.forEach((v, i) => {
-        if (v !== null && names.indexOf(idxOf[i]) > -1) allVals.push(v);
-    }));
-    const lo = Math.min.apply(null, allVals), hi = Math.max.apply(null, allVals);
-    const heat = v => {
-        if (v === null) return 'background:#f8fafc;color:#cbd5e1';
-        const t = (hi === lo) ? 0.5 : (v - lo) / (hi - lo);
-        return `background:rgba(37,99,235,${(0.08 + t * 0.55).toFixed(2)});color:${t > 0.6 ? '#fff' : '#0f172a'}`;
-    };
-    let t3 = `<div class="overflow-x-auto"><table class="w-full text-xs text-center border border-slate-200">
-        <thead class="bg-slate-100 font-bold"><tr><th class="p-2 border-b border-r border-slate-200">반</th>
-        ${names.map(n => `<th class="p-2 border-b border-r border-slate-200">${escapeHtml(n)}</th>`).join('')}</tr></thead><tbody>`;
-    d.naesin.byClass.forEach(c => {
-        t3 += `<tr><td class="p-2 border-b border-r border-slate-200 font-bold bg-slate-50">${c.cls}반</td>`;
-        idxOf.forEach((nm, i) => {
-            if (names.indexOf(nm) === -1) return;
-            const v = c.values[i];
-            t3 += `<td class="p-2 border-b border-r border-slate-200 font-bold" style="${heat(v)}">${num(v)}</td>`;
+    // 내신 — 블록 순서는 공통국어1, 공통국어2, 공통수학1 … (과목 바깥 / 학기 안쪽)
+    NAESIN_SUBJECTS.forEach((subj,si)=>{
+      SEMESTERS.forEach((sem,mi)=>{
+        const base=(si*SEMESTERS.length+mi)*NAESIN_FIELDS.length;
+        const o={};
+        NAESIN_FIELDS.forEach((f,fi)=>{
+          const v=g[base+fi];
+          o[f]=NAESIN_ACH_FIELDS.includes(f)?strOrNull(v):numOrNull(v);
         });
-        t3 += '</tr>';
-    });
-    t3 += '</tbody></table></div>';
+        s.naesin[sem.key][subj]=o;
 
-    /* ④ 성취도 분포 */
-    let t4 = `<div class="overflow-x-auto"><table class="w-full text-xs text-center border border-slate-200">
-        <thead class="bg-slate-100 font-bold"><tr><th class="p-2 border-b border-r border-slate-200 text-left">과목</th>
-        ${['A','B','C','D','E'].map(a => `<th class="p-2 border-b border-r border-slate-200">${a}</th>`).join('')}
-        </tr></thead><tbody>`;
-    subj.forEach(s => {
-        t4 += `<tr><td class="p-2 border-b border-r border-slate-200 font-bold text-left">${escapeHtml(s.name)}</td>`;
-        ['A','B','C','D','E'].forEach(a => {
-            const n = (s.achDist && s.achDist[a]) || 0;
-            const p = s.n ? Math.round(n / s.n * 100) : 0;
-            t4 += `<td class="p-2 border-b border-r border-slate-200">${n}<span class="text-slate-400 text-[10px] ml-0.5">${p}%</span></td>`;
-        });
-        t4 += '</tr>';
-    });
-    t4 += '</tbody></table></div>';
-
-    /* ⑤ 모의고사 */
-    const months = (d.mock && d.mock.months) ? d.mock.months : [];
-    const t5 = months.length
-        ? '<div class="h-72"><canvas id="chart-mockavg"></canvas></div>'
-        : '<p class="text-sm text-slate-400">아직 입력된 모의고사 성적이 없습니다.</p>';
-
-    body.innerHTML =
-        box('① 과목별 전체 통계 요약',
-            '환산총점 기준입니다. <b>표준편차</b>가 클수록 점수가 넓게 퍼진(변별력 있는) 과목입니다. ' +
-            '<b>Q1</b>은 하위 25% 지점, <b>Q3</b>은 상위 25% 지점으로, 가운데 절반의 학생이 Q1~Q3 사이에 있습니다.', t1) +
-        box('② 과목별 등급 분포', '현행 5등급제 기준 인원입니다. 막대에 마우스를 올리면 인원이 나옵니다.', t2) +
-        box('③ 반별 · 과목별 평균 (환산총점)', '색이 진할수록 평균이 높습니다. 성적이 입력된 과목만 나옵니다.', t3) +
-        box('④ 성취도 분포', '절대평가 성취도(A~E) 인원과 비율입니다.', t4) +
-        box('⑤ 모의고사 과목별 평균 등급 추이', '아래로 내려갈수록 좋은 등급입니다.', t5);
-
-    /* 차트 그리기 */
-    drawChart('chart-dist', {
-        type: 'bar',
-        data: {
-            labels: subj.map(s => s.name),
-            datasets: [1,2,3,4,5].map((g, gi) => ({
-                label: g + '등급',
-                data: subj.map(s => s.gradeDist5[gi]),
-                backgroundColor: G5_COLORS[gi]
-            }))
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: '인원(명)' } } },
-            plugins: { legend: { position: 'bottom' } }
-        }
+        const cb=(si*SEMESTERS.length+mi)*COUNSEL_FIELDS.length;
+        s.counsel[sem.key][subj]={
+          '1차점수':numOrNull(t[cb]),
+          '1차등급':numOrNull(t[cb+1]),
+          '+1등급필요':strOrNull(t[cb+2])
+        };
+      });
     });
 
-    if (months.length) {
-        drawChart('chart-mockavg', {
-            type: 'line',
-            data: {
-                labels: months.map(m => m.label),
-                datasets: d.mock.subjects.map((sub, i) => ({
-                    label: sub,
-                    data: months.map(m => {
-                        const arr = d.mock.stats[m.key] || [];
-                        const f = arr.filter(x => x.subject === sub)[0];
-                        return f ? f.meanGrade : null;
-                    }),
-                    borderColor: SUBJ_COLORS[i % SUBJ_COLORS.length],
-                    backgroundColor: SUBJ_COLORS[i % SUBJ_COLORS.length],
-                    tension: 0.3, spanGaps: true
-                }))
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: { y: { reverse: true, min: 1, max: 9, ticks: { stepSize: 1 }, title: { display: true, text: '평균 등급' } } },
-                plugins: { legend: { position: 'bottom' } }
-            }
-        });
+    // 모의고사 — 영어·한국사는 절대평가라 표준점수·백분위가 없습니다.
+    MOCK_MONTHS.forEach(mm=>{
+      const arr=(row.m&&row.m[mm.key])||[];
+      MOCK_SUBJECTS.forEach((u,ui)=>{
+        s.mock[mm.key][u.key]={
+          raw:  numOrNull(arr[ui*4]),
+          std:  u.rel?numOrNull(arr[ui*4+1]):null,
+          pct:  u.rel?numOrNull(arr[ui*4+2]):null,
+          grade:numOrNull(arr[ui*4+3])
+        };
+      });
+    });
+
+    students.set(row.c+'-'+row.n,s);
+  });
+}
+
+
+/* ===== 데이터 존재 판별 (있으면 표시 / 없으면 "-") =====
+   ※ 환산총점·등급·성취도는 시트 수식이라 시험점수가 비어도 0/계산값이 들어옴.
+     따라서 "입력 여부"는 반드시 1·2차 '시험 점수'로만 판정한다. */
+function allStudents(){return [...students.values()].sort((a,b)=>a.ban-b.ban||a.num-b.num);}
+function naesinSemHas(s,semKey){return NAESIN_SUBJECTS.some(subj=>{const o=s.naesin[semKey][subj];return o&&(o['1차시험']!=null||o['2차시험']!=null);});}
+function naesinSemHasAny(semKey){return [...students.values()].some(s=>naesinSemHas(s,semKey));}
+// 차수별 존재: '1차'→1차시험, '2차'→2차시험, '최종'→둘 중 하나라도
+function naesinExamScoreField(exam){return exam==='1차'?'1차시험':exam==='2차'?'2차시험':null;}
+function naesinExamHas(s,semKey,exam){
+  if(exam==='최종')return naesinFinalHas(s,semKey);
+  const f=naesinExamScoreField(exam);
+  return NAESIN_SUBJECTS.some(subj=>{const o=s.naesin[semKey][subj];return o&&o[f]!=null;});
+}
+function naesinExamHasAny(semKey,exam){return [...students.values()].some(s=>naesinExamHas(s,semKey,exam));}
+function mockMonthHas(s,mk){return MOCK_SUBJECTS.some(u=>{const o=s.mock[mk][u.key];return o&&o.raw!=null;});}
+function mockMonthHasAny(mk){return [...students.values()].some(s=>mockMonthHas(s,mk));}
+function mockScoreReleased(mk){return [...students.values()].some(s=>MOCK_SUBJECTS.some(u=>u.rel&&s.mock[mk][u.key]&&s.mock[mk][u.key].std!=null));}
+
+function deltaSpan(c,p,hb){if(c==null||p==null)return '<span class="dz">-</span>';const d=c-p;if(d===0)return '<span class="dz">±0</span>';const good=hb?d>0:d<0;return '<span class="'+(good?'du':'dd')+'">'+(d>0?'+':'')+fmt(d,Number.isInteger(d)?null:1)+'</span>';}
+
+/* ===== 화면 전환 (학년 분석 / 데이터 열람) ===== */
+let statsView='grade';
+
+function showStatsView(v){
+  statsView=v;
+  document.querySelectorAll('#view-stats .view').forEach(x=>x.classList.remove('active'));
+  const el=document.getElementById('sview-'+v);
+  if(el)el.classList.add('active');
+  document.querySelectorAll('#statsSeg button').forEach(b=>b.classList.toggle('on',b.getAttribute('data-v')===v));
+  if(!dataReady)return;
+  if(v==='grade')renderGrade();
+  if(v==='data')renderData();
+}
+
+/* ===== 아이콘 =====
+   외부 아이콘 라이브러리를 새로 불러오지 않고, 같은 모양을 파일 안에 넣어 둡니다. */
+const ICONS={
+  'chevron-right':'<path d="m9 18 6-6-6-6"/>',
+  'bar-chart-2':'<line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/>',
+  'bar-chart-3':'<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+  'grid-3x3':'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/>',
+  'users':'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  'award':'<circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>',
+  'scissors':'<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>',
+  'star':'<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  'alert-circle':'<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>',
+  'alert-triangle':'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/>',
+  'trending-up':'<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+  'pie-chart':'<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>',
+  'table':'<path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/>'
+};
+function icons(){
+  document.querySelectorAll('#view-stats i[data-lucide]').forEach(el=>{
+    const p=ICONS[el.getAttribute('data-lucide')]||ICONS['chevron-right'];
+    el.outerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '+
+                 'stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';
+  });
+}
+
+
+/* 학기 평균등급 (학기말 최종은 1·2차 시험 + 1·2차 수행이 모두 입력돼야 산출. 미완 시 1차등급 폴백)
+   ※ 등급·성취도 모두 내신성적 시트 실값. 단, 시험점수가 있는 과목만 집계 */
+function subjEntered(o){return o&&(o['1차시험']!=null||o['2차시험']!=null);}
+// 학기말 최종 성립: 1차시험·2차시험·1차수행·2차수행 4개 모두 입력
+function subjFinalComplete(o){return o&&o['1차시험']!=null&&o['2차시험']!=null&&o['1차수행']!=null&&o['2차수행']!=null;}
+function naesinFinalHas(s,semKey){return NAESIN_SUBJECTS.some(subj=>subjFinalComplete(s.naesin[semKey][subj]));}
+function naesinFinalHasAny(semKey){return [...students.values()].some(s=>naesinFinalHas(s,semKey));}
+function semHas2cha(s,semKey){return NAESIN_SUBJECTS.some(subj=>{const o=s.naesin[semKey][subj];return o&&o['2차시험']!=null;});}
+function semGradeInfo(s,semKey){
+  if(!naesinSemHas(s,semKey))return null;
+  let g=[],anyFinal=false,anyPartial=false;
+  NAESIN_SUBJECTS.forEach(subj=>{const o=s.naesin[semKey][subj]||{};if(!subjEntered(o))return;
+    if(subjFinalComplete(o)&&o['최종등급']!=null){g.push(o['최종등급']);anyFinal=true;}
+    else if(o['1차등급']!=null){g.push(o['1차등급']);anyPartial=true;}
+  });
+  if(!g.length)return null;
+  return {avg:g.reduce((a,b)=>a+b,0)/g.length,basis:(anyFinal&&!anyPartial)?'학기말':'1차',cnt:g.length};
+}
+function yearGradeAvg(s){
+  let g=[];SEMESTERS.forEach(sem=>{if(!naesinSemHas(s,sem.key))return;NAESIN_SUBJECTS.forEach(subj=>{const o=s.naesin[sem.key][subj]||{};if(!subjEntered(o))return;
+    if(subjFinalComplete(o)&&o['최종등급']!=null)g.push(o['최종등급']);
+    else if(o['1차등급']!=null)g.push(o['1차등급']);
+  });});
+  return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;
+}
+
+/* ============================================================
+   학년 성적 분석 리포트 — 내신 탭 / 모의고사 탭 (조건 6)
+   ============================================================ */
+let gradeTab='naesin';
+let gradeNaesinSem=1;   // 1 | 2
+let gradeNaesinExam='최종'; // '1차' | '2차' | '최종'  (변경: 6개 분석)
+let gNaesinDistSubj='공통국어'; // 과목별 반별 등급인원 탭
+let gradeMockMonth='m3';
+let gradeMockDistMonth='m3';
+
+document.getElementById('gradeSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeTab=b.getAttribute('data-g');[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));renderGrade();});
+
+function renderGrade(){
+  if(!dataReady)return;
+  if(gradeTab==='naesin')renderGradeNaesin();
+  else renderGradeMock();
+}
+
+function secHTML(t,icon){return '<div class="sec"><span class="ico"><i data-lucide="'+(icon||'chevron-right')+'"></i></span><h2>'+t+'</h2></div>';}
+function statHTML(k,v,d,dd,col){return '<div class="s" style="border-left-color:'+(col||'var(--accent)')+'"><div class="k">'+k+'</div><div class="v">'+v+'</div><div class="d">'+(d||'')+' '+(dd||'')+'</div></div>';}
+
+/* 통계 헬퍼 (엑셀 성적분석 시트 참고) */
+function descStats(vals){
+  const v=vals.filter(x=>x!=null).slice().sort((a,b)=>a-b);const n=v.length;
+  if(!n)return null;
+  const mean=v.reduce((a,b)=>a+b,0)/n;
+  const med=n%2?v[(n-1)/2]:(v[n/2-1]+v[n/2])/2;
+  const q=p=>{const idx=(n-1)*p;const lo=Math.floor(idx),hi=Math.ceil(idx);return lo===hi?v[lo]:v[lo]+(v[hi]-v[lo])*(idx-lo);};
+  const sd=Math.sqrt(v.reduce((a,b)=>a+(b-mean)*(b-mean),0)/n);
+  return {n,mean,med,min:v[0],max:v[n-1],sd,q1:q(0.25),q3:q(0.75)};
+}
+function pctOf(cnt,total){return total>0?'<span class="mut"> ('+(cnt/total*100).toFixed(1)+'%)</span>':'';}
+function naesinDifficulty(mean){if(mean==null)return '-';if(mean>=82)return '쉬움';if(mean>=75)return '적정-쉬움';if(mean>=67)return '적정';if(mean>=58)return '적정-어려움';return '어려움';}
+
+/* ===== 내신 탭 ===== */
+function renderGradeNaesin(){
+  const arr=allStudents();const bans=[...new Set(arr.map(s=>s.ban))].sort((a,b)=>a-b);
+
+  // 학기 선택 + 차수 선택 세그먼트
+  let semSeg='<div class="controls glass" style="justify-content:center;gap:10px;flex-wrap:wrap;">'+
+    '<span class="seg" id="gNaesinSemSeg">'+SEMESTERS.map(sem=>'<button data-s="'+sem.key+'"'+(gradeNaesinSem===sem.key?' class="on"':'')+'>'+sem.label+(naesinSemHasAny(sem.key)?'':' (대기)')+'</button>').join('')+'</span>'+
+    '<span class="seg" id="gNaesinExamSeg">'+[['1차','1차 시험'],['2차','2차 시험'],['최종','학기말 최종']].map(([k,lab])=>'<button data-x="'+k+'"'+(gradeNaesinExam===k?' class="on"':'')+'>'+lab+(naesinExamHasAny(gradeNaesinSem,k)?'':' (대기)')+'</button>').join('')+'</span>'+
+    '</div>';
+
+  if(!naesinExamHasAny(gradeNaesinSem,gradeNaesinExam)){
+    const exLab={'1차':'1차 시험','2차':'2차 시험','최종':'학기말'}[gradeNaesinExam];
+    document.getElementById('gradeReport').innerHTML=semSeg+'<div class="panel glass"><div class="notice"><b>'+SEMESTERS.find(x=>x.key===gradeNaesinSem).label+' '+exLab+' 내신 데이터가 아직 입력되지 않았습니다.</b><br>구글 시트에 점수가 입력되면 자동으로 분석이 표시됩니다.</div></div>';
+    bindGradeNaesinSeg();icons();return;
+  }
+
+  const sem=gradeNaesinSem;
+  // 차수별 필드 매핑
+  const EX={
+    '1차':{sf:'1차시험',gf:'1차등급',af:'1차성취도',lab:'1차 시험',unit:'점수',max:'(0~100)'},
+    '2차':{sf:'2차시험',gf:'2차등급',af:'2차성취도',lab:'2차 시험',unit:'점수',max:'(0~100)'},
+    '최종':{sf:'환산총점',gf:'최종등급',af:'최종성취도',lab:'학기말',unit:'환산총점',max:'(0~100)'}
+  }[gradeNaesinExam];
+  const SF=EX.sf, GF=EX.gf, AF=EX.af;
+  // 포함 조건: 1·2차 뷰는 해당 시험점수 존재, 학기말 뷰는 1·2차 중 하나라도 존재
+  const inc=o=>o&&(gradeNaesinExam==='최종'?subjFinalComplete(o):o[SF]!=null);
+  const SC=['#2563eb','#dc2626','#16a34a','#ea580c','#7c3aed','#64748b']; // 과목 색
+  const subjScores=subj=>arr.map(s=>s.naesin[sem][subj]).filter(o=>inc(o)&&o[SF]!=null).map(o=>o[SF]);
+  const subjAvg=subj=>{const v=subjScores(subj);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;};
+  const gcount=subj=>{const d=Array(6).fill(0);arr.forEach(s=>{const o=s.naesin[sem][subj];if(inc(o)&&o[GF]>=1&&o[GF]<=5)d[o[GF]]++;});return d;};
+  const acount=subj=>{const d={A:0,B:0,C:0,D:0,E:0,I:0};arr.forEach(s=>{const o=s.naesin[sem][subj];if(inc(o)&&o[AF]&&d[o[AF]]!=null)d[o[AF]]++;});return d;};
+  const classGradeAvg=b=>{let g=[];arr.filter(s=>s.ban===b).forEach(s=>NAESIN_SUBJECTS.forEach(subj=>{const o=s.naesin[sem][subj];if(inc(o)&&o[GF]!=null)g.push(o[GF]);}));return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;};
+  const gradeCut=subj=>{const cut={};for(let g=1;g<=5;g++){const v=arr.map(s=>s.naesin[sem][subj]).filter(o=>inc(o)&&o[GF]===g&&o[SF]!=null).map(o=>o[SF]);cut[g]=v.length?Math.min(...v):null;}return cut;};
+
+  let allG=[];arr.forEach(s=>NAESIN_SUBJECTS.forEach(subj=>{const o=s.naesin[sem][subj];if(inc(o)&&o[GF]!=null)allG.push(o[GF]);}));
+  const gradeMean=allG.length?allG.reduce((a,b)=>a+b,0)/allG.length:null;
+  let iStudents=arr.filter(s=>NAESIN_SUBJECTS.some(subj=>{const o=s.naesin[sem][subj];return inc(o)&&o[AF]==='I';}));
+  const nStu=arr.filter(s=>naesinExamHas(s,sem,gradeNaesinExam)).length;
+
+  const stuGradeAvg=s=>{let g=[];NAESIN_SUBJECTS.forEach(subj=>{const o=s.naesin[sem][subj];if(inc(o)&&o[GF]!=null)g.push(o[GF]);});return g.length?{avg:g.reduce((a,b)=>a+b,0)/g.length,ones:g.filter(x=>x===1).length,low:g.filter(x=>x>=4).length,cnt:g.length}:null;};
+
+  // ① 통계 요약
+  let statRows=NAESIN_SUBJECTS.map((subj,i)=>{
+    const st=descStats(subjScores(subj));
+    if(!st)return '<tr><td class="name" style="color:'+SC[i]+'">'+subj+'</td><td colspan="7" class="mut">데이터 없음</td></tr>';
+    return '<tr><td class="name" style="color:'+SC[i]+'">'+subj+'</td><td class="raw">'+st.mean.toFixed(1)+'</td><td>'+st.med.toFixed(1)+'</td><td>'+st.max.toFixed(1)+'</td><td>'+st.min.toFixed(1)+'</td><td>'+st.sd.toFixed(1)+'</td><td>'+st.q1.toFixed(1)+'</td><td>'+st.q3.toFixed(1)+'</td></tr>';
+  }).join('');
+
+  // ④ 성취도 분포
+  let aRows=NAESIN_SUBJECTS.map((subj,i)=>{const d=acount(subj);const tot=d.A+d.B+d.C+d.D+d.E+d.I;const cell=(x,warn)=>'<td'+(warn&&x>0?' style="color:var(--down);font-weight:800"':'')+'>'+x+pctOf(x,tot)+'</td>';return '<tr><td class="name" style="color:'+SC[i]+'">'+subj+'</td>'+cell(d.A)+cell(d.B)+cell(d.C)+cell(d.D)+cell(d.E)+cell(d.I,true)+'</tr>';}).join('');
+
+  // ⑤ 등급컷
+  let cutRows=NAESIN_SUBJECTS.map((subj,i)=>{const cut=gradeCut(subj);let c='';for(let g=1;g<=5;g++)c+='<td class="raw">'+(cut[g]!=null?cut[g].toFixed(1):'-')+'</td>';return '<tr><td class="name" style="color:'+SC[i]+'">'+subj+'</td>'+c+'</tr>';}).join('');
+
+  // ⑥ 반별 × 과목별 평균점수 (미완 과목 제외 + 과목 열별 히트맵)
+  const classSubjAvg={};NAESIN_SUBJECTS.forEach(subj=>{classSubjAvg[subj]={};bans.forEach(b=>{const v=arr.filter(s=>s.ban===b).map(s=>s.naesin[sem][subj]).filter(o=>inc(o)&&o[SF]!=null).map(o=>o[SF]);classSubjAvg[subj][b]=v.length?v.reduce((a,x)=>a+x,0)/v.length:null;});});
+  const subjMM={};NAESIN_SUBJECTS.forEach(subj=>{const vs=bans.map(b=>classSubjAvg[subj][b]).filter(x=>x!=null);subjMM[subj]=vs.length?{min:Math.min(...vs),max:Math.max(...vs)}:{min:null,max:null};});
+  let csRows=bans.map(b=>{
+    let c=NAESIN_SUBJECTS.map(subj=>{const m=classSubjAvg[subj][b];const mm=subjMM[subj];return '<td'+heatStyle(m,mm.min,mm.max)+'>'+fmt(m,1)+'</td>';}).join('');
+    const allv=arr.filter(s=>s.ban===b).flatMap(s=>NAESIN_SUBJECTS.map(subj=>s.naesin[sem][subj]).filter(o=>inc(o)&&o[SF]!=null).map(o=>o[SF]));
+    const allm=allv.length?allv.reduce((a,x)=>a+x,0)/allv.length:null;
+    return '<tr><td class="name">'+b+'반</td>'+c+'<td class="raw">'+fmt(allm,1)+'</td></tr>';
+  }).join('');
+  let csTotal='<tr style="border-top:2px solid var(--border);font-weight:700;"><td class="name">전체</td>'+NAESIN_SUBJECTS.map(subj=>'<td class="raw">'+fmt(subjAvg(subj),1)+'</td>').join('')+'<td class="raw">'+fmt((()=>{let v=[];NAESIN_SUBJECTS.forEach(subj=>v.push(...subjScores(subj)));return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;})(),1)+'</td></tr>';
+
+  // ⑦⑧ 학생 그룹
+  const withAvg=arr.filter(s=>naesinExamHas(s,sem,gradeNaesinExam)).map(s=>({s,...stuGradeAvg(s)})).filter(x=>x.avg!=null);
+  const topStu=withAvg.slice().sort((a,b)=>a.avg-b.avg||b.ones-a.ones).slice(0,15);
+  const lowStu=withAvg.filter(x=>x.low>=4).sort((a,b)=>b.low-a.low||b.avg-a.avg);
+  let topRows=topStu.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+'</td><td>'+x.s.ban+'반</td><td class="raw">'+x.avg.toFixed(2)+'</td><td>'+x.ones+'개</td></tr>').join('');
+  let lowRows=lowStu.length?lowStu.map(x=>'<tr><td class="name">'+hak(x.s)+' '+esc(x.s.name)+'</td><td>'+x.s.ban+'반</td><td style="color:var(--down);font-weight:700">'+x.low+'과목</td><td class="raw">'+x.avg.toFixed(2)+'</td></tr>').join(''):'<tr><td colspan="4" class="mut">해당 학생 없음</td></tr>';
+
+  const iLabel=gradeNaesinExam==='최종'?'미이수(I)':EX.lab+' I(40점 미만)';
+
+  document.getElementById('gradeReport').innerHTML=semSeg+'<div class="panel glass">'+
+    '<div class="rhead grade-head"><div class="who" style="font-size:23px;">내신 성적 분석 <small>'+SEMESTERS.find(x=>x.key===sem).label+' · '+EX.lab+' '+EX.unit+' 기준</small></div><div class="mut" style="align-self:flex-end;">응시 '+nStu+'명 · '+bans.length+'개 반 · 교과협의회 논의용</div></div>'+
+
+    '<div class="stat4" style="margin-top:16px;">'+
+      statHTML('전체 평균등급',fmt(gradeMean,2),'5등급 상대평가','','#2563eb')+
+      statHTML(iLabel+' 학생',(iStudents.length)+'명','40점 미만 대상','','#ef4444')+
+      statHTML('분석 차수',EX.lab,'1·2차/학기말','','#4f46e5')+
+      statHTML('분석 학기',SEMESTERS.find(x=>x.key===sem).label,'','','#16a34a')+
+    '</div>'+
+
+    secHTML('① 과목별 전체 통계 요약','bar-chart-2')+'<div class="sub" style="margin-left:0;">'+EX.lab+' '+EX.unit+EX.max+' 기준. 표준편차가 클수록 점수 분산이 큰(변별력 있는) 과목입니다. <b>Q1</b>=하위 25% 지점(이 점수 이하가 1/4), <b>Q3</b>=상위 25% 지점(이 점수 이상이 1/4). 가운데 절반(50%)의 학생이 Q1~Q3 사이에 분포합니다.</div>'+
+    '<div class="tscroll"><table><thead><tr><th class="name">과목</th><th>평균</th><th>중앙값</th><th>최고</th><th>최저</th><th>표준편차</th><th>Q1<br><span class="mut">하위25%</span></th><th>Q3<br><span class="mut">상위25%</span></th></tr></thead><tbody>'+statRows+'</tbody></table></div>'+
+
+    secHTML('② 과목별 · 반별 등급 인원','grid-3x3')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 등급 기준. 과목을 선택하면 반별로 1~5등급 인원 분포를 볼 수 있습니다. <b>각 등급 칸은 그 등급 인원이 많은 반일수록 파란색이 진해집니다.</b></div>'+
+    '<div style="margin:2px 0 12px;"><span class="seg sm" id="gNaesinDistSubjTab">'+NAESIN_SUBJECTS.map((subj)=>'<button data-subj="'+subj+'"'+(gNaesinDistSubj===subj?' class="on"':'')+'>'+subj+'</button>').join('')+'</span></div>'+
+    '<div id="gNaesinDistBlock">'+buildNaesinDistBySubj(arr,sem,bans,gNaesinDistSubj,GF,gradeNaesinExam)+'</div>'+
+
+    secHTML('③ 반별 평균등급 추이','users')+'<div class="hint">'+EX.lab+' 등급 기준. 위로 갈수록 우수합니다 (1등급이 가장 높은 위치).</div>'+
+    '<div class="chartbox"><canvas id="gNaesinClass"></canvas></div>'+
+
+    secHTML('④ 과목별 성취도 분포 (절대평가)','award')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 성취도 A~E 및 I(40점 미만). 인원 (비율).</div>'+
+    '<div class="tscroll"><table><thead><tr><th class="name">과목</th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th><th>I</th></tr></thead><tbody>'+aRows+'</tbody></table></div>'+
+
+    secHTML('⑤ 과목별 등급컷 (등급별 최저 '+EX.unit+')','scissors')+'<div class="sub" style="margin-left:0;">각 등급을 받은 학생 중 가장 낮은 '+EX.unit+'. 등급 간 간격이 좁으면 동점 변동이 잦은 경계입니다.</div>'+
+    '<div class="tscroll"><table><thead><tr><th class="name">과목</th>'+[1,2,3,4,5].map(g=>'<th>'+g+'등급 최저</th>').join('')+'</tr></thead><tbody>'+cutRows+'</tbody></table></div>'+
+
+    secHTML('⑥ 반별 × 과목별 평균'+EX.unit,'bar-chart-3')+'<div class="sub" style="margin-left:0;">'+EX.unit+' 평균(4개 항목이 모두 입력된 과목만 집계). <b>과목별로 평균이 높은(상위) 반일수록 파란색이 진하고, 가장 낮은 반은 흰색</b>입니다. 반 간 격차는 반편성에 따른 자연 변동일 수 있습니다.</div>'+
+    '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+NAESIN_SUBJECTS.map(subj=>'<th>'+subj+'</th>').join('')+'<th>전체</th></tr></thead><tbody>'+csRows+csTotal+'</tbody></table></div>'+
+
+    '<div class="twocol" style="margin-top:6px;">'+
+      '<div>'+secHTML('⑦ 최우수 그룹 (등급평균 상위 15)','star')+'<div class="tscroll tall"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th><th>등급평균</th><th>1등급</th></tr></thead><tbody>'+topRows+'</tbody></table></div></div>'+
+      '<div>'+secHTML('⑧ 학습부진 우려 (4·5등급 4과목↑)','alert-circle')+'<div class="tscroll tall"><table><thead><tr><th class="name">학번 (이름)</th><th>반</th><th>4·5등급</th><th>등급평균</th></tr></thead><tbody>'+lowRows+'</tbody></table></div></div>'+
+    '</div>'+
+
+    secHTML('⑨ '+iLabel+' 학생 명단','alert-triangle')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 40점 미만(I) — 최우선 지도 대상</div>'+
+    '<div class="tscroll tall"><table><thead><tr><th class="name">학번 (이름)</th><th>반</th><th>I 과목</th></tr></thead><tbody>'+
+    (iStudents.length?iStudents.map(s=>{const isub=NAESIN_SUBJECTS.filter(subj=>{const o=s.naesin[sem][subj];return o&&o[AF]==='I';});return '<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td><td>'+s.ban+'반</td><td>'+isub.join(', ')+'</td></tr>';}).join(''):'<tr><td colspan="3" class="mut">해당 학생 없음</td></tr>')+
+    '</tbody></table></div>'+
+    '<div class="disc">※ '+SEMESTERS.find(x=>x.key===sem).label+' '+EX.lab+' 기준 분석입니다. 등급·성취도는 구글 시트 수식으로 산출되며, 통계·등급컷은 '+EX.unit+'을 기준으로 실시간 계산됩니다. 학기·차수 버튼으로 1학기·2학기 각각의 1차/2차/학기말(총 6개)을 볼 수 있습니다.</div></div>';
+
+  bindGradeNaesinSeg();
+  const dst=document.getElementById('gNaesinDistSubjTab');
+  if(dst)dst.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gNaesinDistSubj=b.getAttribute('data-subj');document.getElementById('gNaesinDistBlock').innerHTML=buildNaesinDistBySubj(arr,sem,bans,gNaesinDistSubj,GF,gradeNaesinExam);[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x.getAttribute('data-subj')===gNaesinDistSubj));});
+  drawGradeNaesinCharts(arr,sem,bans,classGradeAvg);
+  icons();
+}
+function bindGradeNaesinSeg(){
+  const el=document.getElementById('gNaesinSemSeg');if(el)el.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeNaesinSem=+b.getAttribute('data-s');renderGrade();});
+  const ex=document.getElementById('gNaesinExamSeg');if(ex)ex.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeNaesinExam=b.getAttribute('data-x');renderGrade();});
+}
+
+// ② 과목별 · 반별 등급 인원 표 (차수별 등급 필드 + 포함 조건 + 등급 열별 히트맵)
+function buildNaesinDistBySubj(arr,sem,bans,subj,gf,exam){
+  gf=gf||'최종등급';
+  const sf={'1차':'1차시험','2차':'2차시험','최종':'환산총점'}[exam]||'환산총점';
+  const inc=o=>o&&(exam==='최종'?subjFinalComplete(o):o[sf]!=null);
+  // 반별 등급 인원 매트릭스
+  const mat={};bans.forEach(b=>{const d=Array(6).fill(0);arr.filter(s=>s.ban===b).forEach(s=>{const o=s.naesin[sem][subj];if(inc(o)&&o[gf]>=1&&o[gf]<=5)d[o[gf]]++;});mat[b]=d;});
+  // 등급 열별 min/max (인원수 기준)
+  const mm={};for(let g=1;g<=5;g++){const vs=bans.map(b=>mat[b][g]);mm[g]={min:Math.min(...vs),max:Math.max(...vs)};}
+  let rows=bans.map(b=>{
+    const d=mat[b];const tot=d[1]+d[2]+d[3]+d[4]+d[5];
+    let c='';for(let g=1;g<=5;g++)c+='<td'+heatStyle(d[g],mm[g].min,mm[g].max)+'>'+d[g]+'</td>';
+    return '<tr><td class="name">'+b+'반</td>'+c+'<td class="raw">'+tot+'</td></tr>';
+  }).join('');
+  const dAll=Array(6).fill(0);arr.forEach(s=>{const o=s.naesin[sem][subj];if(inc(o)&&o[gf]>=1&&o[gf]<=5)dAll[o[gf]]++;});
+  const totAll=dAll.slice(1,6).reduce((a,b)=>a+b,0);
+  let allc='';for(let g=1;g<=5;g++)allc+='<td class="raw">'+dAll[g]+pctOf(dAll[g],totAll)+'</td>';
+  const totalRow='<tr style="border-top:2px solid var(--border);font-weight:700;"><td class="name">전체</td>'+allc+'<td class="raw">'+totAll+'</td></tr>';
+  return '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+[1,2,3,4,5].map(g=>'<th>'+g+'등급</th>').join('')+'<th>인원</th></tr></thead><tbody>'+rows+totalRow+'</tbody></table></div>';
+}
+
+function drawGradeNaesinCharts(arr,sem,bans,classGradeAvg){
+  if(typeof Chart==='undefined')return;
+  // ③ 반별 평균등급 — 선그래프 (reverse: 1등급이 위 → 위로 갈수록 우수)
+  const ctx2=document.getElementById('gNaesinClass');
+  if(ctx2){if(charts.gnClass)charts.gnClass.destroy();
+    charts.gnClass=new Chart(ctx2,{type:'line',data:{labels:bans.map(b=>b+'반'),datasets:[{label:'반 평균등급',data:bans.map(b=>classGradeAvg(b)),borderColor:'#4f46e5',backgroundColor:'rgba(79,70,229,.12)',borderWidth:2.5,tension:.3,pointRadius:5,fill:true}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{reverse:true,min:1,max:5,ticks:{stepSize:1,font:{family:'Pretendard'}}},x:{ticks:{font:{family:'Pretendard'}}}}}});
+  }
+}
+
+/* ===== 모의고사 탭 ===== */
+function renderGradeMock(){
+  const arr=allStudents();const bans=[...new Set(arr.map(s=>s.ban))].sort((a,b)=>a-b);
+
+  // 월 선택 세그먼트 (데이터 없는 월은 대기 표시)
+  let monthSeg='<div class="controls glass" style="justify-content:center;"><span class="seg" id="gMockSeg">'+
+    MOCK_MONTHS.map(mm=>'<button data-m="'+mm.key+'"'+(gradeMockMonth===mm.key?' class="on"':'')+'>'+mm.label+(mockMonthHasAny(mm.key)?'':' (대기)')+'</button>').join('')+'</span></div>';
+
+  if(!mockMonthHasAny(gradeMockMonth)){
+    document.getElementById('gradeReport').innerHTML=monthSeg+'<div class="panel glass"><div class="notice"><b>'+MOCK_MONTHS.find(x=>x.key===gradeMockMonth).label+' 모의고사 데이터가 아직 없습니다.</b><br>시험 실시 후 시트에 입력되면 자동으로 표시됩니다.</div></div>';
+    bindGradeMockSeg();icons();return;
+  }
+
+  const mk=gradeMockMonth;const released=mockScoreReleased(mk);
+  const nStu=arr.filter(s=>mockMonthHas(s,mk)).length;
+  // 과목별 원점수 평균
+  const subjAvg=key=>{const v=arr.map(s=>s.mock[mk][key]).filter(o=>o&&o.raw!=null).map(o=>o.raw);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;};
+  // 과목별 9등급 인원
+  const gcount=key=>{const d=Array(10).fill(0);arr.forEach(s=>{const o=s.mock[mk][key];if(o&&o.grade>=1&&o.grade<=9)d[o.grade]++;});return d;};
+  // 반별 평균등급(전과목)
+  const classGradeAvg=b=>{let g=[];arr.filter(s=>s.ban===b).forEach(s=>MOCK_SUBJECTS.forEach(u=>{const o=s.mock[mk][u.key];if(o&&o.grade!=null)g.push(o.grade);}));return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;};
+  // 직전 회차 (추이용)
+  const idx=MOCK_MONTHS.findIndex(x=>x.key===mk);
+  let prev=null;for(let i=idx-1;i>=0;i--){if(mockMonthHasAny(MOCK_MONTHS[i].key)){prev=MOCK_MONTHS[i];break;}}
+
+  // 전체 평균등급(국영수탐 전체)
+  let allG=[];arr.forEach(s=>MOCK_SUBJECTS.forEach(u=>{const o=s.mock[mk][u.key];if(o&&o.grade!=null)allG.push(o.grade);}));
+  const gradeMean=allG.length?allG.reduce((a,b)=>a+b,0)/allG.length:null;
+
+  // ① 과목별 평균·표준점수·등급 (3·6월 정식 척도 있을 때 표준 표시)
+  let avgRows=MOCK_SUBJECTS.map(u=>{
+    const a=subjAvg(u.key);
+    let g=[];arr.forEach(s=>{const o=s.mock[mk][u.key];if(o&&o.grade!=null)g.push(o.grade);});
+    const gm=g.length?g.reduce((x,y)=>x+y,0)/g.length:null;
+    // 직전 회차 평균 변화
+    let prevA=null;if(prev){const v=arr.map(s=>s.mock[prev.key][u.key]).filter(o=>o&&o.raw!=null).map(o=>o.raw);prevA=v.length?v.reduce((x,y)=>x+y,0)/v.length:null;}
+    return '<tr><td class="name" style="color:'+u.color+'">'+u.key+'<span class="mut"> /'+u.max+'</span></td><td class="raw">'+fmt(a,1)+'</td><td>'+fmt(gm,2)+'</td><td>'+(prev?deltaSpan(a,prevA,true):'<span class="mut">-</span>')+'</td></tr>';
+  }).join('');
+
+  // ② 등급 분포표 (9등급) — 인원(비율) (변경10)
+  let gRows=MOCK_SUBJECTS.map(u=>{const d=gcount(u.key);const tot=d.slice(1,10).reduce((a,b)=>a+b,0);let c='';for(let g=1;g<=9;g++)c+='<td>'+d[g]+pctOf(d[g],tot)+'</td>';return '<tr><td class="name" style="color:'+u.color+'">'+u.key+'</td>'+c+'</tr>';}).join('');
+
+  // ⑤ 반별 × 과목별 평균점수 (과목 열별 히트맵: 상위 반 진함)
+  const mClassAvg={};MOCK_SUBJECTS.forEach(u=>{mClassAvg[u.key]={};bans.forEach(b=>{const v=arr.filter(s=>s.ban===b).map(s=>s.mock[mk][u.key]).filter(o=>o&&o.raw!=null).map(o=>o.raw);mClassAvg[u.key][b]=v.length?v.reduce((a,x)=>a+x,0)/v.length:null;});});
+  const mMM={};MOCK_SUBJECTS.forEach(u=>{const vs=bans.map(b=>mClassAvg[u.key][b]).filter(x=>x!=null);mMM[u.key]=vs.length?{min:Math.min(...vs),max:Math.max(...vs)}:{min:null,max:null};});
+  let csRows=bans.map(b=>{let c=MOCK_SUBJECTS.map(u=>{const m=mClassAvg[u.key][b];const mm=mMM[u.key];return '<td'+heatStyle(m,mm.min,mm.max)+'>'+fmt(m,1)+'</td>';}).join('');return '<tr><td class="name">'+b+'반</td>'+c+'</tr>';}).join('');
+  let csTotal='<tr style="border-top:2px solid var(--border);font-weight:700;"><td class="name">전체</td>'+MOCK_SUBJECTS.map(u=>'<td class="raw">'+fmt(subjAvg(u.key),1)+'</td>').join('')+'</tr>';
+
+  document.getElementById('gradeReport').innerHTML=monthSeg+'<div class="panel glass">'+
+    '<div class="rhead grade-head"><div class="who" style="font-size:23px;">모의고사 분석 <small>'+MOCK_MONTHS.find(x=>x.key===mk).label+' 전국연합</small></div><div class="mut" style="align-self:flex-end;">응시 '+nStu+'명 · '+bans.length+'개 반'+(released?'':' · 가채점(등급)')+'</div></div>'+
+
+    '<div class="stat4" style="margin-top:16px;">'+
+      statHTML('전체 평균등급',fmt(gradeMean,2),'6과목 9등급','','#2563eb')+
+      statHTML('응시 인원',nStu+'명',MOCK_MONTHS.find(x=>x.key===mk).label,'','#4f46e5')+
+      statHTML('직전 회차',prev?prev.label:'-','추이 비교 기준','','#16a34a')+
+      statHTML('표준점수·백분위',released?'있음':'가채점','등급 위주','','#d97706')+
+    '</div>'+
+
+    secHTML('① 과목별 평균 원점수 / 평균등급','trending-up')+'<div class="sub" style="margin-left:0;">변화는 직전 응시 회차 평균 원점수 대비입니다.</div>'+
+    '<div class="tscroll"><table><thead><tr><th class="name">과목</th><th>평균 원점수</th><th>평균등급</th><th>직전 대비</th></tr></thead><tbody>'+avgRows+'</tbody></table></div>'+
+
+    '<div class="twocol" style="margin-top:6px;">'+
+      '<div>'+'<div class="sec"><span class="ico"><i data-lucide="pie-chart"></i></span><h2>② 국·수·영 등급 분포</h2><span class="seg sm" id="gMockDistSeg" style="margin-left:auto;">'+MOCK_MONTHS.filter(mm=>mockMonthHasAny(mm.key)).map(mm=>'<button data-m="'+mm.key+'"'+(gradeMockDistMonth===mm.key?' class="on"':'')+'>'+mm.label+'</button>').join('')+'</span></div>'+'<div class="chartbox"><canvas id="gMockDist"></canvas></div></div>'+
+      '<div>'+secHTML('③ 반별 평균등급','users')+'<div class="chartbox"><canvas id="gMockClass"></canvas></div></div>'+
+    '</div>'+
+
+    secHTML('④ 과목별 등급 인원 (9등급)','table')+'<div class="sub" style="margin-left:0;">인원 (비율)</div>'+
+    '<div class="tscroll"><table><thead><tr><th class="name">과목</th>'+[1,2,3,4,5,6,7,8,9].map(g=>'<th>'+g+'등급</th>').join('')+'</tr></thead><tbody>'+gRows+'</tbody></table></div>'+
+
+    secHTML('⑤ 반별 × 과목별 평균점수','bar-chart-3')+'<div class="sub" style="margin-left:0;">원점수 평균. 국·수·영 100점, 통합사회·통합과학·한국사 50점 만점입니다. <b>과목별로 평균이 높은(상위) 반일수록 파란색이 진하고, 가장 낮은 반은 흰색</b>입니다.</div>'+
+    '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+MOCK_SUBJECTS.map(u=>'<th>'+u.key+'<span class="mut">/'+u.max+'</span></th>').join('')+'</tr></thead><tbody>'+csRows+csTotal+'</tbody></table></div>'+
+
+    '<div class="disc">※ 모의고사 표준점수·백분위·등급은 191명 집단 분포 기반 추정치이며 정식 발표 후 확정됩니다. 9·10월은 미실시 시 "대기"로 표시되며 입력 시 자동 분석됩니다.</div></div>';
+
+  bindGradeMockSeg();
+  // dist 토글
+  const distSeg=document.getElementById('gMockDistSeg');if(distSeg)distSeg.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeMockDistMonth=b.getAttribute('data-m');renderGrade();});
+  // 차트
+  drawGradeMockCharts(arr,bans,gcount,classGradeAvg);
+  icons();
+}
+function bindGradeMockSeg(){const el=document.getElementById('gMockSeg');if(el)el.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeMockMonth=b.getAttribute('data-m');if(!mockMonthHasAny(gradeMockDistMonth)||true)gradeMockDistMonth=gradeMockMonth;renderGrade();});}
+
+function drawGradeMockCharts(arr,bans,gcount,classGradeAvg){
+  if(typeof Chart==='undefined')return;
+  // ② 국수영 등급 분포 (선택 월)
+  const dm=mockMonthHasAny(gradeMockDistMonth)?gradeMockDistMonth:gradeMockMonth;
+  const gc=key=>{const d=Array(10).fill(0);arr.forEach(s=>{const o=s.mock[dm][key];if(o&&o.grade>=1&&o.grade<=9)d[o.grade]++;});return d;};
+  const ctx1=document.getElementById('gMockDist');
+  if(ctx1){if(charts.gmDist)charts.gmDist.destroy();
+    const L=['1','2','3','4','5','6','7','8','9'].map(x=>x+'등급');
+    charts.gmDist=new Chart(ctx1,{type:'line',data:{labels:L,datasets:[
+      {label:'국어',data:gc('국어').slice(1),borderColor:'#2563eb',backgroundColor:'#2563eb',borderWidth:2,tension:.3,pointRadius:3},
+      {label:'수학',data:gc('수학').slice(1),borderColor:'#dc2626',backgroundColor:'#dc2626',borderWidth:2,tension:.3,pointRadius:3},
+      {label:'영어',data:gc('영어').slice(1),borderColor:'#16a34a',backgroundColor:'#16a34a',borderWidth:2,tension:.3,pointRadius:3}
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{family:'Pretendard',size:10},boxWidth:10}}},scales:{y:{beginAtZero:true,title:{display:true,text:'인원',font:{family:'Pretendard',size:10}},ticks:{font:{family:'Pretendard'}}},x:{ticks:{font:{family:'Pretendard',size:10}}}}}});
+  }
+  // ③ 반별 평균등급 — 선그래프
+  const ctx2=document.getElementById('gMockClass');
+  if(ctx2){if(charts.gmClass)charts.gmClass.destroy();
+    charts.gmClass=new Chart(ctx2,{type:'line',data:{labels:bans.map(b=>b+'반'),datasets:[{label:'반 평균등급',data:bans.map(b=>classGradeAvg(b)),borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.12)',borderWidth:2.5,tension:.3,pointRadius:5,fill:true}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{reverse:true,min:1,max:9,ticks:{stepSize:1,font:{family:'Pretendard'}}},x:{ticks:{font:{family:'Pretendard'}}}}}});
+  }
+}
+
+/* ============================================================
+   성적 데이터 열람 — 내신 탭 / 모의고사 탭 (조건 7, 8)
+   - 내신: 1·2학기 × 1차/2차/학기말 최종
+   - 모의: 월별
+   - 없는 데이터는 "-"
+   ============================================================ */
+let dataTab='naesin';
+let dataNaesinView='1차';   // '1차' | '2차' | '최종'
+let dataNaesinSem=1;
+let dataMockMonth='m3';
+let dataBan='', dataSearch='';
+let dataSort={key:'name',dir:1};
+
+document.getElementById('dataSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;dataTab=b.getAttribute('data-d');dataSort={key:'name',dir:1};[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));renderData();});
+
+function renderData(){
+  if(!dataReady)return;
+  renderDataControls();
+  renderDataTable();
+}
+
+function renderDataControls(){
+  const arr=allStudents();const bans=[...new Set(arr.map(s=>s.ban))].sort((a,b)=>a-b);
+  let html='<div class="controls glass">';
+  if(dataTab==='naesin'){
+    html+='<span class="seg" id="dNaesinSem">'+SEMESTERS.map(sem=>'<button data-s="'+sem.key+'"'+(dataNaesinSem===sem.key?' class="on"':'')+'>'+sem.label+(naesinSemHasAny(sem.key)?'':' (대기)')+'</button>').join('')+'</span>';
+    html+='<span class="seg" id="dNaesinView">'+
+      '<button data-v="1차"'+(dataNaesinView==='1차'?' class="on"':'')+'>1차 시험</button>'+
+      '<button data-v="2차"'+(dataNaesinView==='2차'?' class="on"':'')+'>2차 시험</button>'+
+      '<button data-v="최종"'+(dataNaesinView==='최종'?' class="on"':'')+'>학기말 최종</button></span>';
+  }else{
+    html+='<span class="seg" id="dMockMonth">'+MOCK_MONTHS.map(mm=>'<button data-m="'+mm.key+'"'+(dataMockMonth===mm.key?' class="on"':'')+'>'+mm.label+(mockMonthHasAny(mm.key)?'':' (대기)')+'</button>').join('')+'</span>';
+  }
+  html+='<select id="dBan"><option value="">전체 반</option>'+bans.map(b=>'<option value="'+b+'"'+(dataBan==b?' selected':'')+'>'+b+'반</option>').join('')+'</select>';
+  html+='<input type="text" id="dSearch" placeholder="이름 검색" value="'+esc(dataSearch)+'">';
+  html+='</div>';
+  document.getElementById('dataControls').innerHTML=html;
+
+  if(dataTab==='naesin'){
+    document.getElementById('dNaesinSem').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;dataNaesinSem=+b.getAttribute('data-s');renderData();});
+    document.getElementById('dNaesinView').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;dataNaesinView=b.getAttribute('data-v');renderData();});
+  }else{
+    document.getElementById('dMockMonth').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;dataMockMonth=b.getAttribute('data-m');renderData();});
+  }
+  document.getElementById('dBan').onchange=e=>{dataBan=e.target.value;renderDataTable();};
+  document.getElementById('dSearch').oninput=e=>{dataSearch=e.target.value;renderDataTable();};
+}
+
+const ACH_RANK={A:1,B:2,C:3,D:4,E:5,I:6};
+const NAESIN_FINAL_FIELDS=['환산총점','최종등급','최종성취도'];
+function dataGetVal(s,key){
+  if(key==='name')return s.ban*1000+s.num;
+  if(key==='avgG_1cha'){let g=[];NAESIN_SUBJECTS.forEach(subj=>{const o=s.naesin[dataNaesinSem][subj];if(o&&o['1차등급']!=null)g.push(o['1차등급']);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
+  if(key==='avgG_2cha'){let g=[];NAESIN_SUBJECTS.forEach(subj=>{const o=s.naesin[dataNaesinSem][subj];const gg=o?o['2차등급']:null;if(gg!=null)g.push(gg);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
+  if(key==='avgG_final'){let g=[];NAESIN_SUBJECTS.forEach(subj=>{const o=s.naesin[dataNaesinSem][subj];if(subjFinalComplete(o)&&o['최종등급']!=null)g.push(o['최종등급']);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
+  const t=key.split('|');  // type|subj|field
+  if(t[0]==='naesin'){const o=s.naesin[dataNaesinSem][t[1]];if(!o)return null;
+    if(NAESIN_FINAL_FIELDS.includes(t[2])&&!subjFinalComplete(o))return null; // 미완(대기)은 정렬 맨 뒤
+    const v=o[t[2]];if(v==null)return null;
+    if(NAESIN_ACH_FIELDS.includes(t[2]))return ACH_RANK[v]!=null?ACH_RANK[v]:null; // 성취도 A~I → 1~6
+    return v;
+  }
+  if(t[0]==='counsel'){const o=s.counsel[dataNaesinSem][t[1]];return o?o[t[2]]:null;}
+  if(t[0]==='mock'){const o=s.mock[dataMockMonth][t[1]];return o?o[t[2]]:null;}
+  return null;
+}
+
+function renderDataTable(){
+  let arr=allStudents();
+  if(dataBan)arr=arr.filter(s=>s.ban==dataBan);
+  if(dataSearch)arr=arr.filter(s=>s.name.includes(dataSearch.trim()));
+  const box=document.getElementById('dataTable');
+
+  // 대기 안내
+  if(dataTab==='naesin'&&!naesinSemHasAny(dataNaesinSem)){
+    box.innerHTML='<div class="panel glass"><div class="notice"><b>'+SEMESTERS.find(x=>x.key===dataNaesinSem).label+' 내신 데이터가 아직 입력되지 않았습니다.</b><br>시트에 점수가 입력되면 표가 자동으로 채워집니다.</div></div>';return;
+  }
+  if(dataTab==='mock'&&!mockMonthHasAny(dataMockMonth)){
+    box.innerHTML='<div class="panel glass"><div class="notice"><b>'+MOCK_MONTHS.find(x=>x.key===dataMockMonth).label+' 모의고사 데이터가 아직 없습니다.</b><br>시험 실시 후 입력되면 표가 자동으로 채워집니다.</div></div>';return;
+  }
+
+  // 정렬
+  const SS=dataSort;
+  arr=arr.slice().sort((a,b)=>{const na=a.ban*1000+a.num,nb=b.ban*1000+b.num;let va=dataGetVal(a,SS.key),vb=dataGetVal(b,SS.key);if(va==null&&vb==null)return na-nb;if(va==null)return 1;if(vb==null)return -1;if(va===vb)return na-nb;return (va-vb)*SS.dir;});
+  const aw=k=>SS.key===k?(SS.dir===1?'<span class="arr">▲</span>':'<span class="arr">▼</span>'):'';
+  const sth=(label,k)=>'<th class="sortable'+(SS.key===k?' sorted':'')+'" data-sort="'+k+'">'+label+aw(k)+'</th>';
+  const nameTh='<th class="name sortable'+(SS.key==='name'?' sorted':'')+'" data-sort="name" rowspan="2">학생'+aw('name')+'</th>';
+
+  let h='<div class="panel glass"><div class="tscroll"><table>';
+
+  if(dataTab==='naesin'){
+    const sem=dataNaesinSem,view=dataNaesinView;
+    const avgGcell=v=>v==null?'<span class="mut">-</span>':'<span class="raw">'+v.toFixed(2)+'</span>';
+    if(view==='최종'){
+      // 환산·등급·성취 + 전체 과목 평균등급 (변경13)
+      h+='<thead><tr class="grp">'+nameTh+NAESIN_SUBJECTS.map(subj=>'<th colspan="3">'+subj+'</th>').join('')+'<th rowspan="2" class="sortable'+(SS.key==='avgG_final'?' sorted':'')+'" data-sort="avgG_final">전체<br>평균등급'+(SS.key==='avgG_final'?aw('avgG_final'):'')+'</th></tr><tr>'+
+        NAESIN_SUBJECTS.map(subj=>sth('환산','naesin|'+subj+'|환산총점')+sth('등급','naesin|'+subj+'|최종등급')+sth('성취','naesin|'+subj+'|최종성취도')).join('')+'</tr></thead><tbody>';
+      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+NAESIN_SUBJECTS.map(subj=>{const o=s.naesin[sem][subj]||{};if(!subjFinalComplete(o))return '<td class="mut">대기</td><td class="mut">-</td><td class="mut">-</td>';return '<td class="raw">'+fmt(o['환산총점'],1)+'</td><td>'+gb(o['최종등급'])+'</td><td>'+ach(o['최종성취도'])+'</td>';}).join('')+'<td>'+avgGcell(dataGetVal(s,'avgG_final'))+'</td></tr>';});
+    }else if(view==='1차'){
+      // 1차 시험점수 + 1차등급 + 전체 과목 평균등급
+      h+='<thead><tr class="grp">'+nameTh+NAESIN_SUBJECTS.map(subj=>'<th colspan="2">'+subj+'</th>').join('')+'<th rowspan="2" class="sortable'+(SS.key==='avgG_1cha'?' sorted':'')+'" data-sort="avgG_1cha">전체<br>평균등급'+(SS.key==='avgG_1cha'?aw('avgG_1cha'):'')+'</th></tr><tr>'+
+        NAESIN_SUBJECTS.map(subj=>sth('1차점수','naesin|'+subj+'|1차시험')+sth('1차등급','naesin|'+subj+'|1차등급')).join('')+'</tr></thead><tbody>';
+      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+NAESIN_SUBJECTS.map(subj=>{const o=s.naesin[sem][subj]||{};return '<td class="raw">'+fmt(o['1차시험'])+'</td><td>'+gb(o['1차등급'])+'</td>';}).join('')+'<td>'+avgGcell(dataGetVal(s,'avgG_1cha'))+'</td></tr>';});
+    }else{
+      // 2차: 2차점수 + 2차등급 + 전체 평균등급 (시트 실값)
+      h+='<thead><tr class="grp">'+nameTh+NAESIN_SUBJECTS.map(subj=>'<th colspan="2">'+subj+'</th>').join('')+'<th rowspan="2" class="sortable'+(SS.key==='avgG_2cha'?' sorted':'')+'" data-sort="avgG_2cha">전체<br>평균등급'+(SS.key==='avgG_2cha'?aw('avgG_2cha'):'')+'</th></tr><tr>'+
+        NAESIN_SUBJECTS.map(subj=>sth('2차점수','naesin|'+subj+'|2차시험')+sth('2차등급','naesin|'+subj+'|2차등급')).join('')+'</tr></thead><tbody>';
+      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+NAESIN_SUBJECTS.map(subj=>{const o=s.naesin[sem][subj]||{};return '<td class="raw">'+fmt(o['2차시험'])+'</td><td>'+gb(o['2차등급'])+'</td>';}).join('')+'<td>'+avgGcell(dataGetVal(s,'avgG_2cha'))+'</td></tr>';});
     }
+    h+='</tbody>';
+  }else{
+    const mk=dataMockMonth;
+    // 상대평가: 원점수·표준·백분위·등급 / 절대평가: 원점수·등급 (변경14: 백분위 추가)
+    h+='<thead><tr class="grp">'+nameTh+MOCK_SUBJECTS.map(u=>'<th colspan="'+(u.rel?4:2)+'">'+u.key+'</th>').join('')+'</tr><tr>'+
+      MOCK_SUBJECTS.map(u=>u.rel?(sth('원점','mock|'+u.key+'|raw')+sth('표준','mock|'+u.key+'|std')+sth('백분위','mock|'+u.key+'|pct')+sth('등급','mock|'+u.key+'|grade')):(sth('원점','mock|'+u.key+'|raw')+sth('등급','mock|'+u.key+'|grade'))).join('')+'</tr></thead><tbody>';
+    arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+MOCK_SUBJECTS.map(u=>{const o=s.mock[mk][u.key]||{};return u.rel?('<td class="raw">'+fmt(o.raw)+'</td><td class="mut">'+fmt(o.std)+'</td><td>'+fmt(o.pct)+'</td><td>'+gb(o.grade)+'</td>'):('<td class="raw">'+fmt(o.raw)+'</td><td>'+gb(o.grade)+'</td>');}).join('')+'</tr>';});
+    h+='</tbody>';
+  }
+  const ctx=dataTab==='naesin'?(SEMESTERS.find(x=>x.key===dataNaesinSem).label+' '+dataNaesinView):MOCK_MONTHS.find(x=>x.key===dataMockMonth).label;
+  h+='</table></div><div class="sub" style="margin:8px 0 0;">표시 '+arr.length+'명'+(dataBan?' · '+dataBan+'반':'')+(dataSearch?' · "'+esc(dataSearch)+'"':'')+' · '+ctx+' · 열 제목을 누르면 정렬됩니다</div></div>';
+  box.innerHTML=h;
+
+  box.querySelector('table').addEventListener('click',e=>{const th=e.target.closest('th[data-sort]');if(!th)return;const k=th.getAttribute('data-sort');if(dataSort.key===k)dataSort.dir*=-1;else{dataSort.key=k;dataSort.dir=1;}renderDataTable();});
+  icons();
 }
+/* ═══════════ 불러오기 ═══════════ */
+let statsLoaded=false, statsLoading=false;
 
+async function statsBoot(force){
+  if(statsLoading)return;
+  if(statsLoaded&&!force){showStatsView(statsView);return;}
 
-/* ── 성적 데이터 열람 ───────────────────────────── */
+  statsLoading=true;
+  const load=document.getElementById('statsLoading');
+  const errBox=document.getElementById('statsError');
+  load.style.display='flex'; errBox.innerHTML='';
+  document.querySelectorAll('#view-stats .view').forEach(x=>x.classList.remove('active'));
+  document.getElementById('statsUpd').textContent='불러오는 중…';
 
-let dataInited = false;
-
-function initDataControls() {
-    if (dataInited) return;
-    dataInited = true;
-
-    const cls = document.getElementById('data-class');
-    cls.innerHTML = '<option value="">전체</option>' +
-        ((ME && ME.classList) || [1,2,3,4,5,6,7]).map(c => `<option value="${c}">${c}반</option>`).join('');
-
-    const mon = document.getElementById('data-month');
-    const months = (statsData && statsData.mock && statsData.mock.months.length)
-        ? statsData.mock.months
-        : [{key:'m3',label:'3월'},{key:'m6',label:'6월'},{key:'m9',label:'9월'},{key:'m10',label:'10월'}];
-    mon.innerHTML = months.map(m => `<option value="${m.key}">${m.label}</option>`).join('');
-
-    onDataModeChange();
-}
-
-function onDataModeChange() {
-    const mode = document.getElementById('data-mode').value;
-    const field = document.getElementById('data-field');
-    document.getElementById('data-month-wrap').classList.toggle('hidden', mode !== 'mock');
-
-    field.innerHTML = (mode === 'mock')
-        ? '<option value="score">점수</option><option value="percent">백분위</option><option value="grade">등급</option>'
-        : ['total:환산총점','final:최종등급','exam1:1차시험','grade1:1차등급','exam2:2차시험','grade2:2차등급','eval1:1차수행','eval2:2차수행','ach:최종성취도']
-            .map(x => { const p = x.split(':'); return `<option value="${p[0]}">${p[1]}</option>`; }).join('');
-
-    loadDataTable();
-}
-
-async function loadDataTable() {
-    const wrap = document.getElementById('data-table-wrap');
-    wrap.innerHTML = '<div class="p-8 text-center text-sm text-slate-500">불러오는 중입니다…</div>';
-    document.getElementById('data-count').textContent = '';
-
-    const payload = {
-        mode: document.getElementById('data-mode').value,
-        field: document.getElementById('data-field').value,
-        month: document.getElementById('data-month').value,
-        classNum: document.getElementById('data-class').value
-    };
-
-    try {
-        const d = await api('getGradeData', payload);
-        if (!d.rows || !d.rows.length) {
-            wrap.innerHTML = '<div class="p-8 text-center text-sm text-slate-400">표시할 데이터가 없습니다.</div>';
-            return;
-        }
-        document.getElementById('data-count').textContent = d.title + ' · ' + d.rows.length + '명';
-
-        let h = '<table class="w-full text-xs text-center"><thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 z-10"><tr>' +
-            d.header.map((x, i) => `<th class="p-2 border-b border-r border-slate-200 ${i < 3 ? 'bg-slate-100' : ''}">${escapeHtml(x)}</th>`).join('') +
-            '</tr></thead><tbody>';
-        d.rows.forEach(r => {
-            h += '<tr class="border-b border-slate-100 hover:bg-blue-50/40">' +
-                r.map((c, i) => `<td class="p-1.5 border-r border-slate-100 ${i === 2 ? 'font-semibold text-left pl-2' : ''} ${i < 3 ? 'bg-slate-50/70' : ''}">${escapeHtml(c)}</td>`).join('') +
-                '</tr>';
-        });
-        wrap.innerHTML = h + '</tbody></table>';
-    } catch (e) {
-        if (e.message === 'needLogin') return;
-        wrap.innerHTML = '<div class="p-8 text-center text-sm text-rose-600">' + escapeHtml(e.message) + '</div>';
+  try{
+    const d=await api('getGradeAll',{});
+    fillFromServer(d);
+    dataReady=true; statsLoaded=true;
+    load.style.display='none';
+    document.getElementById('statsUpd').innerHTML=
+      '연동됨 · '+escapeHtml(d.updated||'')+'<br>전교 '+students.size+'명';
+    showStatsView(statsView);
+  }catch(err){
+    load.style.display='none';
+    document.getElementById('statsUpd').textContent='연동 실패';
+    if(err.message!=='needLogin'){
+      errBox.innerHTML='<div class="err"><b>성적을 불러오지 못했습니다.</b><br>'+
+        '위쪽 [↻ 새로고침]을 눌러 다시 시도해 주세요.<br>'+
+        '<span style="font-size:12px;">('+escapeHtml(err.message)+')</span></div>';
     }
+  }finally{
+    statsLoading=false;
+  }
 }
 
+/** 로그아웃할 때 화면에 남은 성적을 지웁니다. */
+function statsReset(){
+  statsLoaded=false; dataReady=false; students=new Map();
+  Object.keys(charts).forEach(k=>{try{charts[k].destroy();}catch(e){}});
+  charts={};
+  const b=document.getElementById('statsError'); if(b)b.innerHTML='';
+}
+
+document.getElementById('statsRefresh').addEventListener('click',()=>statsBoot(true));
+document.getElementById('statsSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  showStatsView(b.getAttribute('data-v'));
+});
+
+window.statsBoot=statsBoot;
+window.statsReset=statsReset;
+
+
+})();
 
 /* ── 개인 리포트: 등급 상승 목표 · 추이 그래프 ──── */
 
