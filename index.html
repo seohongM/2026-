@@ -74,6 +74,13 @@
                 font-size: 7pt !important;
                 line-height: 1.15 !important;
             }
+            /* 모의고사 표는 과목마다 점수·백분위·등급 3칸이라 열이 많습니다.
+               A4 한 장에 들어가도록 조금 더 작게 찍습니다. */
+            .mock-table th, .mock-table td {
+                font-size: 6pt !important;
+                padding: 2px 0 !important;
+                letter-spacing: -0.2px;
+            }
             .print-text {
                 font-size: 7.5pt !important;
                 line-height: 1.25 !important;
@@ -1014,15 +1021,22 @@ function renderMockExams(mockExams) {
     const container = document.getElementById('mock-exams-container');
     const subjects = ['국어', '수학', '영어', '통합사회', '통합과학', '한국사'];
 
+    // 영어·한국사는 절대평가라 백분위가 없습니다.
+    const noPercent = ['영어', '한국사'];
+
     let html = `
-        <table class="print-table w-full text-xs text-center">
+        <table class="print-table mock-table w-full text-xs text-center">
             <thead class="bg-slate-100 text-slate-700 font-bold">
                 <tr>
                     <th rowspan="2" class="p-1 border-b border-r border-slate-300 align-middle">구분</th>
-                    ${subjects.map(s => `<th colspan="2" class="p-1 border-b border-r border-slate-300">${s}</th>`).join('')}
+                    ${subjects.map(s => `<th colspan="3" class="p-1 border-b border-r border-slate-300">${s}</th>`).join('')}
                 </tr>
                 <tr class="bg-slate-50 text-[10px]">
-                    ${subjects.map(() => `<th class="p-1 border-b border-r border-slate-300">점수</th><th class="p-1 border-b border-r border-slate-300">등급</th>`).join('')}
+                    ${subjects.map(s => `
+                        <th class="p-1 border-b border-r border-slate-300 font-semibold">점수</th>
+                        <th class="p-1 border-b border-r border-slate-300 font-semibold${noPercent.indexOf(s) > -1 ? ' text-slate-300' : ''}">백분위</th>
+                        <th class="p-1 border-b border-r border-slate-300 font-semibold">등급</th>
+                    `).join('')}
                 </tr>
             </thead>
             <tbody class="text-slate-800">
@@ -1039,17 +1053,27 @@ function renderMockExams(mockExams) {
         const examList = (mockExams && mockExams[m.key]) ? mockExams[m.key] : [];
 
         const hasAnyValue = examList.some(item =>
-            (item.score && item.score !== '-') || (item.grade && item.grade !== '-'));
+            (item.score && item.score !== '-') ||
+            (item.grade && item.grade !== '-') ||
+            (item.percent && item.percent !== '-'));
 
         html += `<tr class="border-b border-slate-200${hasAnyValue ? '' : ' bg-slate-50/40'}">
                     <td class="p-1 font-bold bg-slate-50 border-r border-slate-200 whitespace-nowrap">${m.name}</td>`;
 
         subjects.forEach(subName => {
             const found = hasAnyValue ? examList.find(item => item.subject === subName) : null;
-            const score = (found && found.score && found.score !== '-') ? found.score : (hasAnyValue ? '-' : '');
-            const grade = (found && found.grade && found.grade !== '-') ? found.grade : (hasAnyValue ? '-' : '');
+            const pick = v => (v && v !== '-') ? v : (hasAnyValue ? '-' : '');
+
+            const score = pick(found && found.score);
+            const grade = pick(found && found.grade);
+            // 백분위가 없는 과목(영어·한국사)은 '-' 대신 빈칸으로 둡니다.
+            const percent = (noPercent.indexOf(subName) > -1)
+                ? ((found && found.percent && found.percent !== '-') ? found.percent : '')
+                : pick(found && found.percent);
+
             html += `
                 <td class="p-1 border-r border-slate-200">${score}</td>
+                <td class="p-1 border-r border-slate-200 text-slate-500">${percent}</td>
                 <td class="p-1 border-r border-slate-200 font-bold text-blue-700">${grade}</td>
             `;
         });
