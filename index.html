@@ -532,7 +532,7 @@
                 <div id="uplift-card" class="print-card mb-2 hidden">
                     <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 print-section-title">
                         🎯 등급 상승 목표
-                        <span class="font-medium text-[10px] text-slate-400">1차 시험 기준 · 2차에서 몇 점 더 받으면 한 등급 오르는지</span>
+                        <span class="font-medium text-[10px] text-slate-400">지금 등급에서 한 등급 올리려면 몇 점이 더 필요한지 (전교 등급컷 기준)</span>
                     </h3>
                     <div id="uplift-body" class="text-xs"></div>
                 </div>
@@ -2234,23 +2234,55 @@ function renderUplift(grades) {
     const body = document.getElementById('uplift-body');
     if (!grades) { card.classList.add('hidden'); return; }
 
-    const items = grades
-        .filter(g => g.hasData && g.needUp && g.needUp !== '-' && g.cGrade1)
-        .map(g => ({ subject: g.subject, need: parseFloat(String(g.needUp).replace(/[^0-9.]/g, '')), from: g.cGrade1 }))
-        .filter(x => !isNaN(x.need))
-        .sort((a, b) => a.need - b.need);
+    // upNow = 지금 등급 / upGrade = 한 등급 위 / upNeed = 그때까지 모자란 점수
+    const rows = (grades || []).filter(g => g.hasData && g.upNow);
+    if (!rows.length) { card.classList.add('hidden'); return; }
 
-    if (!items.length) { card.classList.add('hidden'); return; }
+    const items = rows.map(g => ({
+        subject: g.subject,
+        now:  Number(g.upNow),
+        to:   g.upGrade ? Number(g.upGrade) : null,
+        need: (g.upNeed === '' || g.upNeed === undefined || g.upNeed === null) ? null : Number(g.upNeed)
+    }));
+
+    // 적은 점수로 올릴 수 있는 과목부터. 이미 1등급인 과목은 맨 뒤.
+    const sorted = items.slice().sort((a, b) => {
+        if (a.need === null && b.need === null) return a.now - b.now;
+        if (a.need === null) return 1;
+        if (b.need === null) return -1;
+        return a.need - b.need;
+    });
+
+    const shown = sorted.filter(x => x.need !== null || x.now === 1);
+    if (!shown.length) { card.classList.add('hidden'); return; }
     card.classList.remove('hidden');
 
-    body.innerHTML = '<div class="flex flex-wrap gap-1.5">' + items.map((x, i) => `
-        <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-semibold
-                     ${i < 2 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}">
-            <b>${escapeHtml(x.subject)}</b> +${escapeHtml(needPoint(x.need))}점
+    let rank = 0;
+    const chips = shown.map(x => {
+        // 이미 1등급 — 더 올릴 곳이 없습니다.
+        if (x.need === null) {
+            return `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-semibold
+                                 bg-emerald-50 border-emerald-200 text-emerald-800">
+                <b>${escapeHtml(x.subject)}</b> 1등급 <span class="text-emerald-600">최고</span></span>`;
+        }
+        rank++;
+        const near = rank <= 2;
+        return `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-semibold
+                             ${near ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}">
+            <b>${escapeHtml(x.subject)}</b>
+            <span class="text-slate-400">${x.now}등급</span>
             <span class="text-slate-400">→</span>
-            <b class="text-blue-700">${Math.max(1, Number(x.from) - 1)}등급</b>
-        </span>`).join('') + '</div>' +
-        '<p class="text-[10px] text-slate-400 mt-1.5">앞의 두 과목이 가장 적은 점수로 등급을 올릴 수 있는 과목입니다.</p>';
+            <b class="text-blue-700">${x.to}등급</b>
+            +${escapeHtml(needPoint(x.need))}점</span>`;
+    }).join('');
+
+    const basis = rows.map(g => g.upBasis).filter(Boolean);
+    const basisText = basis.indexOf('환산총점') > -1
+        ? (basis.indexOf('1차 점수') > -1 ? '학기말이 나온 과목은 환산총점, 아직인 과목은 1차 점수 기준' : '환산총점 기준')
+        : '1차 점수 기준';
+
+    body.innerHTML = '<div class="flex flex-wrap gap-1.5">' + chips + '</div>' +
+        `<p class="text-[10px] text-slate-400 mt-1.5">${basisText} · 전교에서 한 등급 위를 받은 학생의 최저 점수까지 모자란 점수입니다. 앞의 두 과목이 가장 적은 점수로 올릴 수 있습니다.</p>`;
 }
 
 function renderMockCharts(mockExams) {
