@@ -1175,6 +1175,53 @@ function buildGradeRanks_(gData) {
 }
 
 
+/** 과목별 '등급컷' — 그 등급을 받은 학생 중 가장 낮은 점수.
+ *
+ *  '한 등급 올리려면 몇 점이 더 필요한가' 를 구하려고 씁니다.
+ *  예) 내가 3등급 71점인데 전교에서 2등급을 받은 학생 중 최저가 79점이면
+ *      → 8점이 더 필요합니다.
+ *
+ *  등급은 시트에 있는 5등급 값을 그대로 씁니다. (수식은 건드리지 않습니다)
+ *    first : 1차시험 점수 ↔ 1차등급
+ *    final : 환산총점    ↔ 최종등급
+ */
+function buildGradeCuts_(gData) {
+  var cuts = [];
+
+  SUBJECTS.forEach(function (subj, si) {
+    var i = subj.start;
+    var first = {}, final = {};
+
+    for (var r = 1; r < gData.length; r++) {
+      var row = gData[r];
+      if (isNaN(toInt_(row[0])) || isNaN(toInt_(row[1]))) continue;   // 반·번호 없는 줄 제외
+
+      var s1 = toNum_(row[i + 0]);   // 1차시험
+      var s2 = toNum_(row[i + 2]);   // 2차시험
+      var e1 = toNum_(row[i + 4]);   // 1차수행
+      var e2 = toNum_(row[i + 5]);   // 2차수행
+      var tot = toNum_(row[i + 6]);  // 환산총점
+
+      var g1 = toInt_(row[i + 1]);   // 1차등급
+      var gf = toInt_(row[i + 7]);   // 최종등급
+
+      if (s1 !== null && !isNaN(g1) && g1 >= 1 && g1 <= 5) {
+        if (first[g1] === undefined || s1 < first[g1]) first[g1] = s1;
+      }
+
+      var hasAny = (s1 !== null || s2 !== null || e1 !== null || e2 !== null);
+      if (hasAny && tot !== null && !isNaN(gf) && gf >= 1 && gf <= 5) {
+        if (final[gf] === undefined || tot < final[gf]) final[gf] = tot;
+      }
+    }
+
+    cuts[si] = { first: first, final: final };
+  });
+
+  return cuts;
+}
+
+
 /* ── 학급별 학생 조회 ────────────────────────────── */
 
 function getStudentsByClass(classNum) {
@@ -1234,6 +1281,7 @@ function getStudentsByClass(classNum) {
     if (gradeSheet) {
       var gData = gradeSheet.getDataRange().getValues();
       var ranks = buildGradeRanks_(gData);          // 전교생 기준 석차백분율 변환기
+      var cuts  = buildGradeCuts_(gData);           // 전교생 기준 과목별 등급컷
 
       for (var r = 1; r < gData.length; r++) {
         var gRow = gData[r];
@@ -1297,6 +1345,31 @@ function getStudentsByClass(classNum) {
             if (pctF !== null) { acc.sP += pctF; acc.nP++; }
           }
 
+          // ── 현재 등급에서 한 등급 올리는 데 필요한 점수 ──
+          //    학기말 최종이 나왔으면 환산총점 기준, 아직이면 1차 시험 점수 기준.
+          var cut = cuts[si] || { first: {}, final: {} };
+          var nowGrade = null, nowScore = null, cutMap = null, upBasis = '';
+
+          var gfNum = toInt_(fGrade);
+          var g1Num = toInt_(grade1);
+
+          if (hasAny && nt !== null && !isNaN(gfNum) && gfNum >= 1 && gfNum <= 5) {
+            nowGrade = gfNum; nowScore = nt; cutMap = cut.final; upBasis = '환산총점';
+          } else if (has1 && n1 !== null && !isNaN(g1Num) && g1Num >= 1 && g1Num <= 5) {
+            nowGrade = g1Num; nowScore = n1; cutMap = cut.first; upBasis = '1차 점수';
+          }
+
+          var upGrade = '', upNeed = '';
+          if (nowGrade !== null && nowGrade > 1) {
+            var line = cutMap[nowGrade - 1];
+            if (line !== undefined) {
+              var diff = line - nowScore;
+              if (diff < 0) diff = 0;
+              upGrade = String(nowGrade - 1);
+              upNeed  = String(round_(diff, 2));
+            }
+          }
+
           stu.schoolGrades.push({
             subject: subj.name,
             exam1:  has1 ? exam1  : '',
@@ -1320,10 +1393,16 @@ function getStudentsByClass(classNum) {
             pct2:      (pct2 === null) ? '' : round_(pct2, 1),
             pctFinal:  (pctF === null) ? '' : round_(pctF, 1),
 
-            // 상담_2차목표 시트에서 온 값
+            // 상담_2차목표 시트에서 온 값 (1차 시험 기준)
             cScore1: cScore1,
             cGrade1: cGrade1,
-            needUp:  needUp
+            needUp:  needUp,
+
+            // 현재 등급에서 한 등급 올리는 데 필요한 점수 (전교 등급컷까지)
+            upNow:   (nowGrade === null) ? '' : String(nowGrade),
+            upGrade: upGrade,
+            upNeed:  upNeed,
+            upBasis: upBasis
           });
         });
 
