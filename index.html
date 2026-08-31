@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>우리반 학생 개별 상담 관리 시스템</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <script>
@@ -239,6 +240,10 @@
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                     <span>개별 상담하기</span>
                 </button>
+                <button onclick="switchView('stats')" id="nav-stats" class="w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-slate-300 hover:bg-slate-800 font-semibold transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                    <span>통합 성적 관리</span>
+                </button>
             </nav>
         </div>
 
@@ -391,6 +396,27 @@
                     </div>
                 </div>
 
+                <!-- 등급 상승 목표 (상담_2차목표 시트) -->
+                <div id="uplift-card" class="print-card mb-2 hidden">
+                    <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 print-section-title">
+                        🎯 등급 상승 목표
+                        <span class="font-medium text-[10px] text-slate-400">1차 시험 기준 · 2차에서 몇 점 더 받으면 한 등급 오르는지</span>
+                    </h3>
+                    <div id="uplift-body" class="text-xs"></div>
+                </div>
+
+                <!-- 성적 변화 추이 (화면 전용 · 인쇄 제외) -->
+                <div class="no-print mb-2 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div class="bg-white border border-slate-200 rounded-xl p-3">
+                        <h3 class="text-xs font-extrabold text-slate-800 mb-2">📉 모의고사 등급 추이 <span class="font-medium text-[10px] text-slate-400">(아래로 갈수록 좋음)</span></h3>
+                        <div class="h-56"><canvas id="chart-mock-grade"></canvas></div>
+                    </div>
+                    <div class="bg-white border border-slate-200 rounded-xl p-3">
+                        <h3 class="text-xs font-extrabold text-slate-800 mb-2">📈 모의고사 백분위 추이 <span class="font-medium text-[10px] text-slate-400">(영어·한국사 제외)</span></h3>
+                        <div class="h-56"><canvas id="chart-mock-pct"></canvas></div>
+                    </div>
+                </div>
+
                 <div class="print-card mb-2">
                     <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 border-b border-slate-200 pb-1 print-section-title">
                         💬 개별 상담 종합 코멘트
@@ -426,6 +452,72 @@
                 </div>
 
             </div>
+        </section>
+
+        <!-- ══════════ 통합 성적 관리 ══════════ -->
+        <section id="view-stats" class="hidden no-print">
+
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h2 class="text-2xl font-extrabold text-slate-900">통합 성적 관리</h2>
+                        <p class="text-slate-500 text-sm mt-1">
+                            <span id="stats-total" class="font-bold text-slate-700">-</span>명 전체를 기준으로 계산합니다.
+                            <span class="text-slate-400">· 시트를 고치면 바로 반영됩니다</span>
+                        </p>
+                    </div>
+                    <button onclick="loadStats(true)" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-sm font-bold shadow transition whitespace-nowrap">
+                        ↻ 새로고침
+                    </button>
+                </div>
+
+                <div class="mt-4 inline-flex bg-slate-100 p-1 rounded-xl">
+                    <button id="tab-analysis" onclick="switchStatsTab('analysis')"
+                            class="px-4 py-2 rounded-lg text-sm font-bold transition bg-white text-slate-900 shadow-sm">
+                        학년 성적 분석 리포트
+                    </button>
+                    <button id="tab-data" onclick="switchStatsTab('data')"
+                            class="px-4 py-2 rounded-lg text-sm font-bold transition text-slate-500 hover:text-slate-800">
+                        성적 데이터 열람
+                    </button>
+                </div>
+            </div>
+
+            <!-- 학년 성적 분석 -->
+            <div id="stats-analysis">
+                <div id="stats-loading" class="bg-white border border-slate-200 text-slate-500 p-8 rounded-2xl text-sm text-center">
+                    전교생 성적을 계산하는 중입니다… <span class="text-slate-400">(몇 초 걸립니다)</span>
+                </div>
+                <div id="stats-body" class="hidden space-y-6"></div>
+            </div>
+
+            <!-- 성적 데이터 열람 -->
+            <div id="stats-data" class="hidden">
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-4 flex flex-wrap items-end gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">구분</label>
+                        <select id="data-mode" onchange="onDataModeChange()" class="p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-semibold">
+                            <option value="naesin">내신 성적</option>
+                            <option value="mock">모의고사 성적</option>
+                        </select>
+                    </div>
+                    <div id="data-month-wrap" class="hidden">
+                        <label class="block text-xs font-bold text-slate-500 mb-1">시기</label>
+                        <select id="data-month" onchange="loadDataTable()" class="p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-semibold"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">항목</label>
+                        <select id="data-field" onchange="loadDataTable()" class="p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-semibold"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">반</label>
+                        <select id="data-class" onchange="loadDataTable()" class="p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-semibold"></select>
+                    </div>
+                    <div class="ml-auto text-xs text-slate-500 font-medium" id="data-count"></div>
+                </div>
+                <div id="data-table-wrap" class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-auto" style="max-height:70vh"></div>
+            </div>
+
         </section>
 
     </main>
@@ -776,6 +868,8 @@ function forceLogout(msg) {
     ME = null;
     studentsData = [];
     selectedStudent = null;
+    statsData = null;
+    dataInited = false;
     sessionStorage.removeItem('sc_token');
 
     document.getElementById('app').classList.add('hidden');
@@ -919,7 +1013,9 @@ function selectStudent(num) {
     syncTargetPrint();
 
     renderSchoolGrades(selectedStudent.schoolGrades, selectedStudent.summary);
+    renderUplift(selectedStudent.schoolGrades);
     renderMockExams(selectedStudent.mockExams);
+    renderMockCharts(selectedStudent.mockExams);
     renderHistory(selectedStudent.counselingHistory);
 
     document.getElementById('counsel-text').value = '';
@@ -1104,22 +1200,20 @@ function renderHistory(history) {
     });
 }
 
-function switchView(view) {
-    document.getElementById('view-home').classList.toggle('hidden', view !== 'home');
-    document.getElementById('view-counseling').classList.toggle('hidden', view !== 'counseling');
+const VIEWS = ['home', 'counseling', 'stats'];
 
-    const btnHome = document.getElementById('nav-home');
-    const btnCounseling = document.getElementById('nav-counseling');
+function switchView(view) {
     const active = "w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl bg-blue-600 text-white font-semibold shadow-md transition";
     const idle = "w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl text-slate-300 hover:bg-slate-800 font-semibold transition";
 
-    if (view === 'home') {
-        btnHome.className = active;
-        btnCounseling.className = idle;
-    } else {
-        btnCounseling.className = active;
-        btnHome.className = idle;
-    }
+    VIEWS.forEach(v => {
+        const sec = document.getElementById('view-' + v);
+        const btn = document.getElementById('nav-' + v);
+        if (sec) sec.classList.toggle('hidden', v !== view);
+        if (btn) btn.className = (v === view) ? active : idle;
+    });
+
+    if (view === 'stats' && !statsData) loadStats(false);
 }
 
 function changeClass() {
@@ -1287,6 +1381,349 @@ function showSaveStatus(message, ok) {
     status.classList.remove('hidden');
     setTimeout(() => status.classList.add('hidden'), 4000);
 }
+
+/* ══════════════════════════════════════════════════════════
+   통합 성적 관리
+   ══════════════════════════════════════════════════════════ */
+
+let statsData = null;
+const CHARTS = {};
+
+function drawChart(id, config) {
+    const el = document.getElementById(id);
+    if (!el || typeof Chart === 'undefined') return;
+    if (CHARTS[id]) { CHARTS[id].destroy(); delete CHARTS[id]; }
+    CHARTS[id] = new Chart(el, config);
+}
+
+const G5_COLORS = ['#2563eb', '#0891b2', '#64748b', '#f59e0b', '#dc2626'];
+const SUBJ_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#ea580c', '#7c3aed', '#0891b2'];
+
+function num(v, d) { return (v === null || v === undefined || v === '') ? (d === undefined ? '-' : d) : v; }
+
+function switchStatsTab(tab) {
+    const on = 'px-4 py-2 rounded-lg text-sm font-bold transition bg-white text-slate-900 shadow-sm';
+    const off = 'px-4 py-2 rounded-lg text-sm font-bold transition text-slate-500 hover:text-slate-800';
+    document.getElementById('tab-analysis').className = (tab === 'analysis') ? on : off;
+    document.getElementById('tab-data').className = (tab === 'data') ? on : off;
+    document.getElementById('stats-analysis').classList.toggle('hidden', tab !== 'analysis');
+    document.getElementById('stats-data').classList.toggle('hidden', tab !== 'data');
+    if (tab === 'data') initDataControls();
+}
+
+async function loadStats(force) {
+    if (statsData && !force) return;
+    document.getElementById('stats-loading').classList.remove('hidden');
+    document.getElementById('stats-body').classList.add('hidden');
+    try {
+        statsData = await api('getGradeStats', {});
+        renderStats(statsData);
+    } catch (e) {
+        if (e.message === 'needLogin') return;
+        document.getElementById('stats-loading').innerHTML =
+            '<span class="text-rose-600 font-semibold">계산하지 못했습니다.</span><br>' +
+            '<span class="text-xs">' + escapeHtml(e.message) + '</span>';
+    }
+}
+
+function renderStats(d) {
+    document.getElementById('stats-total').textContent = d.totalStudents || 0;
+    document.getElementById('stats-loading').classList.add('hidden');
+    const body = document.getElementById('stats-body');
+    body.classList.remove('hidden');
+
+    const subj = (d.naesin && d.naesin.subjects) ? d.naesin.subjects.filter(s => s.n > 0) : [];
+    const box = (title, desc, inner) => `
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+            <h3 class="text-base font-extrabold text-slate-900">${title}</h3>
+            ${desc ? `<p class="text-xs text-slate-500 mt-1 mb-3 leading-relaxed">${desc}</p>` : '<div class="mb-3"></div>'}
+            ${inner}
+        </div>`;
+
+    if (!subj.length) {
+        body.innerHTML = box('내신 성적', '', '<p class="text-sm text-slate-400">아직 입력된 내신 성적이 없습니다.</p>');
+        return;
+    }
+
+    /* ① 과목별 통계 요약 */
+    let t1 = `<div class="overflow-x-auto"><table class="w-full text-xs text-center border border-slate-200 rounded-lg">
+        <thead class="bg-slate-100 text-slate-700 font-bold"><tr>
+        <th class="p-2 border-b border-r border-slate-200 text-left">과목</th>
+        <th class="p-2 border-b border-r border-slate-200">인원</th>
+        <th class="p-2 border-b border-r border-slate-200">평균</th>
+        <th class="p-2 border-b border-r border-slate-200">표준편차</th>
+        <th class="p-2 border-b border-r border-slate-200">최저</th>
+        <th class="p-2 border-b border-r border-slate-200">Q1</th>
+        <th class="p-2 border-b border-r border-slate-200">중앙값</th>
+        <th class="p-2 border-b border-r border-slate-200">Q3</th>
+        <th class="p-2 border-b border-slate-200">최고</th></tr></thead><tbody>`;
+    subj.forEach(s => {
+        t1 += `<tr class="border-b border-slate-100 hover:bg-slate-50">
+            <td class="p-2 border-r border-slate-100 font-bold text-left">${escapeHtml(s.name)}</td>
+            <td class="p-2 border-r border-slate-100 text-slate-500">${s.n}</td>
+            <td class="p-2 border-r border-slate-100 font-extrabold text-blue-700">${num(s.mean)}</td>
+            <td class="p-2 border-r border-slate-100">${num(s.sd)}</td>
+            <td class="p-2 border-r border-slate-100 text-slate-500">${num(s.min)}</td>
+            <td class="p-2 border-r border-slate-100">${num(s.q1)}</td>
+            <td class="p-2 border-r border-slate-100 font-bold">${num(s.med)}</td>
+            <td class="p-2 border-r border-slate-100">${num(s.q3)}</td>
+            <td class="p-2 text-slate-500">${num(s.max)}</td></tr>`;
+    });
+    t1 += '</tbody></table></div>';
+
+    /* ② 과목별 등급 분포 */
+    const t2 = '<div class="h-72"><canvas id="chart-dist"></canvas></div>';
+
+    /* ③ 반별 × 과목 평균 히트맵 */
+    const names = subj.map(s => s.name);
+    const idxOf = d.naesin.subjectNames;
+    let allVals = [];
+    d.naesin.byClass.forEach(c => c.values.forEach((v, i) => {
+        if (v !== null && names.indexOf(idxOf[i]) > -1) allVals.push(v);
+    }));
+    const lo = Math.min.apply(null, allVals), hi = Math.max.apply(null, allVals);
+    const heat = v => {
+        if (v === null) return 'background:#f8fafc;color:#cbd5e1';
+        const t = (hi === lo) ? 0.5 : (v - lo) / (hi - lo);
+        return `background:rgba(37,99,235,${(0.08 + t * 0.55).toFixed(2)});color:${t > 0.6 ? '#fff' : '#0f172a'}`;
+    };
+    let t3 = `<div class="overflow-x-auto"><table class="w-full text-xs text-center border border-slate-200">
+        <thead class="bg-slate-100 font-bold"><tr><th class="p-2 border-b border-r border-slate-200">반</th>
+        ${names.map(n => `<th class="p-2 border-b border-r border-slate-200">${escapeHtml(n)}</th>`).join('')}</tr></thead><tbody>`;
+    d.naesin.byClass.forEach(c => {
+        t3 += `<tr><td class="p-2 border-b border-r border-slate-200 font-bold bg-slate-50">${c.cls}반</td>`;
+        idxOf.forEach((nm, i) => {
+            if (names.indexOf(nm) === -1) return;
+            const v = c.values[i];
+            t3 += `<td class="p-2 border-b border-r border-slate-200 font-bold" style="${heat(v)}">${num(v)}</td>`;
+        });
+        t3 += '</tr>';
+    });
+    t3 += '</tbody></table></div>';
+
+    /* ④ 성취도 분포 */
+    let t4 = `<div class="overflow-x-auto"><table class="w-full text-xs text-center border border-slate-200">
+        <thead class="bg-slate-100 font-bold"><tr><th class="p-2 border-b border-r border-slate-200 text-left">과목</th>
+        ${['A','B','C','D','E'].map(a => `<th class="p-2 border-b border-r border-slate-200">${a}</th>`).join('')}
+        </tr></thead><tbody>`;
+    subj.forEach(s => {
+        t4 += `<tr><td class="p-2 border-b border-r border-slate-200 font-bold text-left">${escapeHtml(s.name)}</td>`;
+        ['A','B','C','D','E'].forEach(a => {
+            const n = (s.achDist && s.achDist[a]) || 0;
+            const p = s.n ? Math.round(n / s.n * 100) : 0;
+            t4 += `<td class="p-2 border-b border-r border-slate-200">${n}<span class="text-slate-400 text-[10px] ml-0.5">${p}%</span></td>`;
+        });
+        t4 += '</tr>';
+    });
+    t4 += '</tbody></table></div>';
+
+    /* ⑤ 모의고사 */
+    const months = (d.mock && d.mock.months) ? d.mock.months : [];
+    const t5 = months.length
+        ? '<div class="h-72"><canvas id="chart-mockavg"></canvas></div>'
+        : '<p class="text-sm text-slate-400">아직 입력된 모의고사 성적이 없습니다.</p>';
+
+    body.innerHTML =
+        box('① 과목별 전체 통계 요약',
+            '환산총점 기준입니다. <b>표준편차</b>가 클수록 점수가 넓게 퍼진(변별력 있는) 과목입니다. ' +
+            '<b>Q1</b>은 하위 25% 지점, <b>Q3</b>은 상위 25% 지점으로, 가운데 절반의 학생이 Q1~Q3 사이에 있습니다.', t1) +
+        box('② 과목별 등급 분포', '현행 5등급제 기준 인원입니다. 막대에 마우스를 올리면 인원이 나옵니다.', t2) +
+        box('③ 반별 · 과목별 평균 (환산총점)', '색이 진할수록 평균이 높습니다. 성적이 입력된 과목만 나옵니다.', t3) +
+        box('④ 성취도 분포', '절대평가 성취도(A~E) 인원과 비율입니다.', t4) +
+        box('⑤ 모의고사 과목별 평균 등급 추이', '아래로 내려갈수록 좋은 등급입니다.', t5);
+
+    /* 차트 그리기 */
+    drawChart('chart-dist', {
+        type: 'bar',
+        data: {
+            labels: subj.map(s => s.name),
+            datasets: [1,2,3,4,5].map((g, gi) => ({
+                label: g + '등급',
+                data: subj.map(s => s.gradeDist5[gi]),
+                backgroundColor: G5_COLORS[gi]
+            }))
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: '인원(명)' } } },
+            plugins: { legend: { position: 'bottom' } }
+        }
+    });
+
+    if (months.length) {
+        drawChart('chart-mockavg', {
+            type: 'line',
+            data: {
+                labels: months.map(m => m.label),
+                datasets: d.mock.subjects.map((sub, i) => ({
+                    label: sub,
+                    data: months.map(m => {
+                        const arr = d.mock.stats[m.key] || [];
+                        const f = arr.filter(x => x.subject === sub)[0];
+                        return f ? f.meanGrade : null;
+                    }),
+                    borderColor: SUBJ_COLORS[i % SUBJ_COLORS.length],
+                    backgroundColor: SUBJ_COLORS[i % SUBJ_COLORS.length],
+                    tension: 0.3, spanGaps: true
+                }))
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: { y: { reverse: true, min: 1, max: 9, ticks: { stepSize: 1 }, title: { display: true, text: '평균 등급' } } },
+                plugins: { legend: { position: 'bottom' } }
+            }
+        });
+    }
+}
+
+
+/* ── 성적 데이터 열람 ───────────────────────────── */
+
+let dataInited = false;
+
+function initDataControls() {
+    if (dataInited) return;
+    dataInited = true;
+
+    const cls = document.getElementById('data-class');
+    cls.innerHTML = '<option value="">전체</option>' +
+        ((ME && ME.classList) || [1,2,3,4,5,6,7]).map(c => `<option value="${c}">${c}반</option>`).join('');
+
+    const mon = document.getElementById('data-month');
+    const months = (statsData && statsData.mock && statsData.mock.months.length)
+        ? statsData.mock.months
+        : [{key:'m3',label:'3월'},{key:'m6',label:'6월'},{key:'m9',label:'9월'},{key:'m10',label:'10월'}];
+    mon.innerHTML = months.map(m => `<option value="${m.key}">${m.label}</option>`).join('');
+
+    onDataModeChange();
+}
+
+function onDataModeChange() {
+    const mode = document.getElementById('data-mode').value;
+    const field = document.getElementById('data-field');
+    document.getElementById('data-month-wrap').classList.toggle('hidden', mode !== 'mock');
+
+    field.innerHTML = (mode === 'mock')
+        ? '<option value="score">점수</option><option value="percent">백분위</option><option value="grade">등급</option>'
+        : ['total:환산총점','final:최종등급','exam1:1차시험','grade1:1차등급','exam2:2차시험','grade2:2차등급','eval1:1차수행','eval2:2차수행','ach:최종성취도']
+            .map(x => { const p = x.split(':'); return `<option value="${p[0]}">${p[1]}</option>`; }).join('');
+
+    loadDataTable();
+}
+
+async function loadDataTable() {
+    const wrap = document.getElementById('data-table-wrap');
+    wrap.innerHTML = '<div class="p-8 text-center text-sm text-slate-500">불러오는 중입니다…</div>';
+    document.getElementById('data-count').textContent = '';
+
+    const payload = {
+        mode: document.getElementById('data-mode').value,
+        field: document.getElementById('data-field').value,
+        month: document.getElementById('data-month').value,
+        classNum: document.getElementById('data-class').value
+    };
+
+    try {
+        const d = await api('getGradeData', payload);
+        if (!d.rows || !d.rows.length) {
+            wrap.innerHTML = '<div class="p-8 text-center text-sm text-slate-400">표시할 데이터가 없습니다.</div>';
+            return;
+        }
+        document.getElementById('data-count').textContent = d.title + ' · ' + d.rows.length + '명';
+
+        let h = '<table class="w-full text-xs text-center"><thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 z-10"><tr>' +
+            d.header.map((x, i) => `<th class="p-2 border-b border-r border-slate-200 ${i < 3 ? 'bg-slate-100' : ''}">${escapeHtml(x)}</th>`).join('') +
+            '</tr></thead><tbody>';
+        d.rows.forEach(r => {
+            h += '<tr class="border-b border-slate-100 hover:bg-blue-50/40">' +
+                r.map((c, i) => `<td class="p-1.5 border-r border-slate-100 ${i === 2 ? 'font-semibold text-left pl-2' : ''} ${i < 3 ? 'bg-slate-50/70' : ''}">${escapeHtml(c)}</td>`).join('') +
+                '</tr>';
+        });
+        wrap.innerHTML = h + '</tbody></table>';
+    } catch (e) {
+        if (e.message === 'needLogin') return;
+        wrap.innerHTML = '<div class="p-8 text-center text-sm text-rose-600">' + escapeHtml(e.message) + '</div>';
+    }
+}
+
+
+/* ── 개인 리포트: 등급 상승 목표 · 추이 그래프 ──── */
+
+function renderUplift(grades) {
+    const card = document.getElementById('uplift-card');
+    const body = document.getElementById('uplift-body');
+    if (!grades) { card.classList.add('hidden'); return; }
+
+    const items = grades
+        .filter(g => g.hasData && g.needUp && g.needUp !== '-' && g.cGrade1)
+        .map(g => ({ subject: g.subject, need: parseFloat(String(g.needUp).replace(/[^0-9.]/g, '')), raw: g.needUp, from: g.cGrade1 }))
+        .filter(x => !isNaN(x.need))
+        .sort((a, b) => a.need - b.need);
+
+    if (!items.length) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+
+    body.innerHTML = '<div class="flex flex-wrap gap-1.5">' + items.map((x, i) => `
+        <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-semibold
+                     ${i < 2 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}">
+            <b>${escapeHtml(x.subject)}</b> +${escapeHtml(String(x.raw))}점
+            <span class="text-slate-400">→</span>
+            <b class="text-blue-700">${Math.max(1, Number(x.from) - 1)}등급</b>
+        </span>`).join('') + '</div>' +
+        '<p class="text-[10px] text-slate-400 mt-1.5">앞의 두 과목이 가장 적은 점수로 등급을 올릴 수 있는 과목입니다.</p>';
+}
+
+function renderMockCharts(mockExams) {
+    const subjects = ['국어', '수학', '영어', '통합사회', '통합과학', '한국사'];
+    const months = [
+        { key: 'm3', label: '3월' }, { key: 'm6', label: '6월' },
+        { key: 'm9', label: '9월' }, { key: 'm10', label: '10월' }
+    ];
+    const pick = (key, sub, field) => {
+        const list = (mockExams && mockExams[key]) ? mockExams[key] : [];
+        const f = list.filter(x => x.subject === sub)[0];
+        if (!f) return null;
+        const v = parseFloat(String(f[field] || '').replace(/[^0-9.]/g, ''));
+        return isNaN(v) ? null : v;
+    };
+
+    drawChart('chart-mock-grade', {
+        type: 'line',
+        data: {
+            labels: months.map(m => m.label),
+            datasets: subjects.map((s, i) => ({
+                label: s,
+                data: months.map(m => pick(m.key, s, 'grade')),
+                borderColor: SUBJ_COLORS[i], backgroundColor: SUBJ_COLORS[i],
+                tension: 0.3, spanGaps: true
+            }))
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: { y: { reverse: true, min: 1, max: 9, ticks: { stepSize: 1 } } },
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } }
+        }
+    });
+
+    drawChart('chart-mock-pct', {
+        type: 'line',
+        data: {
+            labels: months.map(m => m.label),
+            datasets: subjects.filter(s => s !== '영어' && s !== '한국사').map((s, i) => ({
+                label: s,
+                data: months.map(m => pick(m.key, s, 'percent')),
+                borderColor: SUBJ_COLORS[i], backgroundColor: SUBJ_COLORS[i],
+                tension: 0.3, spanGaps: true
+            }))
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: { y: { min: 0, max: 100, title: { display: true, text: '백분위' } } },
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } }
+        }
+    });
+}
+
 
 function triggerPrint() {
     const counselVal = document.getElementById('counsel-text').value.trim();
