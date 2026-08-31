@@ -1009,6 +1009,28 @@ function escapeHtml(s) {
         .replace(/"/g, '&quot;');
 }
 
+/**
+ * 구글 시트 계산에서 생기는 소수점 찌꺼기를 없앱니다.
+ *   3.299999999999997 → 3.3        13.600000000000009 → 13.6
+ * 숫자 모양이 아닌 값(A, B, '-', 빈칸)은 그대로 둡니다.
+ */
+function tidyNum(v) {
+    if (v === undefined || v === null) return v;
+    const s = String(v).trim();
+    if (!/^-?\d+(\.\d+)?$/.test(s)) return s;
+    return String(Math.round(Number(s) * 1e6) / 1e6);
+}
+
+/**
+ * '한 등급 올리려면 몇 점 더 필요한가'를 보기 쉽게 다듬습니다.
+ * 소수점 찌꺼기를 없앤 뒤 소수 한 자리까지만 남기되,
+ * 모자라면 안 되므로 올림합니다. (3.28 → 3.3 / 8 → 8)
+ */
+function needPoint(n) {
+    const clean = Math.round(Number(n) * 1e6) / 1e6;
+    return String(Math.ceil(clean * 10 - 1e-9) / 10);
+}
+
 function targetLabel(s) {
     const parts = [];
     if (s.targetUni && s.targetUni !== '-') parts.push(s.targetUni);
@@ -1166,7 +1188,7 @@ function renderSchoolGrades(grades, summary) {
         return;
     }
 
-    const cell = v => (v === undefined || v === null || v === '-') ? '' : String(v);
+    const cell = v => (v === undefined || v === null || v === '-') ? '' : tidyNum(v);
 
     grades.forEach(g => {
         const tr = document.createElement('tr');
@@ -1286,8 +1308,8 @@ function renderMockExams(mockExams) {
                 : pick(found && found.percent);
 
             html += `
-                <td class="p-1 border-r border-slate-200">${score}</td>
-                <td class="p-1 border-r border-slate-200 text-slate-500">${percent}</td>
+                <td class="p-1 border-r border-slate-200">${tidyNum(score)}</td>
+                <td class="p-1 border-r border-slate-200 text-slate-500">${tidyNum(percent)}</td>
                 <td class="p-1 border-r border-slate-200 font-bold text-blue-700">${grade}</td>
             `;
         });
@@ -2214,7 +2236,7 @@ function renderUplift(grades) {
 
     const items = grades
         .filter(g => g.hasData && g.needUp && g.needUp !== '-' && g.cGrade1)
-        .map(g => ({ subject: g.subject, need: parseFloat(String(g.needUp).replace(/[^0-9.]/g, '')), raw: g.needUp, from: g.cGrade1 }))
+        .map(g => ({ subject: g.subject, need: parseFloat(String(g.needUp).replace(/[^0-9.]/g, '')), from: g.cGrade1 }))
         .filter(x => !isNaN(x.need))
         .sort((a, b) => a.need - b.need);
 
@@ -2224,7 +2246,7 @@ function renderUplift(grades) {
     body.innerHTML = '<div class="flex flex-wrap gap-1.5">' + items.map((x, i) => `
         <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-semibold
                      ${i < 2 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}">
-            <b>${escapeHtml(x.subject)}</b> +${escapeHtml(String(x.raw))}점
+            <b>${escapeHtml(x.subject)}</b> +${escapeHtml(needPoint(x.need))}점
             <span class="text-slate-400">→</span>
             <b class="text-blue-700">${Math.max(1, Number(x.from) - 1)}등급</b>
         </span>`).join('') + '</div>' +
