@@ -1949,7 +1949,11 @@ function renderGradeMock(){
 
   // 월 선택 세그먼트 (데이터 없는 월은 대기 표시)
   let monthSeg='<div class="controls glass" style="justify-content:center;"><span class="seg" id="gMockSeg">'+
-    MOCK_MONTHS.map(mm=>'<button data-m="'+mm.key+'"'+(gradeMockMonth===mm.key?' class="on"':'')+'>'+mm.label+(mockMonthHasAny(mm.key)?'':' (대기)')+'</button>').join('')+'</span></div>';
+    MOCK_MONTHS.map(mm=>'<button data-m="'+mm.key+'"'+(gradeMockMonth===mm.key?' class="on"':'')+'>'+mm.label+(mockMonthHasAny(mm.key)?'':' (대기)')+'</button>').join('')+
+    '<button data-m="all"'+(gradeMockMonth==='all'?' class="on"':'')+'>통계</button>'+'</span></div>';
+
+  // 3·6·9·10월을 한 화면에 모아 보는 '통계'
+  if(gradeMockMonth==='all'){ renderGradeMockAll(monthSeg); return; }
 
   if(!mockMonthHasAny(gradeMockMonth)){
     document.getElementById('gradeReport').innerHTML=monthSeg+'<div class="panel glass"><div class="notice"><b>'+MOCK_MONTHS.find(x=>x.key===gradeMockMonth).label+' 모의고사 데이터가 아직 없습니다.</b><br>시험 실시 후 시트에 입력되면 자동으로 표시됩니다.</div></div>';
@@ -2024,7 +2028,7 @@ function renderGradeMock(){
   drawGradeMockCharts(arr,bans,gcount,classGradeAvg);
   icons();
 }
-function bindGradeMockSeg(){const el=document.getElementById('gMockSeg');if(el)el.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeMockMonth=b.getAttribute('data-m');if(!mockMonthHasAny(gradeMockDistMonth)||true)gradeMockDistMonth=gradeMockMonth;renderGrade();});}
+function bindGradeMockSeg(){const el=document.getElementById('gMockSeg');if(el)el.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeMockMonth=b.getAttribute('data-m');if(gradeMockMonth!=='all')gradeMockDistMonth=gradeMockMonth;renderGrade();});}
 
 function drawGradeMockCharts(arr,bans,gcount,classGradeAvg){
   if(typeof Chart==='undefined')return;
@@ -2044,6 +2048,155 @@ function drawGradeMockCharts(arr,bans,gcount,classGradeAvg){
   const ctx2=document.getElementById('gMockClass');
   if(ctx2){if(charts.gmClass)charts.gmClass.destroy();
     charts.gmClass=new Chart(ctx2,{type:'line',data:{labels:bans.map(b=>b+'반'),datasets:[{label:'반 평균등급',data:bans.map(b=>classGradeAvg(b)),borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.12)',borderWidth:2.5,tension:.3,pointRadius:5,fill:true}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{reverse:true,min:1,max:9,ticks:{stepSize:1,font:{family:'Pretendard'}}},x:{ticks:{font:{family:'Pretendard'}}}}}});
+  }
+}
+
+
+/* ===== 모의고사 · 통계 (3·6·9·10월 한눈에) ===== */
+function renderGradeMockAll(monthSeg){
+  const arr=allStudents();
+  const bans=[...new Set(arr.map(s=>s.ban))].sort((a,b)=>a-b);
+  const MM=MOCK_MONTHS;                                   // 3·6·9·10월 전부 표시
+  const done=MM.filter(mm=>mockMonthHasAny(mm.key));      // 실제로 실시된 회차
+
+  if(!done.length){
+    document.getElementById('gradeReport').innerHTML=monthSeg+
+      '<div class="panel glass"><div class="notice"><b>아직 실시된 모의고사가 없습니다.</b><br>시험 실시 후 시트에 입력되면 자동으로 표시됩니다.</div></div>';
+    bindGradeMockSeg();icons();return;
+  }
+
+  /* 계산 도우미 */
+  const rawAvg=(mk,key)=>{const v=arr.map(s=>s.mock[mk][key]).filter(o=>o&&o.raw!=null).map(o=>o.raw);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;};
+  const gradeAvg=(mk,key)=>{const v=arr.map(s=>s.mock[mk][key]).filter(o=>o&&o.grade!=null).map(o=>o.grade);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;};
+  const gcount=(mk,key)=>{const d=Array(10).fill(0);arr.forEach(s=>{const o=s.mock[mk][key];if(o&&o.grade>=1&&o.grade<=9)d[o.grade]++;});return d;};
+  const classSubjRaw=(mk,b,key)=>{const v=arr.filter(s=>s.ban===b).map(s=>s.mock[mk][key]).filter(o=>o&&o.raw!=null).map(o=>o.raw);return v.length?v.reduce((a,x)=>a+x,0)/v.length:null;};
+  const monthGradeAvg=mk=>{let g=[];arr.forEach(s=>MOCK_SUBJECTS.forEach(u=>{const o=s.mock[mk][u.key];if(o&&o.grade!=null)g.push(o.grade);}));return g.length?g.reduce((a,x)=>a+x,0)/g.length:null;};
+  const nStu=mk=>arr.filter(s=>mockMonthHas(s,mk)).length;
+
+  const first=done[0], last=done[done.length-1];
+  const waitLabel=mm=>mockMonthHasAny(mm.key)?'':' <span class="mut">(대기)</span>';
+
+  /* 평균등급 변화 — 소수 첫째 자리로 자르면 0.03 같은 차이가 "+0.0" 이 되어
+     뜻이 사라지므로 둘째 자리까지 보여줍니다. 등급은 낮아질수록 좋아진 것입니다. */
+  const gradeDelta=(cur,prev)=>{
+    if(cur==null||prev==null)return '<span class="dz">-</span>';
+    const d=Math.round((cur-prev)*100)/100;
+    if(d===0)return '<span class="dz">±0</span>';
+    return '<span class="'+(d<0?'du':'dd')+'">'+(d>0?'+':'')+d.toFixed(2)+'</span>';
+  };
+
+  /* ① 과목별 평균 원점수 / 평균등급 — 4회차 전부 */
+  let head1='<thead><tr class="grp"><th class="name" rowspan="2">과목</th>'+
+    MM.map(mm=>'<th colspan="2">'+mm.label+waitLabel(mm)+'</th>').join('')+
+    '<th rowspan="2">등급 변화<br><span class="mut">'+first.label+' → '+last.label+'</span></th></tr>'+
+    '<tr>'+MM.map(()=>'<th>원점수</th><th>등급</th>').join('')+'</tr></thead>';
+  let rows1=MOCK_SUBJECTS.map(u=>{
+    const tds=MM.map(mm=>'<td class="raw">'+fmt(rawAvg(mm.key,u.key),1)+'</td><td>'+fmt(gradeAvg(mm.key,u.key),2)+'</td>').join('');
+    const g1=gradeAvg(first.key,u.key), g2=gradeAvg(last.key,u.key);
+    return '<tr><td class="name" style="color:'+u.color+'">'+u.key+'<span class="mut"> /'+u.max+'</span></td>'+tds+
+           '<td>'+(done.length>1?gradeDelta(g2,g1):'<span class="mut">-</span>')+'</td></tr>';
+  }).join('');
+  const totRow='<tr style="border-top:2px solid var(--border);font-weight:700;"><td class="name">전체 평균등급</td>'+
+    MM.map(mm=>'<td class="mut">'+(mockMonthHasAny(mm.key)?nStu(mm.key)+'명':'-')+'</td><td class="raw">'+fmt(monthGradeAvg(mm.key),2)+'</td>').join('')+
+    '<td>'+(done.length>1?gradeDelta(monthGradeAvg(last.key),monthGradeAvg(first.key)):'<span class="mut">-</span>')+'</td></tr>';
+
+  /* ④ 과목별 등급 인원 (9등급) — 회차별로 모두 */
+  let rows4='';
+  MOCK_SUBJECTS.forEach((u,ui)=>{
+    MM.forEach((mm,mi)=>{
+      const d=gcount(mm.key,u.key), tot=d.slice(1,10).reduce((a,b)=>a+b,0);
+      let c='';for(let g=1;g<=9;g++)c+='<td>'+(tot?d[g]+pctOf(d[g],tot):'<span class="mut">-</span>')+'</td>';
+      rows4+='<tr'+(mi===0&&ui>0?' style="border-top:2px solid var(--border)"':'')+'>'+
+        (mi===0?'<td class="name" rowspan="'+MM.length+'" style="color:'+u.color+'">'+u.key+'</td>':'')+
+        '<td class="mut">'+mm.label+'</td>'+c+'</tr>';
+    });
+  });
+
+  /* ⑤ 반별 × 과목별 평균점수 — 과목마다 4회차. 색은 (과목·월) 칸마다 따로 매깁니다 */
+  const cellV={}, cellR={};
+  MOCK_SUBJECTS.forEach(u=>MM.forEach(mo=>{
+    const k=u.key+'|'+mo.key; cellV[k]={};
+    bans.forEach(b=>{cellV[k][b]=classSubjRaw(mo.key,b,u.key);});
+    const vs=bans.map(b=>cellV[k][b]).filter(x=>x!=null);
+    cellR[k]=vs.length?{min:Math.min(...vs),max:Math.max(...vs)}:{min:null,max:null};
+  }));
+  let head5='<thead><tr class="grp"><th class="name" rowspan="2">학급</th>'+
+    MOCK_SUBJECTS.map(u=>'<th colspan="'+MM.length+'" style="color:'+u.color+'">'+u.key+'<span class="mut">/'+u.max+'</span></th>').join('')+'</tr>'+
+    '<tr>'+MOCK_SUBJECTS.map(()=>MM.map(mo=>'<th>'+mo.label+'</th>').join('')).join('')+'</tr></thead>';
+  let rows5=bans.map(b=>'<tr><td class="name">'+b+'반</td>'+
+    MOCK_SUBJECTS.map(u=>MM.map(mo=>{const k=u.key+'|'+mo.key,r=cellR[k];
+      return '<td'+heatStyle(cellV[k][b],r.min,r.max)+'>'+fmt(cellV[k][b],1)+'</td>';}).join('')).join('')+'</tr>').join('');
+  let tot5='<tr style="border-top:2px solid var(--border);font-weight:700;"><td class="name">전체</td>'+
+    MOCK_SUBJECTS.map(u=>MM.map(mo=>'<td class="raw">'+fmt(rawAvg(mo.key,u.key),1)+'</td>').join('')).join('')+'</tr>';
+
+  document.getElementById('gradeReport').innerHTML=monthSeg+'<div class="panel glass">'+
+    '<div class="rhead grade-head"><div class="who" style="font-size:23px;">모의고사 통계 <small>3·6·9·10월 전체</small></div><div class="mut" style="align-self:flex-end;">실시 '+done.length+'회차 · '+bans.length+'개 반</div></div>'+
+
+    '<div class="stat4" style="margin-top:16px;">'+
+      statHTML('실시 회차',done.length+'회',done.map(x=>x.label).join(' · '),'','#2563eb')+
+      statHTML('최근 회차',last.label,'응시 '+nStu(last.key)+'명','','#4f46e5')+
+      statHTML('최근 평균등급',fmt(monthGradeAvg(last.key),2),'6과목 9등급','','#16a34a')+
+      statHTML(first.label+' 대비',done.length>1?gradeDelta(monthGradeAvg(last.key),monthGradeAvg(first.key)):'-','등급은 낮을수록 우수','','#d97706')+
+    '</div>'+
+
+    secHTML('① 과목별 평균 원점수 / 평균등급','trending-up')+
+    '<div class="sub" style="margin-left:0;">3·6·9·10월을 한 표에 모았습니다. 아직 실시하지 않은 회차는 <b>(대기)</b> 로 두고 값은 "-" 입니다. 맨 오른쪽은 첫 회차 대비 평균등급 변화(<b>등급은 낮아질수록 좋아진 것</b>)입니다.</div>'+
+    '<div class="tscroll"><table>'+head1+'<tbody>'+rows1+totRow+'</tbody></table></div>'+
+
+    secHTML('② 국·수·영 등급 변화','pie-chart')+
+    '<div class="hint">회차별 평균등급입니다. 위로 갈수록 우수합니다 (1등급이 가장 높은 위치).</div>'+
+    '<div class="chartbox"><canvas id="gMockAllDist"></canvas></div>'+
+
+    secHTML('③ 반별 평균등급 변화','users')+
+    '<div class="hint">반마다 선 하나입니다. 위로 갈수록 우수합니다.</div>'+
+    '<div class="chartbox tallc"><canvas id="gMockAllClass"></canvas></div>'+
+
+    secHTML('④ 과목별 등급 인원 (9등급)','table')+
+    '<div class="sub" style="margin-left:0;">과목마다 3·6·9·10월을 차례로 놓았습니다. 인원 (비율).</div>'+
+    '<div class="tscroll"><table><thead><tr><th class="name">과목</th><th>회차</th>'+
+      [1,2,3,4,5,6,7,8,9].map(g=>'<th>'+g+'등급</th>').join('')+'</tr></thead><tbody>'+rows4+'</tbody></table></div>'+
+
+    secHTML('⑤ 반별 × 과목별 평균점수','bar-chart-3')+
+    '<div class="sub" style="margin-left:0;">원점수 평균. 국·수·영 100점, 통합사회·통합과학·한국사 50점 만점입니다. <b>색은 과목별·회차별로 따로 매깁니다</b> — 그 과목 그 달에 평균이 가장 높은 반이 가장 진하고, 가장 낮은 반이 흰색입니다.</div>'+
+    '<div class="tscroll"><table>'+head5+'<tbody>'+rows5+tot5+'</tbody></table></div>'+
+
+    '<div class="disc">※ 모의고사 표준점수·백분위·등급은 학년 전체 분포 기반 추정치이며 정식 발표 후 확정됩니다. 아직 실시하지 않은 회차는 "대기"로 표시되며, 시트에 점수가 들어오면 자동으로 이 표와 그래프에 반영됩니다.</div></div>';
+
+  bindGradeMockSeg();
+  drawGradeMockAllCharts(arr,bans);
+  icons();
+}
+
+function drawGradeMockAllCharts(arr,bans){
+  if(typeof Chart==='undefined')return;
+  const MM=MOCK_MONTHS, labels=MM.map(mm=>mm.label);
+  const gradeAvg=(mk,key)=>{const v=arr.map(s=>s.mock[mk][key]).filter(o=>o&&o.grade!=null).map(o=>o.grade);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;};
+  const classAvg=(mk,b)=>{let g=[];arr.filter(s=>s.ban===b).forEach(s=>MOCK_SUBJECTS.forEach(u=>{const o=s.mock[mk][u.key];if(o&&o.grade!=null)g.push(o.grade);}));return g.length?g.reduce((a,x)=>a+x,0)/g.length:null;};
+
+  // ② 국·수·영 평균등급 변화
+  const c1=document.getElementById('gMockAllDist');
+  if(c1){if(charts.gmaDist)charts.gmaDist.destroy();
+    const S=[['국어','#2563eb'],['수학','#dc2626'],['영어','#16a34a']];
+    charts.gmaDist=new Chart(c1,{type:'line',data:{labels,datasets:S.map(([k,col])=>({
+      label:k,data:MM.map(mm=>gradeAvg(mm.key,k)),borderColor:col,backgroundColor:col,
+      borderWidth:2.5,tension:.25,spanGaps:false,pointRadius:5}))},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{title:{display:true,text:'회차별 평균등급 (위로 갈수록 우수)',font:{family:'Pretendard',size:13}},
+                 legend:{labels:{font:{family:'Pretendard',size:10},boxWidth:10}}},
+        scales:{y:{reverse:true,min:1,max:9,ticks:{stepSize:1,font:{family:'Pretendard'}}},x:{ticks:{font:{family:'Pretendard'}}}}}});
+  }
+
+  // ③ 반별 평균등급 변화 (반마다 선 하나)
+  const c2=document.getElementById('gMockAllClass');
+  if(c2){if(charts.gmaClass)charts.gmaClass.destroy();
+    const BC=['#2563eb','#dc2626','#16a34a','#ea580c','#7c3aed','#0891b2','#d97706','#64748b','#b91c1c','#0d9488'];
+    charts.gmaClass=new Chart(c2,{type:'line',data:{labels,datasets:bans.map((b,i)=>({
+      label:b+'반',data:MM.map(mm=>classAvg(mm.key,b)),borderColor:BC[i%BC.length],backgroundColor:BC[i%BC.length],
+      borderWidth:2,tension:.25,spanGaps:false,pointRadius:4}))},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{title:{display:true,text:'반별 평균등급 (위로 갈수록 우수)',font:{family:'Pretendard',size:13}},
+                 legend:{labels:{font:{family:'Pretendard',size:10},boxWidth:10}}},
+        scales:{y:{reverse:true,min:1,max:9,ticks:{stepSize:1,font:{family:'Pretendard'}}},x:{ticks:{font:{family:'Pretendard'}}}}}});
   }
 }
 
