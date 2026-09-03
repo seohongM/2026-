@@ -401,6 +401,10 @@
                     <div class="bg-blue-50 border border-blue-100 text-blue-700 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center shadow-sm">
                         총 <span id="student-count" class="mx-1.5 text-lg font-black text-blue-800">0</span> 명
                     </div>
+                    <button id="home-refresh" onclick="refreshAll()" title="구글 시트를 다시 읽어옵니다"
+                            class="px-3 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-bold shadow transition whitespace-nowrap">
+                        ↻ 새로고침
+                    </button>
                 </div>
             </div>
 
@@ -958,7 +962,8 @@ function startApp(me) {
     document.getElementById('search-class').value = currentClass;
 
     switchView('home');
-    loadClassData(currentClass);
+    loadClassData(currentClass);          // 1단계 — 우리 반 카드 (시트 3번)
+    loadAll(false).catch(() => {});       // 2단계 — 전교 전체를 뒤에서 받아 둠
 }
 
 function buildClassSelect(list, selected) {
@@ -987,6 +992,8 @@ function forceLogout(msg) {
     ME = null;
     studentsData = [];
     selectedStudent = null;
+    ALL = null;
+    allPromise = null;
     statsReset();
     sessionStorage.removeItem('sc_token');
 
@@ -1038,22 +1045,180 @@ function targetLabel(s) {
     return parts.join(' · ');
 }
 
+/* ══════════════════════════════════════════════════════════
+   2단계 로딩
+
+   1단계  getClassCards : 우리 반 카드만 (시트 3번) → 화면이 바로 뜹니다
+   2단계  getAll        : 전교 전체 (시트 7번) → 뒤에서 조용히 받아 둡니다
+
+   2단계가 도착하면 반 바꾸기 · 개별 상담 · 통합 성적 관리가
+   서버를 다시 부르지 않습니다.
+   시트를 고치셨으면 [↻ 새로고침] 을 누르면 다시 받아옵니다.
+   ══════════════════════════════════════════════════════════ */
+
+let ALL = null;            // 전교 데이터 (2단계로 도착)
+let allPromise = null;     // 받는 중이면 여기에
+
+/** 값 없음을 한 가지로 맞춥니다. 서버는 빈 칸을 '' 로 보냅니다. */
+function V(v) { return (v === null || v === undefined) ? '' : v; }
+
+/**
+ * 서버가 보낸 숫자 배열을 화면이 쓰던 학생 모양으로 되돌립니다.
+ * 계산은 전부 서버에서 끝났고, 여기서는 이름표만 붙입니다.
+ */
+function hydrate(row) {
+    const g = row.g || [], d = row.d || [], s = row.s || [];
+    const SUBJ = (ALL && ALL.subjects) ? ALL.subjects : [];
+    const BASIS = { 1: '환산총점', 2: '1차 점수' };
+
+    const schoolGrades = SUBJ.map((name, si) => {
+        const b = si * 11, e = si * 9;
+        const has1 = !!d[e + 7], has2 = !!d[e + 8], hasAny = has1 || has2;
+        return {
+            subject: name,
+            exam1:  has1 ? V(g[b + 0]) : '',
+            grade1: has1 ? V(g[b + 1]) : '',
+            eval1:  has1 ? V(g[b + 4]) : '',
+            achievement1: has1 ? V(g[b + 8]) : '',
+            exam2:  has2 ? V(g[b + 2]) : '',
+            grade2: has2 ? V(g[b + 3]) : '',
+            eval2:  has2 ? V(g[b + 5]) : '',
+            achievement2: has2 ? V(g[b + 9]) : '',
+            totalScore:       hasAny ? V(g[b + 6])  : '',
+            finalGrade:       hasAny ? V(g[b + 7])  : '',
+            finalAchievement: hasAny ? V(g[b + 10]) : '',
+            hasData: hasAny,
+
+            grade1_9:    V(d[e + 0]) === '' ? '' : String(d[e + 0]),
+            grade2_9:    V(d[e + 1]) === '' ? '' : String(d[e + 1]),
+            finalGrade9: V(d[e + 2]) === '' ? '' : String(d[e + 2]),
+
+            upNow:   V(d[e + 3]) === '' ? '' : String(d[e + 3]),
+            upGrade: V(d[e + 4]) === '' ? '' : String(d[e + 4]),
+            upNeed:  V(d[e + 5]) === '' ? '' : String(d[e + 5]),
+            upBasis: BASIS[d[e + 6]] || ''
+        };
+    });
+
+    const mockExams = {};
+    ((ALL && ALL.mockMonths) || []).forEach(mm => {
+        const arr = (row.m && row.m[mm.key]) || [];
+        mockExams[mm.key] = ((ALL && ALL.mockSubjects) || []).map((sub, ui) => ({
+            subject: sub,
+            score:   V(arr[ui * 4 + 0]) === '' ? '-' : String(arr[ui * 4 + 0]),
+            std:     V(arr[ui * 4 + 1]) === '' ? '-' : String(arr[ui * 4 + 1]),
+            percent: V(arr[ui * 4 + 2]) === '' ? '-' : String(arr[ui * 4 + 2]),
+            grade:   V(arr[ui * 4 + 3]) === '' ? '-' : String(arr[ui * 4 + 3])
+        }));
+    });
+
+    return {
+        classNum: row.c,
+        number: row.n,
+        name: row.nm || (row.n + '번 학생'),
+        targetUni: row.u || '',
+        targetMajor: row.mj || '',
+        lastCounselingDate: row.cd || '상담 기록 없음',
+        counselingHistory: row.h || [],
+        schoolGrades: schoolGrades,
+        mockExams: mockExams,
+        summary: {
+            subjectCount: V(s[0]) === '' ? 0 : s[0],
+            avg5:     V(s[1]) === '' ? null : s[1],
+            avg9:     V(s[2]) === '' ? null : s[2],
+            avgScore: V(s[3]) === '' ? null : s[3],
+            avgPct:   V(s[4]) === '' ? null : s[4]
+        }
+    };
+}
+
+/** 카드만 그리기 위한 가벼운 모양 (1단계 응답) */
+function hydrateCard(c, cls) {
+    return {
+        classNum: cls,
+        number: c.n,
+        name: c.nm || (c.n + '번 학생'),
+        targetUni: c.u || '',
+        targetMajor: c.mj || '',
+        lastCounselingDate: c.cd || '상담 기록 없음',
+        counselingHistory: new Array(c.cn || 0),
+        schoolGrades: null,
+        summary: { avg5: V(c.a5) === '' ? null : c.a5, avg9: V(c.a9) === '' ? null : c.a9 },
+        _light: true          // 아직 성적 전체가 없다는 표시
+    };
+}
+
+/** 2단계 — 전교 데이터를 뒤에서 받아 둡니다. */
+function loadAll(force) {
+    if (ALL && !force) return Promise.resolve(ALL);
+    if (allPromise && !force) return allPromise;
+
+    allPromise = api('getAll', {}).then(d => {
+        ALL = d;
+        allPromise = null;
+        // 지금 보고 있는 반을 전교 데이터로 다시 그립니다 (숫자는 그대로)
+        if (currentClass != null) applyClassFromAll(currentClass);
+        return d;
+    }).catch(e => {
+        allPromise = null;
+        if (e.message !== 'needLogin') console.warn('전교 데이터를 받지 못했습니다:', e.message);
+        throw e;
+    });
+    return allPromise;
+}
+
+/** 전교 데이터에서 한 반을 꺼내 화면에 씁니다 (서버 요청 없음) */
+function applyClassFromAll(cls) {
+    if (!ALL) return false;
+    studentsData = ALL.students.filter(x => Number(x.c) === Number(cls)).map(hydrate);
+    if (currentClass === cls) onDataLoaded(studentsData);
+    return true;
+}
+
+/** 반 데이터를 화면에 올립니다. 전교 데이터가 있으면 즉시, 없으면 1단계 요청. */
 async function loadClassData(targetClass) {
     const myToken = ++loadToken;
+
+    if (ALL) {                       // 이미 다 받아 뒀으면 서버를 안 부릅니다
+        studentsData = ALL.students.filter(x => Number(x.c) === Number(targetClass)).map(hydrate);
+        onDataLoaded(studentsData);
+        return;
+    }
 
     studentsData = [];
     selectedStudent = null;
     showLoading();
 
     try {
-        const data = await api('getStudents', { classNum: targetClass });
+        const data = await api('getClassCards', { classNum: targetClass });
         if (myToken !== loadToken) return;
-        onDataLoaded(data.students || []);
+        studentsData = (data.students || []).map(c => hydrateCard(c, data.classNum));
+        onDataLoaded(studentsData);
     } catch (e) {
         if (myToken !== loadToken) return;
         if (e.message === 'needLogin') return;
         onDataLoadError(e);
     }
+}
+
+/** 학생을 눌렀을 때 — 성적 전체가 아직 없으면 도착할 때까지 기다립니다. */
+async function selectStudent(num) {
+    let s = studentsData.find(x => Number(x.number) === Number(num));
+    if (!s) return;
+
+    if (s._light) {                       // 2단계가 아직 안 왔습니다
+        const grid = document.getElementById('student-grid');
+        const old = grid.innerHTML;
+        grid.innerHTML = '<div class="col-span-full bg-white border border-slate-200 text-slate-500 p-6 rounded-xl text-sm text-center">' +
+                         '성적을 불러오는 중입니다… <span class="text-slate-400">잠시만 기다려 주세요</span></div>';
+        try { await loadAll(false); }
+        catch (e) { grid.innerHTML = old; if (e.message !== 'needLogin') alert('성적을 불러오지 못했습니다.\n' + e.message); return; }
+        renderStudentGrid();
+        s = studentsData.find(x => Number(x.number) === Number(num));
+        if (!s) return;
+    }
+
+    showStudent(s);
 }
 
 function showLoading() {
@@ -1136,8 +1301,9 @@ function renderStudentGrid() {
     });
 }
 
-function selectStudent(num) {
-    selectedStudent = studentsData.find(s => Number(s.number) === Number(num));
+/** 학생 한 명을 개별 상담 화면에 올립니다. */
+function showStudent(s) {
+    selectedStudent = s;
     if (!selectedStudent) return;
 
     document.getElementById('search-class').value = currentClass;
@@ -1447,6 +1613,7 @@ async function saveTargetToSheet() {
         });
         selectedStudent.targetUni = uni;
         selectedStudent.targetMajor = major;
+        updateAllRow(selectedStudent.classNum, selectedStudent.number, r => { r.u = uni; r.mj = major; });
         syncTargetPrint();
         updateTargetCount();
         renderStudentGrid();
@@ -1498,10 +1665,38 @@ async function saveCounselingToSheet() {
     }
 }
 
+/** [↻ 새로고침] — 구글 시트를 다시 읽어 모든 화면을 새로 그립니다. */
+async function refreshAll() {
+    const btn = document.getElementById('home-refresh');
+    if (btn) { btn.disabled = true; btn.textContent = '불러오는 중…'; }
+    showLoading();
+    try {
+        await loadAll(true);
+        statsReset();
+    } catch (e) {
+        if (e.message !== 'needLogin') onDataLoadError(e);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '↻ 새로고침'; }
+    }
+}
+
+/** 전교 데이터(ALL) 안의 그 학생 줄도 같이 고칩니다. 반을 옮겨도 남아 있도록. */
+function updateAllRow(cls, num, fn) {
+    if (!ALL) return;
+    const row = ALL.students.find(x => Number(x.c) === Number(cls) && Number(x.n) === Number(num));
+    if (row) fn(row);
+}
+
 function applySaveResult(record, timeStr, rawText) {
     if (!selectedStudent.counselingHistory) selectedStudent.counselingHistory = [];
     selectedStudent.counselingHistory.unshift(record);
     selectedStudent.lastCounselingDate = timeStr;
+
+    updateAllRow(selectedStudent.classNum, selectedStudent.number, r => {
+        if (!Array.isArray(r.h)) r.h = [];
+        r.h.unshift(record);
+        r.cd = timeStr;
+    });
 
     renderHistory(selectedStudent.counselingHistory);
     renderStudentGrid();
@@ -1546,7 +1741,7 @@ const SUBJ_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#ea580c', '#7c3aed', '#08
 
    다만 데이터를 가져오는 곳만 다릅니다.
      · 원본  : 구글 시트를 '웹에 게시(CSV)' 해서 누구나 읽음
-     · 여기  : 로그인한 뒤 Apps Script(getGradeAll)를 통해서만 읽음
+     · 여기  : 로그인한 뒤 Apps Script(getAll)를 통해서만 읽음
    시트를 공개하지 않으므로 주소만 알아도 성적을 볼 수 없습니다.
 
    바깥에서 부르는 것은 statsBoot() / statsReset() 두 개뿐입니다.
@@ -1619,7 +1814,7 @@ function ensure(ban,num,name){
 
 /* ===== 서버에서 받아 채우기 =====
    구글 시트를 공개해서 읽지 않습니다.
-   로그인한 뒤 Apps Script(getGradeAll)가 보내 준 숫자 배열을 풀어 씁니다.
+   로그인한 뒤 Apps Script(getAll)가 보내 준 숫자 배열을 풀어 씁니다.
 
      g : 내신  — 과목 12개 × 항목 11개
      t : 상담_2차목표 — 과목 12개 × 3칸
@@ -2340,7 +2535,8 @@ async function statsBoot(force){
   document.getElementById('statsUpd').textContent='불러오는 중…';
 
   try{
-    const d=await api('getGradeAll',{});
+    // 로그인 직후 뒤에서 받아 둔 전교 데이터를 그대로 씁니다 (이미 있으면 즉시)
+    const d=await loadAll(force);
     fillFromServer(d);
     dataReady=true; statsLoaded=true;
     load.style.display='none';
