@@ -176,6 +176,8 @@ function handle_(req) {
       /* 아래는 모두 로그인(토큰)이 필요한 요청 */
       case 'me':
       case 'getStudents':
+      case 'getClassCards':
+      case 'getAll':
       case 'getGradeAll':
       case 'saveCounseling':
       case 'saveTarget':
@@ -185,6 +187,8 @@ function handle_(req) {
 
         if (action === 'me')            return ok_(publicUser_(user));
         if (action === 'getStudents')   return apiGetStudents_(req, user);
+        if (action === 'getClassCards') return apiGetClassCards_(req, user);   // 1단계
+        if (action === 'getAll')        return apiGetAll_(req, user);          // 2단계
         if (action === 'getGradeAll')   return apiGetGradeAll_(req, user);
         if (action === 'saveCounseling')return apiSaveCounseling_(req, user);
         if (action === 'saveTarget')    return apiSaveTarget_(req, user);
@@ -395,7 +399,10 @@ function apiGetStudents_(req, user) {
 }
 
 /**
- * '통합 성적 관리' 화면이 쓰는 전교생 데이터입니다.
+ * ⚠️ 지금 화면은 이 함수를 쓰지 않습니다. getAll 이 대신합니다.
+ *    예전 index.html 이 남아 있을 때를 대비해 남겨 둡니다.
+ *
+ * '통합 성적 관리' 화면이 쓰던 전교생 데이터입니다.
  *
  *  - 로그인한 선생님만 받을 수 있습니다. (verifyToken_ 통과 필수)
  *  - 구글 시트를 공개하지 않고, 이 API 를 통해서만 내보냅니다.
@@ -517,6 +524,334 @@ function cellVal_(v) {
   if (t === '' || t === '-') return null;
   var n = Number(t);
   return isNaN(n) ? t : n;
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   빠른 화면용 요청 (2단계 로딩)
+
+   1단계 getClassCards : 우리 반 카드만. 시트 3번만 읽어 화면을 바로 띄웁니다.
+   2단계 getAll        : 전교 전체. 시트 7번. 받아 두면 반 바꾸기·개별 상담·
+                         통합 성적 관리가 서버를 다시 부르지 않습니다.
+
+   ※ 상담_2차목표 시트는 화면에서 더 이상 쓰지 않으므로 읽지 않습니다.
+      (등급 상승 목표는 전교 등급컷으로 직접 계산합니다)
+   ══════════════════════════════════════════════════════════ */
+
+/**
+ * 내신성적 한 줄에서 과목 하나를 계산합니다.
+ * getAll 과 getStudentsByClass 가 **같이** 쓰는 단 하나의 계산 자리입니다.
+ * 여기만 고치면 두 화면이 늘 같은 값을 봅니다.
+ */
+function subjectCalc_(gRow, si, ranks, cuts) {
+  var i  = SUBJECTS[si].start;
+  var rk = (ranks && ranks[si]) || {};
+  var ct = (cuts  && cuts[si])  || { first: {}, final: {} };
+
+  var o = {
+    exam1:  cellPlain_(gRow, i + 0),
+    grade1: cellPlain_(gRow, i + 1),
+    exam2:  cellPlain_(gRow, i + 2),
+    grade2: cellPlain_(gRow, i + 3),
+    eval1:  cellPlain_(gRow, i + 4),
+    eval2:  cellPlain_(gRow, i + 5),
+    total:  cellPlain_(gRow, i + 6),
+    fGrade: cellPlain_(gRow, i + 7),
+    ach1:   cellPlain_(gRow, i + 8),
+    ach2:   cellPlain_(gRow, i + 9),
+    fAch:   cellPlain_(gRow, i + 10)
+  };
+
+  o.has1   = (o.exam1 !== '' || o.eval1 !== '');
+  o.has2   = (o.exam2 !== '' || o.eval2 !== '');
+  o.hasAny = o.has1 || o.has2;
+
+  // ── 9등급 환산 ──
+  var n1 = toNum_(gRow[i + 0]);
+  var n2 = toNum_(gRow[i + 2]);
+  var nt = toNum_(gRow[i + 6]);
+
+  var pct1 = (o.has1   && n1 !== null && rk.first)  ? rk.first(n1)  : null;
+  var pct2 = (o.has2   && n2 !== null && rk.second) ? rk.second(n2) : null;
+  var pctF = (o.hasAny && nt !== null && rk.final)  ? rk.final(nt)  : null;
+
+  o.g1nine = grade9From_(pct1);
+  o.g2nine = grade9From_(pct2);
+  o.gFnine = grade9From_(pctF);
+  o.pct1 = pct1; o.pct2 = pct2; o.pctF = pctF;
+  o.n1 = n1; o.n2 = n2; o.nt = nt;
+
+  // ── 현재 등급에서 한 등급 올리는 데 필요한 점수 ──
+  var nowGrade = null, nowScore = null, cutMap = null;
+  o.upBasis = '';
+
+  var gfNum = toInt_(o.fGrade);
+  var g1Num = toInt_(o.grade1);
+
+  if (o.hasAny && nt !== null && !isNaN(gfNum) && gfNum >= 1 && gfNum <= 5) {
+    nowGrade = gfNum; nowScore = nt; cutMap = ct.final; o.upBasis = '환산총점';
+  } else if (o.has1 && n1 !== null && !isNaN(g1Num) && g1Num >= 1 && g1Num <= 5) {
+    nowGrade = g1Num; nowScore = n1; cutMap = ct.first; o.upBasis = '1차 점수';
+  }
+
+  o.upNow = (nowGrade === null) ? '' : String(nowGrade);
+  o.upGrade = ''; o.upNeed = '';
+  if (nowGrade !== null && nowGrade > 1) {
+    var line = cutMap[nowGrade - 1];
+    if (line !== undefined) {
+      var diff = line - nowScore;
+      if (diff < 0) diff = 0;
+      o.upGrade = String(nowGrade - 1);
+      o.upNeed  = String(round_(diff, 2));
+    }
+  }
+  return o;
+}
+
+
+/* ── 1단계 : 우리 반 카드 (시트 3번) ───────────────── */
+
+function apiGetClassCards_(req, user) {
+  var cls = toInt_(req.classNum);
+  if (isNaN(cls)) cls = user.cls;
+
+  var ss = getSpreadsheet_();
+  if (!ss) return err_('스프레드시트를 열 수 없습니다.');
+
+  var map = {}, order = [];
+  function pick_(n, nm) {
+    if (!map[n]) { map[n] = { n: n, nm: nm || (n + '번 학생'), u: '', mj: '', cd: '', cn: 0, a5: null, a9: null }; order.push(n); }
+    if (nm && map[n].nm.indexOf('번 학생') > -1) map[n].nm = nm;
+    return map[n];
+  }
+
+  // 1) 내신성적 — 평균 등급
+  var gradeSheet = findSheet_(ss, SHEET_GRADE, ['내신']);
+  if (gradeSheet) {
+    var gData = gradeSheet.getDataRange().getValues();
+    var ranks = buildGradeRanks_(gData);
+    for (var r = 1; r < gData.length; r++) {
+      var gRow = gData[r];
+      if (toInt_(gRow[0]) !== cls) continue;
+      var gn = toInt_(gRow[1]);
+      if (isNaN(gn) || !gn) continue;
+
+      var st = pick_(gn, String(gRow[2] || '').trim());
+      var n5 = 0, s5 = 0, n9 = 0, s9 = 0;
+      for (var si = 0; si < SUBJECTS.length; si++) {
+        var c = subjectCalc_(gRow, si, ranks, null);
+        if (!c.hasAny) continue;
+        var g5 = toNum_(c.fGrade);
+        if (g5 !== null) { s5 += g5; n5++; }
+        if (c.gFnine !== null) { s9 += c.gFnine; n9++; }
+      }
+      st.a5 = n5 ? round_(s5 / n5, 2) : null;
+      st.a9 = n9 ? round_(s9 / n9, 2) : null;
+    }
+  }
+
+  // 2) 학생 목표
+  var targetSheet = findSheet_(ss, SHEET_TARGET, TARGET_KEYWORDS);
+  if (targetSheet) {
+    var tData = targetSheet.getDataRange().getValues();
+    var tInfo = analyzeTargetSheet_(tData);
+    for (var t = tInfo.startRow; t < tData.length; t++) {
+      var tRow = tData[t];
+      if (toInt_(tRow[tInfo.cols.c]) !== cls) continue;
+      var tn = toInt_(tRow[tInfo.cols.n]);
+      if (isNaN(tn) || !tn) continue;
+      var st2 = pick_(tn, String(tRow[tInfo.cols.nm] || '').trim());
+      st2.u  = cellPlain_(tRow, tInfo.cols.uni);
+      st2.mj = cellPlain_(tRow, tInfo.cols.major);
+    }
+  }
+
+  // 3) 상담내용 — 횟수와 최근 날짜만
+  var counselSheet = findSheet_(ss, SHEET_COUNSEL, ['상담']);
+  if (counselSheet) {
+    var cData = counselSheet.getDataRange().getValues();
+    for (var i2 = 1; i2 < cData.length; i2++) {
+      var cRow = cData[i2];
+      if (toInt_(cRow[0]) !== cls) continue;
+      var cn = toInt_(cRow[1]);
+      if (isNaN(cn) || !cn) continue;
+      var st3 = pick_(cn, String(cRow[2] || '').trim());
+      var cnt = 0, last = '';
+      for (var col = 3; col < cRow.length; col++) {
+        var v = String(cRow[col] || '').trim();
+        if (v === '') continue;
+        cnt++;
+        var m = v.match(/^\[(.*?)\]/);
+        if (m) last = m[1];
+      }
+      st3.cn = cnt;
+      st3.cd = last;
+    }
+  }
+
+  order.sort(function (a, b) { return a - b; });
+  return ok_({ classNum: cls, students: order.map(function (k) { return map[k]; }) });
+}
+
+
+/* ── 2단계 : 전교 전체 (시트 7번) ──────────────────── */
+
+function apiGetAll_(req, user) {
+  var ss = getSpreadsheet_();
+  if (!ss) return err_('스프레드시트를 열 수 없습니다.');
+
+  var G_LEN = SUBJECTS.length * 11;   // 내신 원본
+  var D_LEN = SUBJECTS.length * 9;    // 계산값
+  var M_LEN = MOCK_SUBJECTS.length * 4;
+
+  var index = {}, list = [];
+
+  // 빈 칸은 null 대신 '' 로 보냅니다. 글자 수가 짧아 응답이 20% 넘게 작아집니다.
+  // (화면 쪽에서 '' 과 null 을 똑같이 '값 없음' 으로 읽습니다)
+  function E_(v) { return (v === null || v === undefined) ? '' : v; }
+
+  function ensure_(c, n, nm) {
+    var key = c + '-' + n;
+    if (!index[key]) {
+      var st = { c: c, n: n, nm: nm || '', u: '', mj: '', cd: '', h: [],
+                 g: [], d: [], s: ['', '', '', '', ''], m: {} };
+      var i;
+      for (i = 0; i < G_LEN; i++) st.g.push('');
+      for (i = 0; i < D_LEN; i++) st.d.push('');
+      MOCK_SHEETS.forEach(function (cfg) {
+        var arr = [];
+        for (var k = 0; k < M_LEN; k++) arr.push('');
+        st.m[cfg.key] = arr;
+      });
+      index[key] = st; list.push(st);
+    }
+    if (nm && !index[key].nm) index[key].nm = nm;
+    return index[key];
+  }
+
+  // 1. 내신성적 (+ 9등급 환산 · 등급컷 · 평균)
+  var gradeSheet = findSheet_(ss, SHEET_GRADE, ['내신']);
+  if (gradeSheet) {
+    var gData = gradeSheet.getDataRange().getValues();
+    var ranks = buildGradeRanks_(gData);
+    var cuts  = buildGradeCuts_(gData);
+
+    for (var r = 1; r < gData.length; r++) {
+      var gRow = gData[r];
+      var gc = toInt_(gRow[0]), gn = toInt_(gRow[1]);
+      if (isNaN(gc) || isNaN(gn) || !gn) continue;
+
+      var st = ensure_(gc, gn, String(gRow[2] || '').trim());
+      var acc = { n5: 0, s5: 0, n9: 0, s9: 0, nSc: 0, sSc: 0, nP: 0, sP: 0 };
+
+      for (var si = 0; si < SUBJECTS.length; si++) {
+        var base = SUBJECTS[si].start;
+        for (var f = 0; f < 11; f++) st.g[si * 11 + f] = E_(cellVal_(gRow[base + f]));
+
+        var c = subjectCalc_(gRow, si, ranks, cuts);
+        var d = si * 9;
+        st.d[d + 0] = E_(c.g1nine);
+        st.d[d + 1] = E_(c.g2nine);
+        st.d[d + 2] = E_(c.gFnine);
+        st.d[d + 3] = c.upNow   === '' ? '' : Number(c.upNow);
+        st.d[d + 4] = c.upGrade === '' ? '' : Number(c.upGrade);
+        st.d[d + 5] = c.upNeed  === '' ? '' : Number(c.upNeed);
+        st.d[d + 6] = c.upBasis === '환산총점' ? 1 : (c.upBasis === '1차 점수' ? 2 : 0);
+        st.d[d + 7] = c.has1 ? 1 : 0;
+        st.d[d + 8] = c.has2 ? 1 : 0;
+
+        if (c.hasAny) {
+          var g5 = toNum_(c.fGrade);
+          if (g5 !== null) { acc.s5 += g5; acc.n5++; }
+          if (c.gFnine !== null) { acc.s9 += c.gFnine; acc.n9++; }
+          if (c.nt !== null) { acc.sSc += c.nt; acc.nSc++; }
+          if (c.pctF !== null) { acc.sP += c.pctF; acc.nP++; }
+        }
+      }
+
+      st.s = [
+        acc.n5 || acc.n9,
+        acc.n5  ? round_(acc.s5  / acc.n5,  2) : '',
+        acc.n9  ? round_(acc.s9  / acc.n9,  2) : '',
+        acc.nSc ? round_(acc.sSc / acc.nSc, 1) : '',
+        acc.nP  ? round_(acc.sP  / acc.nP,  1) : ''
+      ];
+    }
+  }
+
+  // 2. 학생 목표
+  var targetSheet = findSheet_(ss, SHEET_TARGET, TARGET_KEYWORDS);
+  if (targetSheet) {
+    var tData = targetSheet.getDataRange().getValues();
+    var tInfo = analyzeTargetSheet_(tData);
+    for (var t2 = tInfo.startRow; t2 < tData.length; t2++) {
+      var tRow = tData[t2];
+      var tc = toInt_(tRow[tInfo.cols.c]), tn = toInt_(tRow[tInfo.cols.n]);
+      if (isNaN(tc) || isNaN(tn) || !tn) continue;
+      var st2 = ensure_(tc, tn, String(tRow[tInfo.cols.nm] || '').trim());
+      st2.u  = cellPlain_(tRow, tInfo.cols.uni);
+      st2.mj = cellPlain_(tRow, tInfo.cols.major);
+    }
+  }
+
+  // 3. 상담내용
+  var counselSheet = findSheet_(ss, SHEET_COUNSEL, ['상담']);
+  if (counselSheet) {
+    var cData = counselSheet.getDataRange().getValues();
+    for (var i3 = 1; i3 < cData.length; i3++) {
+      var cRow = cData[i3];
+      var cc = toInt_(cRow[0]), cn2 = toInt_(cRow[1]);
+      if (isNaN(cc) || isNaN(cn2) || !cn2) continue;
+      var st3 = ensure_(cc, cn2, String(cRow[2] || '').trim());
+      var hist = [], last = '';
+      for (var col2 = 3; col2 < cRow.length; col2++) {
+        var val = String(cRow[col2] || '').trim();
+        if (val === '') continue;
+        hist.push(val);
+        var mm = val.match(/^\[(.*?)\]/);
+        if (mm) last = mm[1];
+      }
+      st3.cd = last;
+      st3.h  = hist.reverse();
+    }
+  }
+
+  // 4. 모의고사 (3·6·9·10월)
+  MOCK_SHEETS.forEach(function (cfg) {
+    var sheet = findSheet_(ss, cfg.name, cfg.keywords);
+    if (!sheet) return;
+    var mData = sheet.getDataRange().getValues();
+    if (mData.length < 2) return;
+
+    var info = analyzeMockSheet_(mData);
+    for (var m = info.startRow; m < mData.length; m++) {
+      var mRow = mData[m];
+      var mc = toInt_(mRow[0]), mn = toInt_(mRow[1]);
+      if (isNaN(mc) || isNaN(mn) || !mn) continue;
+
+      var st4 = ensure_(mc, mn, String(mRow[2] || '').trim());
+      var slot = st4.m[cfg.key];
+      for (var ui = 0; ui < MOCK_SUBJECTS.length; ui++) {
+        var col3 = info.cols[MOCK_SUBJECTS[ui]] || {};
+        slot[ui * 4 + 0] = E_(cellVal_(mRow[col3.s]));
+        slot[ui * 4 + 1] = (col3.t >= 0) ? E_(cellVal_(mRow[col3.t])) : '';
+        slot[ui * 4 + 2] = (col3.p >= 0) ? E_(cellVal_(mRow[col3.p])) : '';
+        slot[ui * 4 + 3] = E_(cellVal_(mRow[col3.g]));
+      }
+    }
+  });
+
+  list.sort(function (a, b) { return (a.c - b.c) || (a.n - b.n); });
+
+  return ok_({
+    gradeLabel:   GRADE_LABEL,
+    classList:    CLASS_LIST,
+    subjects:     SUBJECTS.map(function (x) { return x.name; }),
+    mockSubjects: MOCK_SUBJECTS,
+    mockMonths:   MOCK_SHEETS.map(function (x) { return { key: x.key, label: x.label }; }),
+    students:     list,
+    updated:      nowStr_()
+  });
 }
 
 
@@ -1275,8 +1610,6 @@ function getStudentsByClass(classNum) {
     }
 
     // 2. 내신 성적
-    var goalSheet = loadGoalSheet_(ss);             // 상담_2차목표 (없으면 null)
-
     var gradeSheet = findSheet_(ss, SHEET_GRADE, ['내신']);
     if (gradeSheet) {
       var gData = gradeSheet.getDataRange().getValues();
@@ -1292,117 +1625,49 @@ function getStudentsByClass(classNum) {
         var stu = ensureStudent(gNum, String(gRow[2] || '').trim());
         stu.schoolGrades = [];
 
-        var goalRow = goalSheet ? goalSheet.rows[classInt + '-' + gNum] : null;
-
         // 평균 계산용 누적값
         var acc = { n5: 0, s5: 0, n9: 0, s9: 0, nSc: 0, sSc: 0, nP: 0, sP: 0 };
 
         SUBJECTS.forEach(function (subj, si) {
-          var i = subj.start;
-          var rk = ranks[si] || {};
+          // 계산은 subjectCalc_ 한 곳에서만 합니다 (getAll 과 같은 값)
+          var c = subjectCalc_(gRow, si, ranks, cuts);
 
-          var exam1  = cellPlain_(gRow, i + 0);   // 1차시험
-          var grade1 = cellPlain_(gRow, i + 1);   // 1차등급
-          var exam2  = cellPlain_(gRow, i + 2);   // 2차시험
-          var grade2 = cellPlain_(gRow, i + 3);   // 2차등급
-          var eval1  = cellPlain_(gRow, i + 4);   // 1차수행
-          var eval2  = cellPlain_(gRow, i + 5);   // 2차수행
-          var total  = cellPlain_(gRow, i + 6);   // 환산총점
-          var fGrade = cellPlain_(gRow, i + 7);   // 최종등급
-          var ach1   = cellPlain_(gRow, i + 8);   // 1차성취도
-          var ach2   = cellPlain_(gRow, i + 9);   // 2차성취도
-          var fAch   = cellPlain_(gRow, i + 10);  // 최종성취도
-
-          var has1 = (exam1 !== '' || eval1 !== '');
-          var has2 = (exam2 !== '' || eval2 !== '');
-          var hasAny = has1 || has2;
-
-          // ── 상담_2차목표 (1차 점수 · 1차 등급 · +1등급 필요 점수) ──
-          var gCol = (goalSheet && goalRow) ? goalSheet.info.cols[si] : null;
-          var cScore1 = gCol ? cellPlain_(goalRow, gCol.s)    : '';
-          var cGrade1 = gCol ? cellPlain_(goalRow, gCol.g)    : '';
-          var needUp  = gCol ? cellPlain_(goalRow, gCol.need) : '';
-
-          // ── 9등급 환산 ──
-          var n1 = toNum_(gRow[i + 0]);
-          var n2 = toNum_(gRow[i + 2]);
-          var nt = toNum_(gRow[i + 6]);
-
-          var pct1 = (has1   && n1 !== null && rk.first)  ? rk.first(n1)  : null;
-          var pct2 = (has2   && n2 !== null && rk.second) ? rk.second(n2) : null;
-          var pctF = (hasAny && nt !== null && rk.final)  ? rk.final(nt)  : null;
-
-          var g1nine = grade9From_(pct1);
-          var g2nine = grade9From_(pct2);
-          var gFnine = grade9From_(pctF);
-
-          // ── 평균 누적 ──
-          if (hasAny) {
-            var g5 = toNum_(fGrade);
+          if (c.hasAny) {
+            var g5 = toNum_(c.fGrade);
             if (g5 !== null) { acc.s5 += g5; acc.n5++; }
-            if (gFnine !== null) { acc.s9 += gFnine; acc.n9++; }
-            if (nt !== null) { acc.sSc += nt; acc.nSc++; }
-            if (pctF !== null) { acc.sP += pctF; acc.nP++; }
-          }
-
-          // ── 현재 등급에서 한 등급 올리는 데 필요한 점수 ──
-          //    학기말 최종이 나왔으면 환산총점 기준, 아직이면 1차 시험 점수 기준.
-          var cut = cuts[si] || { first: {}, final: {} };
-          var nowGrade = null, nowScore = null, cutMap = null, upBasis = '';
-
-          var gfNum = toInt_(fGrade);
-          var g1Num = toInt_(grade1);
-
-          if (hasAny && nt !== null && !isNaN(gfNum) && gfNum >= 1 && gfNum <= 5) {
-            nowGrade = gfNum; nowScore = nt; cutMap = cut.final; upBasis = '환산총점';
-          } else if (has1 && n1 !== null && !isNaN(g1Num) && g1Num >= 1 && g1Num <= 5) {
-            nowGrade = g1Num; nowScore = n1; cutMap = cut.first; upBasis = '1차 점수';
-          }
-
-          var upGrade = '', upNeed = '';
-          if (nowGrade !== null && nowGrade > 1) {
-            var line = cutMap[nowGrade - 1];
-            if (line !== undefined) {
-              var diff = line - nowScore;
-              if (diff < 0) diff = 0;
-              upGrade = String(nowGrade - 1);
-              upNeed  = String(round_(diff, 2));
-            }
+            if (c.gFnine !== null) { acc.s9 += c.gFnine; acc.n9++; }
+            if (c.nt !== null) { acc.sSc += c.nt; acc.nSc++; }
+            if (c.pctF !== null) { acc.sP += c.pctF; acc.nP++; }
           }
 
           stu.schoolGrades.push({
             subject: subj.name,
-            exam1:  has1 ? exam1  : '',
-            grade1: has1 ? grade1 : '',
-            eval1:  has1 ? eval1  : '',
-            achievement1: has1 ? ach1 : '',
-            exam2:  has2 ? exam2  : '',
-            grade2: has2 ? grade2 : '',
-            eval2:  has2 ? eval2  : '',
-            achievement2: has2 ? ach2 : '',
-            totalScore:       hasAny ? total  : '',
-            finalGrade:       hasAny ? fGrade : '',
-            finalAchievement: hasAny ? fAch   : '',
-            hasData: hasAny,
+            exam1:  c.has1 ? c.exam1  : '',
+            grade1: c.has1 ? c.grade1 : '',
+            eval1:  c.has1 ? c.eval1  : '',
+            achievement1: c.has1 ? c.ach1 : '',
+            exam2:  c.has2 ? c.exam2  : '',
+            grade2: c.has2 ? c.grade2 : '',
+            eval2:  c.has2 ? c.eval2  : '',
+            achievement2: c.has2 ? c.ach2 : '',
+            totalScore:       c.hasAny ? c.total  : '',
+            finalGrade:       c.hasAny ? c.fGrade : '',
+            finalAchievement: c.hasAny ? c.fAch   : '',
+            hasData: c.hasAny,
 
             // 9등급제 환산 결과
-            grade1_9:    (g1nine === null) ? '' : String(g1nine),
-            grade2_9:    (g2nine === null) ? '' : String(g2nine),
-            finalGrade9: (gFnine === null) ? '' : String(gFnine),
-            pct1:      (pct1 === null) ? '' : round_(pct1, 1),
-            pct2:      (pct2 === null) ? '' : round_(pct2, 1),
-            pctFinal:  (pctF === null) ? '' : round_(pctF, 1),
-
-            // 상담_2차목표 시트에서 온 값 (1차 시험 기준)
-            cScore1: cScore1,
-            cGrade1: cGrade1,
-            needUp:  needUp,
+            grade1_9:    (c.g1nine === null) ? '' : String(c.g1nine),
+            grade2_9:    (c.g2nine === null) ? '' : String(c.g2nine),
+            finalGrade9: (c.gFnine === null) ? '' : String(c.gFnine),
+            pct1:      (c.pct1 === null) ? '' : round_(c.pct1, 1),
+            pct2:      (c.pct2 === null) ? '' : round_(c.pct2, 1),
+            pctFinal:  (c.pctF === null) ? '' : round_(c.pctF, 1),
 
             // 현재 등급에서 한 등급 올리는 데 필요한 점수 (전교 등급컷까지)
-            upNow:   (nowGrade === null) ? '' : String(nowGrade),
-            upGrade: upGrade,
-            upNeed:  upNeed,
-            upBasis: upBasis
+            upNow:   c.upNow,
+            upGrade: c.upGrade,
+            upNeed:  c.upNeed,
+            upBasis: c.upBasis
           });
         });
 
