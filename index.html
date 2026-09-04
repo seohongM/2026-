@@ -964,12 +964,14 @@ function startApp(me) {
     document.getElementById('search-class').value = currentClass;
 
     switchView('home');
+
     // 1단계 — 로그인 응답에 카드가 같이 왔으면 요청 없이 바로 그립니다
-    loadClassData(currentClass).then(() => {
-        // 2단계 — 첫 화면이 뜬 뒤에 전교 전체를 뒤에서 받습니다.
-        //         (첫 화면과 동시에 부르면 서로 기다리게 될 수 있습니다)
-        loadAll(false).catch(() => {});
-    });
+    const first = loadClassData(currentClass);
+
+    // 2단계 — 전교 전체. 카드가 로그인 응답에 실려 왔으면(=서버를 더 부를 일이 없으면)
+    //          곧바로 출발시킵니다. 늦게 출발하면 학생을 눌렀을 때 그만큼 기다리게 됩니다.
+    if (PRELOADED_USED) loadAll(false).catch(() => {});
+    else first.then(() => loadAll(false).catch(() => {}));
 }
 
 function buildClassSelect(list, selected) {
@@ -1001,6 +1003,7 @@ function forceLogout(msg) {
     ALL = null;
     allPromise = null;
     PRELOADED_CARDS = null;
+    PRELOADED_USED = false;
     statsReset();
     sessionStorage.removeItem('sc_token');
 
@@ -1066,6 +1069,7 @@ function targetLabel(s) {
 let ALL = null;              // 전교 데이터 (2단계로 도착)
 let allPromise = null;       // 받는 중이면 여기에
 let PRELOADED_CARDS = null;  // 로그인 응답에 함께 온 첫 화면 카드
+let PRELOADED_USED = false;  // 그 카드로 첫 화면을 그렸는가
 
 /** 값 없음을 한 가지로 맞춥니다. 서버는 빈 칸을 '' 로 보냅니다. */
 function V(v) { return (v === null || v === undefined) ? '' : v; }
@@ -1197,6 +1201,7 @@ async function loadClassData(targetClass) {
     if (PRELOADED_CARDS && Number(PRELOADED_CARDS.classNum) === Number(targetClass)) {
         const pre = PRELOADED_CARDS;
         PRELOADED_CARDS = null;
+        PRELOADED_USED = true;
         studentsData = (pre.students || []).map(c => hydrateCard(c, pre.classNum));
         onDataLoaded(studentsData);
         return;

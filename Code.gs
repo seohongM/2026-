@@ -566,6 +566,105 @@ function cellVal_(v) {
       (등급 상승 목표는 전교 등급컷으로 직접 계산합니다)
    ══════════════════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════════════════
+   여러 시트를 '한 번에' 읽기
+
+   Apps Script 에서 getValues() 한 번은 구글 서버까지 다녀오는 왕복입니다.
+   시트 7개를 읽으면 왕복 7번이라 그만큼 기다리게 됩니다.
+
+   구글 시트 고급 서비스(Sheets API)가 켜져 있으면 **왕복 한 번**으로
+   여러 시트를 한꺼번에 읽습니다. 켜져 있지 않으면 예전처럼 하나씩 읽습니다.
+   → 켜지 않아도 그대로 동작합니다. 켜면 훨씬 빨라집니다.
+
+   켜는 방법 (한 번만):
+     Apps Script 편집기 왼쪽 [서비스] 옆 [+] → Google Sheets API → [추가]
+   ══════════════════════════════════════════════════════════ */
+
+/** 고급 서비스를 쓸 수 있는지 한 번만 확인해 기억해 둡니다. */
+var _batchOK = null;
+
+/**
+ * @param ss     스프레드시트
+ * @param wants  [{key:'grade', name:'내신성적', keywords:['내신']}, ...]
+ * @return       { grade: [[...]], ... }  (시트가 없으면 null)
+ */
+function readSheets_(ss, wants) {
+  var out = {}, use = [];
+
+  for (var i = 0; i < wants.length; i++) {
+    var w = wants[i];
+    var sh = findSheet_(ss, w.name, w.keywords);      // 이름만 찾습니다 (자료는 안 읽음)
+    if (sh) use.push({ key: w.key, sheet: sh });
+    else out[w.key] = null;
+  }
+  if (!use.length) return out;
+
+  // ── 1) 한 번에 읽기 (고급 서비스가 켜져 있을 때) ──
+  if (_batchOK !== false) {
+    try {
+      var ranges = use.map(function (u) {
+        return "'" + String(u.sheet.getName()).replace(/'/g, "''") + "'";
+      });
+      var res = Sheets.Spreadsheets.Values.batchGet(ss.getId(), {
+        ranges: ranges,
+        valueRenderOption: 'UNFORMATTED_VALUE',      // 표시 형식이 아니라 실제 값
+        dateTimeRenderOption: 'FORMATTED_STRING'     // 날짜는 글자로
+      });
+      var vr = (res && res.valueRanges) || [];
+      if (vr.length === use.length) {
+        for (var j = 0; j < use.length; j++) out[use[j].key] = squareUp_(vr[j].values || []);
+        _batchOK = true;
+        return out;
+      }
+    } catch (e) {
+      _batchOK = false;                              // 이 실행에서는 다시 시도하지 않습니다
+      Logger.log('한 번에 읽기를 쓸 수 없어 하나씩 읽습니다: ' + e);
+    }
+  }
+
+  // ── 2) 예전 방식 (하나씩) ──
+  for (var k = 0; k < use.length; k++) {
+    out[use[k].key] = use[k].sheet.getDataRange().getValues();
+  }
+  return out;
+}
+
+/**
+ * Sheets API 는 줄 끝의 빈 칸을 잘라서 돌려줍니다.
+ * 그대로 두면 줄마다 길이가 달라져, 예를 들어 모의고사 머리글의
+ * 병합된 빈 칸이 사라지면서 마지막 과목(한국사)의 등급 열을 놓칩니다.
+ * getValues() 와 똑같이 네모난 표가 되도록 빈 칸('')으로 채워 줍니다.
+ */
+function squareUp_(rows) {
+  var width = 0, i;
+  for (i = 0; i < rows.length; i++) {
+    if (rows[i] && rows[i].length > width) width = rows[i].length;
+  }
+  for (i = 0; i < rows.length; i++) {
+    if (!rows[i]) rows[i] = [];
+    while (rows[i].length < width) rows[i].push('');
+  }
+  return rows;
+}
+
+/** 카드·전교 데이터가 함께 쓰는 시트 목록 */
+function CARD_SHEETS_() {
+  return [
+    { key: 'grade',   name: SHEET_GRADE,   keywords: ['내신'] },
+    { key: 'target',  name: SHEET_TARGET,  keywords: TARGET_KEYWORDS },
+    { key: 'counsel', name: SHEET_COUNSEL, keywords: ['상담'] }
+  ];
+}
+
+function ALL_SHEETS_() {
+  var list = CARD_SHEETS_();
+  MOCK_SHEETS.forEach(function (cfg) {
+    list.push({ key: cfg.key, name: cfg.name, keywords: cfg.keywords });
+  });
+  return list;
+}
+
+
 /**
  * 내신성적 한 줄에서 과목 하나를 계산합니다.
  * getAll 과 getStudentsByClass 가 **같이** 쓰는 단 하나의 계산 자리입니다.
@@ -651,6 +750,7 @@ function apiGetClassCards_(req, user) {
 
 /** 한 반의 카드 자료를 만듭니다. 로그인 응답에도 같이 실어 보냅니다. */
 function buildClassCards_(ss, cls) {
+  var data = readSheets_(ss, CARD_SHEETS_());      // 시트 3개를 한 번에
   var map = {}, order = [];
   function pick_(n, nm) {
     if (!map[n]) { map[n] = { n: n, nm: nm || (n + '번 학생'), u: '', mj: '', cd: '', cn: 0, a5: null, a9: null }; order.push(n); }
@@ -659,9 +759,8 @@ function buildClassCards_(ss, cls) {
   }
 
   // 1) 내신성적 — 평균 등급
-  var gradeSheet = findSheet_(ss, SHEET_GRADE, ['내신']);
-  if (gradeSheet) {
-    var gData = gradeSheet.getDataRange().getValues();
+  var gData = data.grade;
+  if (gData) {
     var ranks = buildGradeRanks_(gData);
     for (var r = 1; r < gData.length; r++) {
       var gRow = gData[r];
@@ -684,9 +783,8 @@ function buildClassCards_(ss, cls) {
   }
 
   // 2) 학생 목표
-  var targetSheet = findSheet_(ss, SHEET_TARGET, TARGET_KEYWORDS);
-  if (targetSheet) {
-    var tData = targetSheet.getDataRange().getValues();
+  var tData = data.target;
+  if (tData) {
     var tInfo = analyzeTargetSheet_(tData);
     for (var t = tInfo.startRow; t < tData.length; t++) {
       var tRow = tData[t];
@@ -700,9 +798,8 @@ function buildClassCards_(ss, cls) {
   }
 
   // 3) 상담내용 — 횟수와 최근 날짜만
-  var counselSheet = findSheet_(ss, SHEET_COUNSEL, ['상담']);
-  if (counselSheet) {
-    var cData = counselSheet.getDataRange().getValues();
+  var cData = data.counsel;
+  if (cData) {
     for (var i2 = 1; i2 < cData.length; i2++) {
       var cRow = cData[i2];
       if (toInt_(cRow[0]) !== cls) continue;
@@ -737,6 +834,8 @@ function apiGetAll_(req, user) {
   var D_LEN = SUBJECTS.length * 9;    // 계산값
   var M_LEN = MOCK_SUBJECTS.length * 4;
 
+  var data = readSheets_(ss, ALL_SHEETS_());        // 시트 7개를 한 번에
+
   var index = {}, list = [];
 
   // 빈 칸은 null 대신 '' 로 보냅니다. 글자 수가 짧아 응답이 20% 넘게 작아집니다.
@@ -763,9 +862,8 @@ function apiGetAll_(req, user) {
   }
 
   // 1. 내신성적 (+ 9등급 환산 · 등급컷 · 평균)
-  var gradeSheet = findSheet_(ss, SHEET_GRADE, ['내신']);
-  if (gradeSheet) {
-    var gData = gradeSheet.getDataRange().getValues();
+  var gData = data.grade;
+  if (gData) {
     var ranks = buildGradeRanks_(gData);
     var cuts  = buildGradeCuts_(gData);
 
@@ -813,9 +911,8 @@ function apiGetAll_(req, user) {
   }
 
   // 2. 학생 목표
-  var targetSheet = findSheet_(ss, SHEET_TARGET, TARGET_KEYWORDS);
-  if (targetSheet) {
-    var tData = targetSheet.getDataRange().getValues();
+  var tData = data.target;
+  if (tData) {
     var tInfo = analyzeTargetSheet_(tData);
     for (var t2 = tInfo.startRow; t2 < tData.length; t2++) {
       var tRow = tData[t2];
@@ -828,9 +925,8 @@ function apiGetAll_(req, user) {
   }
 
   // 3. 상담내용
-  var counselSheet = findSheet_(ss, SHEET_COUNSEL, ['상담']);
-  if (counselSheet) {
-    var cData = counselSheet.getDataRange().getValues();
+  var cData = data.counsel;
+  if (cData) {
     for (var i3 = 1; i3 < cData.length; i3++) {
       var cRow = cData[i3];
       var cc = toInt_(cRow[0]), cn2 = toInt_(cRow[1]);
@@ -851,10 +947,8 @@ function apiGetAll_(req, user) {
 
   // 4. 모의고사 (3·6·9·10월)
   MOCK_SHEETS.forEach(function (cfg) {
-    var sheet = findSheet_(ss, cfg.name, cfg.keywords);
-    if (!sheet) return;
-    var mData = sheet.getDataRange().getValues();
-    if (mData.length < 2) return;
+    var mData = data[cfg.key];
+    if (!mData || mData.length < 2) return;
 
     var info = analyzeMockSheet_(mData);
     for (var m = info.startRow; m < mData.length; m++) {
