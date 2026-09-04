@@ -948,6 +948,8 @@ async function doRequestAccount() {
 
 function startApp(me) {
     ME = me;
+    // 로그인 응답에 첫 화면 카드가 함께 왔으면 그것부터 씁니다 (요청 한 번 절약)
+    PRELOADED_CARDS = (me && me.cards) ? me.cards : null;
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
 
@@ -962,8 +964,12 @@ function startApp(me) {
     document.getElementById('search-class').value = currentClass;
 
     switchView('home');
-    loadClassData(currentClass);          // 1단계 — 우리 반 카드 (시트 3번)
-    loadAll(false).catch(() => {});       // 2단계 — 전교 전체를 뒤에서 받아 둠
+    // 1단계 — 로그인 응답에 카드가 같이 왔으면 요청 없이 바로 그립니다
+    loadClassData(currentClass).then(() => {
+        // 2단계 — 첫 화면이 뜬 뒤에 전교 전체를 뒤에서 받습니다.
+        //         (첫 화면과 동시에 부르면 서로 기다리게 될 수 있습니다)
+        loadAll(false).catch(() => {});
+    });
 }
 
 function buildClassSelect(list, selected) {
@@ -994,6 +1000,7 @@ function forceLogout(msg) {
     selectedStudent = null;
     ALL = null;
     allPromise = null;
+    PRELOADED_CARDS = null;
     statsReset();
     sessionStorage.removeItem('sc_token');
 
@@ -1056,8 +1063,9 @@ function targetLabel(s) {
    시트를 고치셨으면 [↻ 새로고침] 을 누르면 다시 받아옵니다.
    ══════════════════════════════════════════════════════════ */
 
-let ALL = null;            // 전교 데이터 (2단계로 도착)
-let allPromise = null;     // 받는 중이면 여기에
+let ALL = null;              // 전교 데이터 (2단계로 도착)
+let allPromise = null;       // 받는 중이면 여기에
+let PRELOADED_CARDS = null;  // 로그인 응답에 함께 온 첫 화면 카드
 
 /** 값 없음을 한 가지로 맞춥니다. 서버는 빈 칸을 '' 로 보냅니다. */
 function V(v) { return (v === null || v === undefined) ? '' : v; }
@@ -1181,6 +1189,15 @@ async function loadClassData(targetClass) {
 
     if (ALL) {                       // 이미 다 받아 뒀으면 서버를 안 부릅니다
         studentsData = ALL.students.filter(x => Number(x.c) === Number(targetClass)).map(hydrate);
+        onDataLoaded(studentsData);
+        return;
+    }
+
+    // 로그인 응답에 함께 온 카드가 있으면 서버를 다시 부르지 않습니다
+    if (PRELOADED_CARDS && Number(PRELOADED_CARDS.classNum) === Number(targetClass)) {
+        const pre = PRELOADED_CARDS;
+        PRELOADED_CARDS = null;
+        studentsData = (pre.students || []).map(c => hydrateCard(c, pre.classNum));
         onDataLoaded(studentsData);
         return;
     }
@@ -2712,6 +2729,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('login-pw').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') doLogin();
     });
+
+    // 구글 서버는 한동안 쓰지 않으면 잠들어 있다가 깨어나는 데 1~3초가 걸립니다.
+    // 선생님이 비밀번호를 입력하시는 동안 미리 깨워 둡니다. (로그인 없이 되는 요청)
+    if (!TOKEN) { api('ping', {}).catch(() => {}); }
 
     const textarea = document.getElementById('counsel-text');
     if (textarea) {

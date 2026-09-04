@@ -281,20 +281,32 @@ function dropToken_(token) {
   if (token) PropertiesService.getScriptProperties().deleteProperty('TK_' + String(token));
 }
 
-/** 만료된 접속증을 정리합니다. (로그인할 때마다 가볍게 실행) */
+/**
+ * 만료된 접속증을 정리합니다. (로그인할 때마다 가볍게 실행)
+ * 하나 지울 때마다 구글 서버를 다녀오므로, 한 번에 최대 8개만 지웁니다.
+ * 남은 것은 다음 로그인 때 이어서 지워집니다.
+ */
+var CLEAN_LIMIT = 8;
+
 function cleanTokens_() {
   var props = PropertiesService.getScriptProperties();
   var all = props.getProperties();
   var now = Date.now();
-  Object.keys(all).forEach(function (k) {
-    if (k.indexOf('TK_') !== 0) return;
+  var done = 0;
+  var keys = Object.keys(all);
+
+  for (var i = 0; i < keys.length && done < CLEAN_LIMIT; i++) {
+    var k = keys[i];
+    if (k.indexOf('TK_') !== 0) continue;
+    var stale = false;
     try {
       var d = JSON.parse(all[k]);
-      if (!d.exp || now > d.exp) props.deleteProperty(k);
+      stale = (!d.exp || now > d.exp);
     } catch (e) {
-      props.deleteProperty(k);
+      stale = true;
     }
-  });
+    if (stale) { props.deleteProperty(k); done++; }
+  }
 }
 
 function publicUser_(user) {
@@ -334,12 +346,28 @@ function apiLogin_(req) {
     };
     if (isNaN(user.cls)) user.cls = CLASS_LIST[0];
 
-    sheet.getRange(i + 1, ACC.last + 1).setValue(nowStr_());
+    // 최근 접속 기록 — 같은 시간대(시 단위)면 다시 쓰지 않습니다.
+    // 시트 쓰기는 느려서, 로그인할 때마다 쓰면 그만큼 기다리게 됩니다.
+    var nowTxt = nowStr_();
+    var lastTxt = String(row[ACC.last] || '');
+    if (lastTxt.slice(0, 13) !== nowTxt.slice(0, 13)) {
+      sheet.getRange(i + 1, ACC.last + 1).setValue(nowTxt);
+    }
+
     cleanTokens_();
 
     var token = issueToken_(user);
     var out = publicUser_(user);
     out.token = token;
+
+    // 첫 화면(우리 반 카드)을 같은 응답에 함께 보냅니다.
+    // 따로 요청하면 왕복이 한 번 더 생겨 그만큼 늦어집니다.
+    try {
+      out.cards = buildClassCards_(ss, user.cls);
+    } catch (e3) {
+      out.cards = null;      // 실패해도 로그인은 되게 둡니다 (화면이 따로 요청합니다)
+    }
+
     return ok_(out);
   }
 
@@ -618,6 +646,11 @@ function apiGetClassCards_(req, user) {
   var ss = getSpreadsheet_();
   if (!ss) return err_('스프레드시트를 열 수 없습니다.');
 
+  return ok_(buildClassCards_(ss, cls));
+}
+
+/** 한 반의 카드 자료를 만듭니다. 로그인 응답에도 같이 실어 보냅니다. */
+function buildClassCards_(ss, cls) {
   var map = {}, order = [];
   function pick_(n, nm) {
     if (!map[n]) { map[n] = { n: n, nm: nm || (n + '번 학생'), u: '', mj: '', cd: '', cn: 0, a5: null, a9: null }; order.push(n); }
@@ -690,7 +723,7 @@ function apiGetClassCards_(req, user) {
   }
 
   order.sort(function (a, b) { return a - b; });
-  return ok_({ classNum: cls, students: order.map(function (k) { return map[k]; }) });
+  return { classNum: cls, students: order.map(function (k) { return map[k]; }) };
 }
 
 
