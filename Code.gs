@@ -70,20 +70,116 @@ var GOAL_KEYWORDS  = ['상담', '목표'];
 var GOAL_START_COL = 3;   // D열부터
 var GOAL_PER_SUBJ  = 3;   // +0 1차점수 / +1 1차등급 / +2 +1등급필요
 
+// 과목 목록
+//   name  : 시트 머리글에 적힌 이름 (뒤의 1=1학기, 2=2학기)
+//   base  : 학기 표시를 뗀 과목 이름 (화면 표에 이 이름이 나옵니다)
+//   sem   : 1학기 과목인가 2학기 과목인가
+//   start : '내신성적' 시트에서 그 과목 첫 칸(1차시험)의 열 번호 (0부터 셈)
+//           과목 하나가 11칸이므로 3, 14, 25 … 처럼 11칸씩 늘어납니다.
+//
+// ⚠️ start 는 '시트가 예상대로 생겼을 때 쓰는 기본값' 입니다.
+//    실제로는 syncSubjectCols_() 가 시트 머리글을 읽어 위치를 자동으로 찾습니다.
+//    (과목을 중간에 끼워 넣어도 자동으로 따라갑니다. 머리글을 못 읽으면 이 기본값을 씁니다)
 var SUBJECTS = [
-  { name: '공통국어1', start: 3   },
-  { name: '공통국어2', start: 14  },
-  { name: '공통수학1', start: 25  },
-  { name: '공통수학2', start: 36  },
-  { name: '공통영어1', start: 47  },
-  { name: '공통영어2', start: 58  },
-  { name: '통합사회1', start: 69  },
-  { name: '통합사회2', start: 80  },
-  { name: '통합과학1', start: 91  },
-  { name: '통합과학2', start: 102 },
-  { name: '한국사1',   start: 113 },
-  { name: '한국사2',   start: 124 }
+  { name: '공통국어1', base: '공통국어', sem: 1, start: 3   },
+  { name: '공통국어2', base: '공통국어', sem: 2, start: 14  },
+  { name: '공통수학1', base: '공통수학', sem: 1, start: 25  },
+  { name: '공통수학2', base: '공통수학', sem: 2, start: 36  },
+  { name: '공통영어1', base: '공통영어', sem: 1, start: 47  },
+  { name: '공통영어2', base: '공통영어', sem: 2, start: 58  },
+  { name: '통합사회1', base: '통합사회', sem: 1, start: 69  },
+  { name: '통합사회2', base: '통합사회', sem: 2, start: 80  },
+  { name: '통합과학1', base: '통합과학', sem: 1, start: 91  },
+  { name: '통합과학2', base: '통합과학', sem: 2, start: 102 },
+  { name: '한국사1',   base: '한국사',   sem: 1, start: 113 },
+  { name: '한국사2',   base: '한국사',   sem: 2, start: 124 },
+
+  // ── 2학기에만 시험을 보는 과목 ──
+  // 정보는 1학기에 없으므로 2학기 화면에만 나옵니다.
+  // 기본값 135 = 한국사2 바로 뒤(136번째 칸, EF열). 시트가 다르면 머리글로 자동 보정합니다.
+  { name: '정보2',     base: '정보',     sem: 2, start: 135 }
 ];
+
+// 과목 한 칸(블록)의 너비. 11칸(1차시험 … 최종성취도)입니다.
+var SUBJ_WIDTH = 11;
+
+// 이번 요청에서 실제로 쓸 과목 시작 열. syncSubjectCols_() 가 채웁니다.
+var SUBJ_START = null;
+
+/** 과목 si 의 '내신성적' 시트 시작 열. 자동 인식이 됐으면 그 값을, 아니면 기본값을 씁니다. */
+function subjStart_(si) {
+  if (SUBJ_START && SUBJ_START[si] !== undefined && SUBJ_START[si] !== null) {
+    return SUBJ_START[si];
+  }
+  return SUBJECTS[si].start;
+}
+
+/**
+ * '내신성적' 시트 머리글을 읽어 과목이 몇 번째 열부터 시작하는지 찾아 둡니다.
+ * 내신성적 시트를 읽는 함수는 값을 쓰기 전에 이 함수를 먼저 부릅니다.
+ *
+ * 왜 필요한가 : 과목을 중간에 끼워 넣으면 뒤 과목이 전부 밀립니다.
+ *              머리글로 위치를 찾아 두면 밀려도 제 값을 읽습니다.
+ * 못 찾으면   : 위 SUBJECTS 의 start 기본값을 그대로 씁니다 (예전과 같은 동작).
+ */
+function syncSubjectCols_(gData) {
+  SUBJ_START = detectSubjectCols_(gData);
+  return SUBJ_START;
+}
+
+/** 머리글에서 과목 위치를 찾습니다. 13과목을 모두 찾았을 때만 결과를 돌려줍니다. */
+function detectSubjectCols_(gData) {
+  if (!gData || !gData.length) return null;
+
+  var width = 0;
+  for (var w = 0; w < gData.length; w++) {
+    if (gData[w] && gData[w].length > width) width = gData[w].length;
+  }
+  if (width <= 3) return null;
+
+  // 머리글은 데이터가 시작되기 전 줄들입니다. 열별로 이어 붙여 한 덩어리로 봅니다.
+  var headRows = 0;
+  for (var r = 0; r < Math.min(gData.length, 4); r++) {
+    if (!isNaN(toInt_((gData[r] || [])[0])) && !isNaN(toInt_((gData[r] || [])[1]))) break;
+    headRows++;
+  }
+  if (!headRows) return null;
+
+  var labels = [];
+  for (var c = 0; c < width; c++) {
+    var txt = '';
+    for (var hr = 0; hr < headRows; hr++) txt += String((gData[hr] || [])[c] || '');
+    labels[c] = normalize_(txt);
+  }
+
+  // 3열(D열)부터 11칸씩 끊어 보며 그 칸의 머리글이 어느 과목인지 맞춰 봅니다.
+  var pos = {}, found = 0;
+  for (var b = 3; b + SUBJ_WIDTH - 1 < width; b += SUBJ_WIDTH) {
+    var t = labels[b];
+    if (!t) continue;
+    for (var si = 0; si < SUBJECTS.length; si++) {
+      var want = normalize_(SUBJECTS[si].name);
+      if (t.indexOf(want) === 0 && pos[SUBJECTS[si].name] === undefined) {
+        pos[SUBJECTS[si].name] = b;
+        found++;
+        break;
+      }
+    }
+  }
+
+  if (found !== SUBJECTS.length) return null;   // 하나라도 못 찾으면 기본값을 씁니다
+
+  var out = [];
+  for (var k = 0; k < SUBJECTS.length; k++) out.push(pos[SUBJECTS[k].name]);
+  return out;
+}
+
+/** 화면에 보낼 과목 목록. 이름·학기까지 같이 보냅니다. */
+function subjectMeta_() {
+  return SUBJECTS.map(function (x) {
+    return { n: x.name, b: x.base, s: x.sem };
+  });
+}
 
 // 계정 시트 열 위치 (0부터 셈)
 var ACC = {
@@ -480,6 +576,7 @@ function apiGetGradeAll_(req, user) {
   var gradeSheet = findSheet_(ss, SHEET_GRADE, ['내신']);
   if (gradeSheet) {
     var gData = gradeSheet.getDataRange().getValues();
+    syncSubjectCols_(gData);                        // 과목 열 위치를 머리글로 확인
     for (var r = 1; r < gData.length; r++) {
       var gRow = gData[r];
       var gc = toInt_(gRow[0]), gn = toInt_(gRow[1]);
@@ -487,7 +584,7 @@ function apiGetGradeAll_(req, user) {
 
       var st1 = ensure_(gc, gn, String(gRow[2] || '').trim());
       for (var si = 0; si < SUBJECTS.length; si++) {
-        var base = SUBJECTS[si].start;
+        var base = subjStart_(si);
         for (var f = 0; f < 11; f++) st1.g[si * 11 + f] = cellVal_(gRow[base + f]);
       }
     }
@@ -541,6 +638,7 @@ function apiGetGradeAll_(req, user) {
   return ok_({
     gradeLabel:  GRADE_LABEL,
     subjects:    SUBJECTS.map(function (x) { return x.name; }),
+    subjectInfo: subjectMeta_(),
     mockSubjects: MOCK_SUBJECTS,
     mockMonths:  MOCK_SHEETS.map(function (x) { return { key: x.key, label: x.label }; }),
     goalSheet:   goalSheet ? goalSheet.name : '',
@@ -675,7 +773,7 @@ function ALL_SHEETS_() {
  * 여기만 고치면 두 화면이 늘 같은 값을 봅니다.
  */
 function subjectCalc_(gRow, si, ranks, cuts) {
-  var i  = SUBJECTS[si].start;
+  var i  = subjStart_(si);
   var rk = (ranks && ranks[si]) || {};
   var ct = (cuts  && cuts[si])  || { first: {}, final: {} };
 
@@ -765,6 +863,7 @@ function buildClassCards_(ss, cls) {
   // 1) 내신성적 — 평균 등급
   var gData = data.grade;
   if (gData) {
+    syncSubjectCols_(gData);                        // 과목 열 위치를 머리글로 확인
     var ranks = buildGradeRanks_(gData);
     for (var r = 1; r < gData.length; r++) {
       var gRow = gData[r];
@@ -868,6 +967,7 @@ function apiGetAll_(req, user) {
   // 1. 내신성적 (+ 9등급 환산 · 등급컷 · 평균)
   var gData = data.grade;
   if (gData) {
+    syncSubjectCols_(gData);                        // 과목 열 위치를 머리글로 확인
     var ranks = buildGradeRanks_(gData);
     var cuts  = buildGradeCuts_(gData);
 
@@ -880,7 +980,7 @@ function apiGetAll_(req, user) {
       var acc = { n5: 0, s5: 0, n9: 0, s9: 0, nSc: 0, sSc: 0, nP: 0, sP: 0 };
 
       for (var si = 0; si < SUBJECTS.length; si++) {
-        var base = SUBJECTS[si].start;
+        var base = subjStart_(si);
         for (var f = 0; f < 11; f++) st.g[si * 11 + f] = E_(cellVal_(gRow[base + f]));
 
         var c = subjectCalc_(gRow, si, ranks, cuts);
@@ -973,6 +1073,7 @@ function apiGetAll_(req, user) {
     gradeLabel:   GRADE_LABEL,
     classList:    CLASS_LIST,
     subjects:     SUBJECTS.map(function (x) { return x.name; }),
+    subjectInfo:  subjectMeta_(),
     mockSubjects: MOCK_SUBJECTS,
     mockMonths:   MOCK_SHEETS.map(function (x) { return { key: x.key, label: x.label }; }),
     students:     list,
@@ -1496,16 +1597,31 @@ function analyzeGoalSheet_(values) {
     if (labels[c2] && labels[c2].indexOf('필요') !== -1) needCols.push(c2);
   }
 
-  if (needCols.length === SUBJECTS.length) {
+  // '필요' 열 개수가 과목 수보다 적을 수 있습니다.
+  // (예: 정보는 2학기에만 보는 과목이라 이 시트에는 아직 없을 수 있습니다)
+  // 찾은 개수만큼 앞에서부터 맞추고, 남는 과목은 '없음'(-1) 으로 둡니다.
+  if (needCols.length >= 1 && needCols.length <= SUBJECTS.length) {
     for (var i = 0; i < SUBJECTS.length; i++) {
-      result.cols.push({ s: needCols[i] - 2, g: needCols[i] - 1, need: needCols[i] });
+      if (i < needCols.length) {
+        result.cols.push({ s: needCols[i] - 2, g: needCols[i] - 1, need: needCols[i] });
+      } else {
+        result.cols.push({ s: -1, g: -1, need: -1 });
+      }
     }
-    result.how = "머리글의 '필요' 열 " + SUBJECTS.length + '개로 자동 인식';
+    result.how = "머리글의 '필요' 열 " + needCols.length + '개로 자동 인식' +
+                 (needCols.length < SUBJECTS.length
+                   ? ' (과목 ' + SUBJECTS.length + '개 중 뒤 ' +
+                     (SUBJECTS.length - needCols.length) + '개는 이 시트에 없음)'
+                   : '');
     result.detected = true;
   } else {
     for (var j = 0; j < SUBJECTS.length; j++) {
       var base = GOAL_START_COL + j * GOAL_PER_SUBJ;
-      result.cols.push({ s: base, g: base + 1, need: base + 2 });
+      if (base + 2 < width) {
+        result.cols.push({ s: base, g: base + 1, need: base + 2 });
+      } else {
+        result.cols.push({ s: -1, g: -1, need: -1 });   // 시트에 그 과목 칸이 없음
+      }
     }
   }
   return result;
@@ -1606,7 +1722,7 @@ function buildGradeRanks_(gData) {
   var ranks = [];
 
   SUBJECTS.forEach(function (subj, si) {
-    var i = subj.start;
+    var i = subjStart_(si);
     var v1 = [], v2 = [], vf = [];
 
     for (var r = 1; r < gData.length; r++) {
@@ -1650,7 +1766,7 @@ function buildGradeCuts_(gData) {
   var cuts = [];
 
   SUBJECTS.forEach(function (subj, si) {
-    var i = subj.start;
+    var i = subjStart_(si);
     var first = {}, final = {};
 
     for (var r = 1; r < gData.length; r++) {
@@ -1739,6 +1855,7 @@ function getStudentsByClass(classNum) {
     var gradeSheet = findSheet_(ss, SHEET_GRADE, ['내신']);
     if (gradeSheet) {
       var gData = gradeSheet.getDataRange().getValues();
+      syncSubjectCols_(gData);                      // 과목 열 위치를 머리글로 확인
       var ranks = buildGradeRanks_(gData);          // 전교생 기준 석차백분율 변환기
       var cuts  = buildGradeCuts_(gData);           // 전교생 기준 과목별 등급컷
 
@@ -2180,6 +2297,74 @@ function checkMockSheets() {
       Logger.log(v[info.startRow].slice(0, 25).join(' | '));
     }
   });
+}
+
+
+/**
+ * '내신성적' 시트에서 과목이 몇 번째 열부터 시작하는지 확인합니다.
+ *
+ *  ★ '정보' 과목을 2학기에 새로 넣은 뒤에는 이 함수를 한 번 실행해 주세요.
+ *
+ *  Apps Script 편집기 위쪽 함수 목록에서 check내신시트 를 고르고
+ *  ▷실행 을 누른 뒤, 아래 '실행 로그'에 나온 내용을 알려 주세요.
+ */
+function check내신시트() {
+  var ss = getSpreadsheet_();
+  if (!ss) { Logger.log('❌ 스프레드시트를 열 수 없습니다.'); return; }
+
+  var sheet = findSheet_(ss, SHEET_GRADE, ['내신']);
+  if (!sheet) { Logger.log("❌ '내신성적' 시트를 찾지 못했습니다."); return; }
+
+  var v = sheet.getDataRange().getValues();
+  Logger.log('✅ 시트를 찾았습니다: [' + sheet.getName() + ']');
+  Logger.log('   전체 ' + v.length + '행 / ' + (v[0] ? v[0].length : 0) + '열');
+  Logger.log('   과목 ' + SUBJECTS.length + '개 × 11칸 = ' + (3 + SUBJECTS.length * 11) + '열이면 딱 맞습니다.');
+  Logger.log('');
+
+  var detected = detectSubjectCols_(v);
+  syncSubjectCols_(v);
+
+  Logger.log('── 인식 방법 ──');
+  if (detected) {
+    Logger.log('   ✅ 시트 머리글에서 과목 ' + SUBJECTS.length + '개를 모두 찾았습니다.');
+    Logger.log('      (과목을 중간에 끼워 넣어도 자동으로 따라갑니다)');
+  } else {
+    Logger.log('   ⚠️ 머리글에서 과목 이름을 찾지 못해 기본 위치를 씁니다.');
+    Logger.log('      과목을 중간에 끼워 넣으셨다면 값이 밀려 나올 수 있습니다.');
+    Logger.log('      이 줄이 보이면 알려 주세요.');
+  }
+  Logger.log('');
+
+  Logger.log('── 과목별 시작 열 ──');
+  for (var i = 0; i < SUBJECTS.length; i++) {
+    var c = subjStart_(i);
+    var head = (v[0] && v[0][c] !== undefined) ? String(v[0][c]) : '';
+    var exists = (v[0] && v[0].length > c + 10);
+    Logger.log('   ' + SUBJECTS[i].name +
+               ' (' + SUBJECTS[i].sem + '학기)' +
+               ' → ' + colLetter_(c) +
+               ' / 머리글 "' + head + '"' +
+               (exists ? '' : '  ⚠️ 시트에 이 칸이 아직 없습니다(화면에는 미입력으로 나옵니다)'));
+  }
+  Logger.log('');
+
+  var first = -1;
+  for (var r = 0; r < v.length; r++) {
+    if (!isNaN(toInt_(v[r][0])) && !isNaN(toInt_(v[r][1])) && toInt_(v[r][1])) { first = r; break; }
+  }
+  if (first >= 0) {
+    Logger.log('── 첫 학생 줄로 실제 읽어 본 값 ──');
+    var row = v[first];
+    Logger.log('   ' + row[0] + '반 ' + row[1] + '번 ' + row[2]);
+    for (var j = 0; j < SUBJECTS.length; j++) {
+      var b = subjStart_(j);
+      Logger.log('   ' + SUBJECTS[j].name +
+                 ' → 1차 ' + cellText_(row, b + 0) +
+                 ' / 2차 ' + cellText_(row, b + 2) +
+                 ' / 환산총점 ' + cellText_(row, b + 6) +
+                 ' / 최종등급 ' + cellText_(row, b + 7));
+    }
+  }
 }
 
 
