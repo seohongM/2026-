@@ -964,12 +964,14 @@ function startApp(me) {
     document.getElementById('search-class').value = currentClass;
 
     switchView('home');
+
     // 1단계 — 로그인 응답에 카드가 같이 왔으면 요청 없이 바로 그립니다
-    loadClassData(currentClass).then(() => {
-        // 2단계 — 첫 화면이 뜬 뒤에 전교 전체를 뒤에서 받습니다.
-        //         (첫 화면과 동시에 부르면 서로 기다리게 될 수 있습니다)
-        loadAll(false).catch(() => {});
-    });
+    const first = loadClassData(currentClass);
+
+    // 2단계 — 전교 전체. 카드가 로그인 응답에 실려 왔으면(=서버를 더 부를 일이 없으면)
+    //          곧바로 출발시킵니다. 늦게 출발하면 학생을 눌렀을 때 그만큼 기다리게 됩니다.
+    if (PRELOADED_USED) loadAll(false).catch(() => {});
+    else first.then(() => loadAll(false).catch(() => {}));
 }
 
 function buildClassSelect(list, selected) {
@@ -1001,6 +1003,7 @@ function forceLogout(msg) {
     ALL = null;
     allPromise = null;
     PRELOADED_CARDS = null;
+    PRELOADED_USED = false;
     statsReset();
     sessionStorage.removeItem('sc_token');
 
@@ -1066,6 +1069,7 @@ function targetLabel(s) {
 let ALL = null;              // 전교 데이터 (2단계로 도착)
 let allPromise = null;       // 받는 중이면 여기에
 let PRELOADED_CARDS = null;  // 로그인 응답에 함께 온 첫 화면 카드
+let PRELOADED_USED = false;  // 그 카드로 첫 화면을 그렸는가
 
 /** 값 없음을 한 가지로 맞춥니다. 서버는 빈 칸을 '' 로 보냅니다. */
 function V(v) { return (v === null || v === undefined) ? '' : v; }
@@ -1128,6 +1132,7 @@ function hydrate(row) {
         targetMajor: row.mj || '',
         lastCounselingDate: row.cd || '상담 기록 없음',
         counselingHistory: row.h || [],
+        counselingCols: row.hc || [],
         schoolGrades: schoolGrades,
         mockExams: mockExams,
         summary: {
@@ -1197,6 +1202,7 @@ async function loadClassData(targetClass) {
     if (PRELOADED_CARDS && Number(PRELOADED_CARDS.classNum) === Number(targetClass)) {
         const pre = PRELOADED_CARDS;
         PRELOADED_CARDS = null;
+        PRELOADED_USED = true;
         studentsData = (pre.students || []).map(c => hydrateCard(c, pre.classNum));
         onDataLoaded(studentsData);
         return;
@@ -1339,7 +1345,7 @@ function showStudent(s) {
     renderUplift(selectedStudent.schoolGrades);
     renderMockExams(selectedStudent.mockExams);
     renderMockCharts(selectedStudent.mockExams);
-    renderHistory(selectedStudent.counselingHistory);
+    renderHistory(selectedStudent);
 
     document.getElementById('counsel-text').value = '';
     document.getElementById('print-counsel-display').textContent = '(상담 작성 내용 없음)';
@@ -1503,24 +1509,170 @@ function renderMockExams(mockExams) {
     container.innerHTML = html;
 }
 
-function renderHistory(history) {
+/* ── 이전 상담 누적 기록 : 보기 · 고치기 · 지우기 ── */
+
+let editingIdx = -1;          // 지금 고치는 중인 기록 (-1 이면 없음)
+
+function renderHistory(stu) {
     const list = document.getElementById('counseling-history-list');
     const count = document.getElementById('history-count');
+    const history = (stu && stu.counselingHistory) || [];
+    editingIdx = -1;
     list.innerHTML = '';
 
-    if (!history || history.length === 0) {
+    if (!history.length) {
         list.innerHTML = `<div class="text-slate-400 text-xs py-1">이전 상담 기록이 없습니다.</div>`;
         count.textContent = '0';
         return;
     }
 
     count.textContent = history.length;
-    history.forEach(item => {
+    history.forEach((item, i) => {
         const div = document.createElement('div');
-        div.className = "bg-slate-50 p-2 rounded-lg border border-slate-200 whitespace-pre-wrap text-slate-800";
-        div.textContent = item;
+        div.id = 'hist-item-' + i;
+        div.className = "bg-slate-50 p-2 rounded-lg border border-slate-200 text-slate-800";
+        div.appendChild(historyView(item, i));
         list.appendChild(div);
     });
+}
+
+/** 기록 한 건을 보여 주는 모양 (내용 + 버튼) */
+function historyView(item, i) {
+    const wrap = document.createElement('div');
+
+    const body = document.createElement('div');
+    body.className = 'whitespace-pre-wrap';
+    body.textContent = item;
+    wrap.appendChild(body);
+
+    const bar = document.createElement('div');
+    bar.className = 'no-print flex gap-1 justify-end mt-1';
+    bar.innerHTML =
+        `<button onclick="startEditRecord(${i})"
+                 class="text-[10px] font-bold text-slate-500 hover:text-blue-700 bg-white border border-slate-200 hover:border-blue-400 rounded px-2 py-0.5 transition">✏️ 고치기</button>
+         <button onclick="removeRecord(${i})"
+                 class="text-[10px] font-bold text-slate-500 hover:text-rose-700 bg-white border border-slate-200 hover:border-rose-400 rounded px-2 py-0.5 transition">🗑 지우기</button>`;
+    wrap.appendChild(bar);
+    return wrap;
+}
+
+/** 기록에서 날짜 줄과 내용을 나눕니다 */
+function splitRecordText(v) {
+    const s = String(v || '');
+    const nl = s.indexOf('\n');
+    return (nl === -1) ? { head: s, body: '' } : { head: s.slice(0, nl), body: s.slice(nl + 1) };
+}
+
+/** [✏️ 고치기] — 그 자리에서 바로 고칩니다 */
+function startEditRecord(i) {
+    if (!selectedStudent) return;
+    if (editingIdx !== -1) cancelEditRecord();
+    editingIdx = i;
+
+    const item = document.getElementById('hist-item-' + i);
+    const { head, body } = splitRecordText(selectedStudent.counselingHistory[i]);
+
+    item.innerHTML = `
+        <div class="text-[11px] font-semibold text-slate-500 mb-1">${escapeHtml(head)}</div>
+        <textarea id="edit-box" rows="6"
+                  class="w-full border-2 border-blue-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+        <div id="edit-status" class="hidden text-[11px] font-bold mt-1"></div>
+        <div class="flex gap-1 justify-end mt-1">
+            <button onclick="cancelEditRecord()"
+                    class="text-[11px] font-bold text-slate-600 bg-white border border-slate-300 rounded px-3 py-1 hover:bg-slate-100">취소</button>
+            <button id="edit-save" onclick="saveEditRecord(${i})"
+                    class="text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 rounded px-3 py-1 shadow">💾 수정 저장</button>
+        </div>`;
+    const box = document.getElementById('edit-box');
+    box.value = body;
+    box.focus();
+}
+
+function cancelEditRecord() {
+    if (editingIdx === -1) return;
+    const i = editingIdx;
+    editingIdx = -1;
+    const item = document.getElementById('hist-item-' + i);
+    if (!item) return;
+    item.innerHTML = '';
+    item.appendChild(historyView(selectedStudent.counselingHistory[i], i));
+}
+
+function editStatus(msg, okFlag) {
+    const el = document.getElementById('edit-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'text-[11px] font-bold mt-1 ' + (okFlag ? 'text-emerald-600' : 'text-rose-600');
+    el.classList.remove('hidden');
+}
+
+/** 고친 내용을 저장합니다. 기록에 (수정: 날짜 이름) 이 붙습니다. */
+async function saveEditRecord(i) {
+    const box = document.getElementById('edit-box');
+    const btn = document.getElementById('edit-save');
+    if (!box) return;
+
+    const text = box.value.trim();
+    if (!text) { editStatus('내용을 입력해 주세요.', false); return; }
+
+    btn.disabled = true; btn.textContent = '저장 중…';
+    try {
+        const d = await api('updateCounseling', {
+            classNum: selectedStudent.classNum,
+            studentNum: selectedStudent.number,
+            col: selectedStudent.counselingCols[i],
+            text: text
+        });
+        selectedStudent.counselingHistory[i] = d.record;
+        updateAllRow(selectedStudent.classNum, selectedStudent.number, r => {
+            if (Array.isArray(r.h)) r.h[i] = d.record;
+        });
+        editingIdx = -1;
+        renderHistory(selectedStudent);
+        showSaveStatus('✓ 수정했습니다.', true);
+    } catch (e) {
+        btn.disabled = false; btn.textContent = '💾 수정 저장';
+        if (e.message !== 'needLogin') editStatus(e.message || '고치지 못했습니다.', false);
+    }
+}
+
+/** [🗑 지우기] — 확인 후 휴지통으로 옮깁니다 */
+async function removeRecord(i) {
+    if (!selectedStudent) return;
+    const { head, body } = splitRecordText(selectedStudent.counselingHistory[i]);
+    const preview = body.replace(/\s+/g, ' ').slice(0, 50);
+
+    const yes = confirm(
+        '이 상담 기록을 지울까요?\n\n' +
+        head + '\n' + preview + (body.length > 50 ? ' …' : '') + '\n\n' +
+        '지운 기록은 구글 시트의 [상담내용_삭제됨] 탭에 보관되어\n' +
+        '나중에 다시 찾아볼 수 있습니다.'
+    );
+    if (!yes) return;
+
+    const item = document.getElementById('hist-item-' + i);
+    if (item) item.style.opacity = '0.4';
+
+    try {
+        const d = await api('deleteCounseling', {
+            classNum: selectedStudent.classNum,
+            studentNum: selectedStudent.number,
+            col: selectedStudent.counselingCols[i]
+        });
+        // 지운 뒤 열 번호가 밀리므로 서버가 준 목록으로 통째로 바꿉니다
+        selectedStudent.counselingHistory = d.h || [];
+        selectedStudent.counselingCols    = d.hc || [];
+        selectedStudent.lastCounselingDate = d.cd || '상담 기록 없음';
+        updateAllRow(selectedStudent.classNum, selectedStudent.number, r => {
+            r.h = d.h || []; r.hc = d.hc || []; r.cd = d.cd || '';
+        });
+        renderHistory(selectedStudent);
+        renderStudentGrid();                 // 카드의 '상담 N회' 도 맞춥니다
+        showSaveStatus('✓ 지웠습니다. (시트의 [상담내용_삭제됨] 탭에 보관)', true);
+    } catch (e) {
+        if (item) item.style.opacity = '1';
+        if (e.message !== 'needLogin') alert(e.message || '지우지 못했습니다.');
+    }
 }
 
 const VIEWS = ['home', 'counseling', 'stats'];
@@ -1666,14 +1818,15 @@ async function saveCounselingToSheet() {
     btn.textContent = '저장 중…';
 
     try {
-        await api('saveCounseling', {
+        const saved = await api('saveCounseling', {
             classNum: currentClass,
             studentNum: selectedStudent.number,
             studentName: selectedStudent.name,
             text: text,
             timeStr: timeStr
         });
-        applySaveResult(`[${timeStr}]\n${text}`, timeStr, text);
+        // 저장된 칸 번호를 받아 둡니다 — 나중에 그 기록을 고치거나 지울 때 씁니다
+        applySaveResult(`[${timeStr}]\n${text}`, timeStr, text, saved && saved.column);
     } catch (e) {
         if (e.message !== 'needLogin') showSaveStatus(e.message || '저장하지 못했습니다.', false);
     } finally {
@@ -1704,18 +1857,22 @@ function updateAllRow(cls, num, fn) {
     if (row) fn(row);
 }
 
-function applySaveResult(record, timeStr, rawText) {
+function applySaveResult(record, timeStr, rawText, column) {
     if (!selectedStudent.counselingHistory) selectedStudent.counselingHistory = [];
+    if (!selectedStudent.counselingCols) selectedStudent.counselingCols = [];
     selectedStudent.counselingHistory.unshift(record);
+    selectedStudent.counselingCols.unshift(column);
     selectedStudent.lastCounselingDate = timeStr;
 
     updateAllRow(selectedStudent.classNum, selectedStudent.number, r => {
         if (!Array.isArray(r.h)) r.h = [];
+        if (!Array.isArray(r.hc)) r.hc = [];
         r.h.unshift(record);
+        r.hc.unshift(column);
         r.cd = timeStr;
     });
 
-    renderHistory(selectedStudent.counselingHistory);
+    renderHistory(selectedStudent);
     renderStudentGrid();
 
     document.getElementById('print-counsel-display').textContent = rawText;
