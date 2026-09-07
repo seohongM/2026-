@@ -195,10 +195,23 @@ function detectSubjectCols_(gData) {
   return out;
 }
 
-/** 화면에 보낼 과목 목록. 이름·학기까지 같이 보냅니다. */
+/**
+ * 표에 보여 줄 과목 이름.
+ *   공통국어1 · 공통국어2 → 두 학기에 다 있으므로 숫자를 남깁니다 (구분이 필요)
+ *   정보2                 → 2학기에만 있으므로 '정보' 로만 보여 줍니다
+ */
+function subjLabel_(si) {
+  var me = SUBJECTS[si], n = 0;
+  for (var i = 0; i < SUBJECTS.length; i++) {
+    if (SUBJECTS[i].base === me.base) n++;
+  }
+  return (n === 1) ? me.base : me.name;
+}
+
+/** 화면에 보낼 과목 목록. 이름·학기·표시이름을 같이 보냅니다. */
 function subjectMeta_() {
-  return SUBJECTS.map(function (x) {
-    return { n: x.name, b: x.base, s: x.sem };
+  return SUBJECTS.map(function (x, i) {
+    return { n: x.name, b: x.base, s: x.sem, l: subjLabel_(i) };
   });
 }
 
@@ -1905,7 +1918,7 @@ function getStudentsByClass(classNum) {
           }
 
           stu.schoolGrades.push({
-            subject: subj.name,
+            subject: subjLabel_(si),
             exam1:  c.has1 ? c.exam1  : '',
             grade1: c.has1 ? c.grade1 : '',
             eval1:  c.has1 ? c.eval1  : '',

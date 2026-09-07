@@ -1075,19 +1075,58 @@ let PRELOADED_USED = false;  // 그 카드로 첫 화면을 그렸는가
 function V(v) { return (v === null || v === undefined) ? '' : v; }
 
 /**
+ * 화면 표에 보여 줄 과목 이름.
+ *
+ *   공통국어1 · 공통국어2  → 두 학기에 다 있으므로 숫자를 남깁니다 (구분이 필요)
+ *   정보2                  → 2학기에만 있으므로 '정보' 로만 보여 줍니다
+ *
+ * 학기 표시를 뗀 이름은 서버가 보내 준 subjectInfo 의 base 를 쓰고,
+ * 옛 버전 서버라 그것이 없으면 이름 뒤의 1·2 를 떼어 씁니다.
+ */
+let SUBJ_LABEL_CACHE = null, SUBJ_LABEL_SRC = null;
+function subjectLabels() {
+    const names = (ALL && ALL.subjects) ? ALL.subjects : [];
+    if (SUBJ_LABEL_SRC === names && SUBJ_LABEL_CACHE) return SUBJ_LABEL_CACHE;
+
+    const info = (ALL && ALL.subjectInfo) ? ALL.subjectInfo : null;
+
+    // 서버가 표시이름(l)을 보내 주면 그대로 씁니다 (서버·화면이 늘 같은 이름을 쓰도록)
+    if (info && info.length === names.length && info.every(x => x && x.l)) {
+        const ready = info.map(x => String(x.l));
+        SUBJ_LABEL_SRC = names; SUBJ_LABEL_CACHE = ready;
+        return ready;
+    }
+
+    // 옛 버전 서버라 표시이름이 없으면 여기서 같은 규칙으로 만듭니다.
+    const bases = names.map((n, i) => {
+        if (info && info[i] && info[i].b) return String(info[i].b);
+        const m = /^(.+?)[12]$/.exec(String(n));
+        return m ? m[1] : String(n);
+    });
+
+    const count = {};
+    bases.forEach(x => { count[x] = (count[x] || 0) + 1; });
+
+    const out = names.map((n, i) => (count[bases[i]] === 1 ? bases[i] : String(n)));
+    SUBJ_LABEL_SRC = names; SUBJ_LABEL_CACHE = out;
+    return out;
+}
+
+/**
  * 서버가 보낸 숫자 배열을 화면이 쓰던 학생 모양으로 되돌립니다.
  * 계산은 전부 서버에서 끝났고, 여기서는 이름표만 붙입니다.
  */
 function hydrate(row) {
     const g = row.g || [], d = row.d || [], s = row.s || [];
     const SUBJ = (ALL && ALL.subjects) ? ALL.subjects : [];
+    const LABEL = subjectLabels();
     const BASIS = { 1: '환산총점', 2: '1차 점수' };
 
     const schoolGrades = SUBJ.map((name, si) => {
         const b = si * 11, e = si * 9;
         const has1 = !!d[e + 7], has2 = !!d[e + 8], hasAny = has1 || has2;
         return {
-            subject: name,
+            subject: LABEL[si] || name,
             exam1:  has1 ? V(g[b + 0]) : '',
             grade1: has1 ? V(g[b + 1]) : '',
             eval1:  has1 ? V(g[b + 4]) : '',
