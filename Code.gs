@@ -152,20 +152,41 @@ function detectSubjectCols_(gData) {
     labels[c] = normalize_(txt);
   }
 
-  // 3열(D열)부터 11칸씩 끊어 보며 그 칸의 머리글이 어느 과목인지 맞춰 봅니다.
-  var pos = {}, found = 0;
-  for (var b = 3; b + SUBJ_WIDTH - 1 < width; b += SUBJ_WIDTH) {
-    var t = labels[b];
-    if (!t) continue;
+  // 3열(D열)부터 11칸씩 끊어 과목 블록의 시작 열을 모읍니다.
+  var blocks = [];
+  for (var b = 3; b + SUBJ_WIDTH - 1 < width; b += SUBJ_WIDTH) blocks.push(b);
+
+  // 학기 표시 없는 이름을 몇 과목이 쓰는지 셉니다.
+  // '공통국어' 는 1·2학기 둘이 쓰므로 '공통국어' 만으로는 구분할 수 없지만,
+  // '정보' 는 한 과목뿐이라 머리글이 '정보' 라고만 적혀 있어도 찾을 수 있습니다.
+  var baseCount = {};
+  SUBJECTS.forEach(function (x) { baseCount[x.base] = (baseCount[x.base] || 0) + 1; });
+
+  var pos = {}, taken = {}, found = 0;
+
+  function match_(wantOf) {
     for (var si = 0; si < SUBJECTS.length; si++) {
-      var want = normalize_(SUBJECTS[si].name);
-      if (t.indexOf(want) === 0 && pos[SUBJECTS[si].name] === undefined) {
-        pos[SUBJECTS[si].name] = b;
-        found++;
-        break;
+      if (pos[SUBJECTS[si].name] !== undefined) continue;
+      var want = wantOf(SUBJECTS[si]);
+      if (!want) continue;
+      for (var bi = 0; bi < blocks.length; bi++) {
+        var col = blocks[bi];
+        if (taken[col]) continue;
+        var t = labels[col];
+        if (t && t.indexOf(want) === 0) {
+          pos[SUBJECTS[si].name] = col;
+          taken[col] = true;
+          found++;
+          break;
+        }
       }
     }
   }
+
+  // 1) 머리글이 '공통국어1' 처럼 학기까지 적혀 있을 때
+  match_(function (x) { return normalize_(x.name); });
+  // 2) 머리글이 '정보' 처럼 학기 표시 없이 적혀 있을 때 (그 이름을 쓰는 과목이 하나뿐일 때만)
+  match_(function (x) { return baseCount[x.base] === 1 ? normalize_(x.base) : ''; });
 
   if (found !== SUBJECTS.length) return null;   // 하나라도 못 찾으면 기본값을 씁니다
 
