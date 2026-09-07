@@ -180,6 +180,8 @@ function handle_(req) {
       case 'getAll':
       case 'getGradeAll':
       case 'saveCounseling':
+      case 'updateCounseling':
+      case 'deleteCounseling':
       case 'saveTarget':
       case 'logout':
         var user = verifyToken_(req.token);
@@ -191,6 +193,8 @@ function handle_(req) {
         if (action === 'getAll')        return apiGetAll_(req, user);          // 2단계
         if (action === 'getGradeAll')   return apiGetGradeAll_(req, user);
         if (action === 'saveCounseling')return apiSaveCounseling_(req, user);
+        if (action === 'updateCounseling') return apiUpdateCounseling_(req, user);
+        if (action === 'deleteCounseling') return apiDeleteCounseling_(req, user);
         if (action === 'saveTarget')    return apiSaveTarget_(req, user);
         if (action === 'logout')        { dropToken_(req.token); return ok_({ message: '로그아웃되었습니다.' }); }
         break;
@@ -845,7 +849,7 @@ function apiGetAll_(req, user) {
   function ensure_(c, n, nm) {
     var key = c + '-' + n;
     if (!index[key]) {
-      var st = { c: c, n: n, nm: nm || '', u: '', mj: '', cd: '', h: [],
+      var st = { c: c, n: n, nm: nm || '', u: '', mj: '', cd: '', h: [], hc: [],
                  g: [], d: [], s: ['', '', '', '', ''], m: {} };
       var i;
       for (i = 0; i < G_LEN; i++) st.g.push('');
@@ -932,16 +936,11 @@ function apiGetAll_(req, user) {
       var cc = toInt_(cRow[0]), cn2 = toInt_(cRow[1]);
       if (isNaN(cc) || isNaN(cn2) || !cn2) continue;
       var st3 = ensure_(cc, cn2, String(cRow[2] || '').trim());
-      var hist = [], last = '';
-      for (var col2 = 3; col2 < cRow.length; col2++) {
-        var val = String(cRow[col2] || '').trim();
-        if (val === '') continue;
-        hist.push(val);
-        var mm = val.match(/^\[(.*?)\]/);
-        if (mm) last = mm[1];
-      }
-      st3.cd = last;
-      st3.h  = hist.reverse();
+      // 고치기·지우기에 쓰려고 기록마다 '몇 번째 칸인지' 도 같이 보냅니다
+      var hist = rowHistory_(cRow);
+      st3.cd = hist.cd;
+      st3.h  = hist.h;
+      st3.hc = hist.hc;
     }
   }
 
@@ -2443,4 +2442,197 @@ function 수식점검() {
   log('※ 위 내용을 그대로 복사해서 알려 주시면 어디를 어떻게 줄일지 정리해 드리겠습니다.');
 
   Logger.log(L.join('\n'));
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   상담 기록 고치기 · 지우기
+
+   기록 한 건 = '상담내용' 시트에서 그 학생 줄의 칸 하나입니다.
+   D열부터 오른쪽으로 시간 순서대로 쌓입니다.
+
+   ⚠️ 지울 때 칸만 비우면 안 됩니다.
+      새 상담은 '왼쪽부터 첫 빈 칸'에 들어가므로, 중간에 빈 칸이 생기면
+      다음 상담이 그 자리에 끼어들어 날짜 순서가 뒤엉킵니다.
+      그래서 지운 뒤에는 오른쪽 기록들을 왼쪽으로 당깁니다.
+
+   지운 기록은 '상담내용_삭제됨' 시트에 보관합니다 (휴지통).
+   홈페이지는 그 시트를 읽지 않습니다.
+   ══════════════════════════════════════════════════════════ */
+
+var SHEET_TRASH   = '상담내용_삭제됨';
+var TRASH_HEADERS = ['반', '번호', '이름', '지운 날짜', '지운 사람', '지워진 상담 기록'];
+
+/** 휴지통 시트를 준비합니다. 없으면 만듭니다. */
+function ensureTrashSheet_(ss) {
+  var sheet = ss.getSheetByName(SHEET_TRASH);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_TRASH);
+    sheet.getRange(1, 1, 1, TRASH_HEADERS.length).setValues([TRASH_HEADERS]);
+    sheet.getRange(1, 1, 1, TRASH_HEADERS.length)
+         .setFontWeight('bold').setBackground('#fee2e2');
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(6, 500);
+  }
+  return sheet;
+}
+
+/** 기록을 '날짜 줄' 과 '내용' 으로 나눕니다. */
+function splitRecord_(v) {
+  var s = String(v == null ? '' : v);
+  var nl = s.indexOf('\n');
+  if (nl === -1) return { head: s, body: '' };
+  return { head: s.slice(0, nl), body: s.slice(nl + 1) };
+}
+
+/** 날짜 줄에서 원래 날짜만 남깁니다. (이전 수정 표시는 뗍니다) */
+function baseHead_(head) {
+  var m = String(head).match(/^\[(.*?)\]/);
+  if (m) return '[' + m[1] + ']';
+  return String(head).replace(/\s*\(수정:[^)]*\)\s*$/, '');
+}
+
+/** '상담내용' 시트에서 그 학생 줄을 찾습니다. 없으면 -1. */
+function findCounselRow_(data, classInt, numInt) {
+  for (var i = 1; i < data.length; i++) {
+    if (toInt_(data[i][0]) === classInt && toInt_(data[i][1]) === numInt) return i + 1;
+  }
+  return -1;
+}
+
+/** 한 줄에서 상담 기록과 그 열 번호를 새것부터 차례로 뽑습니다. */
+function rowHistory_(rowVals) {
+  var texts = [], cols = [], last = '';
+  for (var c = 4; c <= rowVals.length; c++) {
+    var v = String(rowVals[c - 1] == null ? '' : rowVals[c - 1]).trim();
+    if (v === '') continue;
+    texts.push(v);
+    cols.push(c);
+    var m = v.match(/^\[(.*?)\]/);
+    if (m) last = m[1];
+  }
+  texts.reverse();
+  cols.reverse();
+  return { h: texts, hc: cols, cd: last };
+}
+
+
+/* ── 고치기 ────────────────────────────────────────── */
+
+function updateCounseling(classNum, studentNum, col, text, editor, timeStr) {
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); }
+  catch (e) { return { success: false, error: '다른 저장이 진행 중입니다. 잠시 후 다시 시도해 주세요.' }; }
+
+  try {
+    var classInt = toInt_(classNum);
+    var numInt   = toInt_(studentNum);
+    var colInt   = toInt_(col);
+    var body     = String(text || '').trim();
+
+    if (isNaN(classInt) || isNaN(numInt)) return { success: false, error: '학생을 찾지 못했습니다.' };
+    if (isNaN(colInt) || colInt < 4)      return { success: false, error: '고칠 기록을 찾지 못했습니다.' };
+    if (!body)                            return { success: false, error: '상담 내용을 입력해 주세요.' };
+
+    var ss = getSpreadsheet_();
+    var sheet = findSheet_(ss, SHEET_COUNSEL, ['상담']);
+    if (!sheet) return { success: false, error: "'" + SHEET_COUNSEL + "' 시트를 찾을 수 없습니다." };
+
+    var data = sheet.getDataRange().getValues();
+    var row = findCounselRow_(data, classInt, numInt);
+    if (row === -1) return { success: false, error: '학생 줄을 찾지 못했습니다.' };
+
+    var cur = String(sheet.getRange(row, colInt).getValue() || '').trim();
+    if (!cur) return { success: false, error: '이미 지워졌거나 없는 기록입니다. 새로고침 후 다시 해 주세요.' };
+
+    var head = baseHead_(splitRecord_(cur).head) +
+               ' (수정: ' + timeStr + ' ' + String(editor || '') + ')';
+    var record = head + '\n' + body;
+    sheet.getRange(row, colInt).setValue(record);
+
+    return { success: true, record: record };
+
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  } finally {
+    try { lock.releaseLock(); } catch (e2) {}
+  }
+}
+
+
+/* ── 지우기 (휴지통으로 옮김) ───────────────────────── */
+
+function deleteCounseling(classNum, studentNum, col, editor, timeStr) {
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); }
+  catch (e) { return { success: false, error: '다른 저장이 진행 중입니다. 잠시 후 다시 시도해 주세요.' }; }
+
+  try {
+    var classInt = toInt_(classNum);
+    var numInt   = toInt_(studentNum);
+    var colInt   = toInt_(col);
+
+    if (isNaN(classInt) || isNaN(numInt)) return { success: false, error: '학생을 찾지 못했습니다.' };
+    if (isNaN(colInt) || colInt < 4)      return { success: false, error: '지울 기록을 찾지 못했습니다.' };
+
+    var ss = getSpreadsheet_();
+    var sheet = findSheet_(ss, SHEET_COUNSEL, ['상담']);
+    if (!sheet) return { success: false, error: "'" + SHEET_COUNSEL + "' 시트를 찾을 수 없습니다." };
+
+    var data = sheet.getDataRange().getValues();
+    var row = findCounselRow_(data, classInt, numInt);
+    if (row === -1) return { success: false, error: '학생 줄을 찾지 못했습니다.' };
+
+    var lastCol = Math.max(sheet.getLastColumn(), 4);
+    var rowVals = sheet.getRange(row, 1, 1, lastCol).getValues()[0];
+
+    var removed = String(rowVals[colInt - 1] == null ? '' : rowVals[colInt - 1]).trim();
+    if (!removed) return { success: false, error: '이미 지워진 기록입니다. 새로고침 후 다시 해 주세요.' };
+
+    // 1) 휴지통에 보관 (먼저 보관하고 나서 지웁니다)
+    var trash = ensureTrashSheet_(ss);
+    trash.appendRow([classInt, numInt, String(rowVals[2] || ''),
+                     timeStr, String(editor || ''), removed]);
+
+    // 2) 지우고 왼쪽으로 당기기 (중간에 빈 칸이 남지 않게)
+    var rest = [];
+    for (var c = 4; c <= lastCol; c++) {
+      if (c === colInt) continue;
+      var v = String(rowVals[c - 1] == null ? '' : rowVals[c - 1]);
+      if (v.trim() !== '') rest.push(v);
+    }
+    var out = [];
+    for (var k = 0; k < lastCol - 3; k++) out.push(k < rest.length ? rest[k] : '');
+    sheet.getRange(row, 4, 1, out.length).setValues([out]);
+
+    // 3) 바뀐 목록을 그대로 돌려줍니다 (열 번호가 밀렸으므로)
+    var after = [];
+    for (var q = 0; q < 3; q++) after.push(rowVals[q]);
+    for (var q2 = 0; q2 < out.length; q2++) after.push(out[q2]);
+    var hist = rowHistory_(after);
+
+    return { success: true, h: hist.h, hc: hist.hc, cd: hist.cd };
+
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  } finally {
+    try { lock.releaseLock(); } catch (e2) {}
+  }
+}
+
+
+/* ── 화면에서 오는 요청 ─────────────────────────────── */
+
+function apiUpdateCounseling_(req, user) {
+  var res = updateCounseling(req.classNum, req.studentNum, req.col, req.text,
+                             user.name, nowStr_());
+  if (!res.success) return err_(res.error || '고치지 못했습니다.');
+  return ok_(res);
+}
+
+function apiDeleteCounseling_(req, user) {
+  var res = deleteCounseling(req.classNum, req.studentNum, req.col,
+                             user.name, nowStr_());
+  if (!res.success) return err_(res.error || '지우지 못했습니다.');
+  return ok_(res);
 }
