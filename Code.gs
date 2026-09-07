@@ -2241,3 +2241,206 @@ function check상담목표시트() {
     }
   }
 }
+
+
+/* ══════════════════════════════════════════════════════════
+   수식 점검  (수식을 고치지는 않습니다. 보기만 합니다)
+
+   Apps Script 편집기 위쪽 함수 목록에서 [수식점검] 을 고르고 ▷실행 하면
+   아래 '실행 로그' 에 보고서가 나옵니다. 그 내용을 그대로 알려 주세요.
+
+   무엇을 찾아 주나
+     ① 필요 없어 보이는 것  — 아무도 안 쓰는 시트, 빈 결과만 내는 수식
+     ② 중복                — 같은 수식이 수백 칸 반복 (한 줄로 줄일 수 있음)
+     ③ 어렵게 된 것        — 아주 길거나 IF 를 여러 겹 쌓은 수식
+     ④ 느리게 만드는 것    — NOW·TODAY·INDIRECT·OFFSET, 열 전체 참조(A:A)
+                             → 이런 게 있으면 시트를 읽을 때마다 전부 다시 계산해서
+                               홈페이지 불러오는 속도까지 느려집니다
+   ══════════════════════════════════════════════════════════ */
+
+var AUDIT_LONG   = 180;   // 이 글자 수를 넘으면 '긴 수식'
+var AUDIT_NEST   = 4;     // IF 가 이만큼 겹치면 '겹겹이 쌓인 수식'
+var AUDIT_REPEAT = 50;    // 같은 모양이 이만큼 반복되면 '한 줄로 줄일 수 있음'
+
+/** 열 번호(1부터) → A, B, … AA */
+function colName_(n) {
+  var out = '';
+  while (n > 0) { var m = (n - 1) % 26; out = String.fromCharCode(65 + m) + out; n = Math.floor((n - 1) / 26); }
+  return out;
+}
+
+/** 수식 안에서 특정 함수가 몇 번 쓰였는지 */
+function countFn_(f, name) {
+  var re = new RegExp('(^|[^A-Z0-9_.])' + name + '\\s*\\(', 'gi');
+  var n = 0;
+  while (re.exec(f) !== null) n++;
+  return n;
+}
+
+function 수식점검() {
+  var ss = getSpreadsheet_();
+  if (!ss) { Logger.log('❌ 스프레드시트를 열 수 없습니다.'); return; }
+
+  var sheets = ss.getSheets();
+  var L = [];
+  function log(s) { L.push(s); }
+
+  var VOLATILE = ['NOW', 'TODAY', 'RAND', 'RANDBETWEEN', 'INDIRECT', 'OFFSET'];
+
+  var total = { cells: 0, formulas: 0, volatile: 0, wholeCol: 0, long: 0, nested: 0, repeat: 0 };
+  var warn = [];          // 전체 경고 모음
+  var sheetReports = [];
+
+  for (var si = 0; si < sheets.length; si++) {
+    var sh = sheets[si];
+    var name = sh.getName();
+    var last = sh.getLastRow(), lastC = sh.getLastColumn();
+    if (!last || !lastC) { sheetReports.push({ name: name, empty: true }); continue; }
+
+    var rng = sh.getRange(1, 1, last, lastC);
+    var fA1, fR1C1;
+    try {
+      fA1   = rng.getFormulas();
+      fR1C1 = rng.getFormulasR1C1();
+    } catch (e) {
+      sheetReports.push({ name: name, error: e.toString() });
+      continue;
+    }
+
+    total.cells += last * lastC;
+
+    // 열별로 모읍니다
+    var cols = [];
+    var sheetFormulaCount = 0;
+
+    for (var c = 0; c < lastC; c++) {
+      var shapes = {}, count = 0, firstCell = '', firstF = '';
+      for (var r = 0; r < last; r++) {
+        var f = fA1[r][c];
+        if (!f) continue;
+        count++;
+        sheetFormulaCount++;
+        var key = fR1C1[r][c];
+        if (!shapes[key]) shapes[key] = 0;
+        shapes[key]++;
+        if (!firstCell) { firstCell = colName_(c + 1) + (r + 1); firstF = f; }
+
+        // ── 경고거리 찾기 ──
+        var up = String(f).toUpperCase();
+        for (var v = 0; v < VOLATILE.length; v++) {
+          if (countFn_(up, VOLATILE[v]) > 0) {
+            total.volatile++;
+            warn.push({ kind: '느리게 함', sheet: name,
+                        cell: colName_(c + 1) + (r + 1),
+                        msg: VOLATILE[v] + '( ) 사용 — 시트를 읽을 때마다 다시 계산됩니다' });
+            break;
+          }
+        }
+        if (/[^!:$A-Z0-9](\$?[A-Z]{1,3}:\$?[A-Z]{1,3})/.test(up.replace(/'[^']*'!/g, ''))) {
+          total.wholeCol++;
+          warn.push({ kind: '느리게 함', sheet: name, cell: colName_(c + 1) + (r + 1),
+                      msg: '열 전체를 참조 (A:A 같은 형태) — 빈 칸까지 전부 훑습니다' });
+        }
+        if (f.length > AUDIT_LONG) {
+          total.long++;
+          warn.push({ kind: '어렵게 됨', sheet: name, cell: colName_(c + 1) + (r + 1),
+                      msg: '수식이 ' + f.length + '자로 깁니다' });
+        }
+        var ifs = countFn_(up, 'IF');
+        if (ifs >= AUDIT_NEST) {
+          total.nested++;
+          warn.push({ kind: '어렵게 됨', sheet: name, cell: colName_(c + 1) + (r + 1),
+                      msg: 'IF 가 ' + ifs + '번 — IFS( ) 나 조회표(VLOOKUP)로 줄일 수 있습니다' });
+        }
+      }
+      if (!count) continue;
+
+      var keys = [];
+      for (var k in shapes) if (shapes.hasOwnProperty(k)) keys.push(k);
+      var top = 0;
+      for (var kk = 0; kk < keys.length; kk++) if (shapes[keys[kk]] > top) top = shapes[keys[kk]];
+
+      if (top >= AUDIT_REPEAT && keys.length === 1) total.repeat++;
+
+      cols.push({ col: colName_(c + 1), count: count, shapes: keys.length,
+                  top: top, cell: firstCell, f: firstF });
+    }
+
+    total.formulas += sheetFormulaCount;
+    sheetReports.push({ name: name, rows: last, cols2: lastC,
+                        formulas: sheetFormulaCount, colList: cols });
+  }
+
+  /* ── 어느 시트가 이 프로그램에서 쓰이는지 ── */
+  var used = {};
+  used[SHEET_GRADE] = '내신 성적';
+  used[SHEET_TARGET] = '희망 대학·학과';
+  used[SHEET_COUNSEL] = '상담 기록';
+  used[SHEET_ACCOUNT] = '로그인 계정';
+  used[SHEET_GOAL] = '(지금은 화면에서 안 씀)';
+  MOCK_SHEETS.forEach(function (m) { used[m.name] = '모의고사'; });
+
+  /* ══ 보고서 ══ */
+  log('════════════════════════════════════════');
+  log('  구글 시트 수식 점검');
+  log('════════════════════════════════════════');
+  log('');
+  log('[전체 요약]');
+  log('  시트 ' + sheets.length + '개 / 수식이 든 칸 ' + total.formulas + '개');
+  log('  느리게 만드는 수식 : ' + (total.volatile + total.wholeCol) + '곳'
+      + '  (다시 계산 ' + total.volatile + ' / 열 전체 참조 ' + total.wholeCol + ')');
+  log('  어렵게 된 수식     : ' + (total.long + total.nested) + '곳'
+      + '  (긴 것 ' + total.long + ' / IF 겹침 ' + total.nested + ')');
+  log('  한 줄로 줄일 수 있는 열 : ' + total.repeat + '개');
+  log('');
+
+  log('[시트별]');
+  for (var s2 = 0; s2 < sheetReports.length; s2++) {
+    var R = sheetReports[s2];
+    var mark = used[R.name] ? ('  ← 홈페이지가 씀: ' + used[R.name]) : '  ← 홈페이지는 안 씀';
+    if (R.empty)  { log('  · ' + R.name + ' : 비어 있음' + mark); continue; }
+    if (R.error)  { log('  · ' + R.name + ' : 읽지 못함 (' + R.error + ')'); continue; }
+    log('');
+    log('  ── ' + R.name + '  (' + R.rows + '행 × ' + R.cols2 + '열, 수식 ' + R.formulas + '칸)' + mark);
+    if (!R.colList.length) { log('       수식 없음 (값만 들어 있음)'); continue; }
+
+    var shown = 0;
+    for (var ci = 0; ci < R.colList.length && shown < 30; ci++) {
+      var C = R.colList[ci];
+      var note = '';
+      if (C.shapes === 1 && C.top >= AUDIT_REPEAT) note = '  ★ 같은 수식이 ' + C.top + '번 반복 → ARRAYFORMULA 한 줄로 가능';
+      else if (C.shapes > 1) note = '  ⚠ 모양이 ' + C.shapes + '가지 (중간에 다른 수식이 섞여 있습니다)';
+      log('     ' + C.col + '열 : ' + C.count + '칸' + note);
+      log('        ' + C.cell + '  ' + (C.f.length > 120 ? C.f.slice(0, 120) + ' …' : C.f));
+      shown++;
+    }
+    if (R.colList.length > shown) log('     … 그 밖에 ' + (R.colList.length - shown) + '개 열 더');
+  }
+
+  log('');
+  log('[고치면 좋은 곳]');
+  if (!warn.length) log('  없습니다.');
+  else {
+    var seen = {}, printed = 0;
+    for (var w = 0; w < warn.length && printed < 40; w++) {
+      // 같은 시트·같은 종류·같은 설명은 한 번만
+      var key2 = warn[w].sheet + '|' + warn[w].kind + '|' + warn[w].msg;
+      if (seen[key2]) { seen[key2]++; continue; }
+      seen[key2] = 1;
+      log('  [' + warn[w].kind + '] ' + warn[w].sheet + ' ' + warn[w].cell + ' — ' + warn[w].msg);
+      printed++;
+    }
+    for (var key3 in seen) {
+      if (seen.hasOwnProperty(key3) && seen[key3] > 1) {
+        var parts = key3.split('|');
+        log('     (' + parts[0] + ' 의 같은 문제가 ' + seen[key3] + '곳 더 있습니다: ' + parts[2] + ')');
+      }
+    }
+  }
+
+  log('');
+  log('※ 이 기능은 수식을 고치지 않습니다. 보기만 합니다.');
+  log('※ 위 내용을 그대로 복사해서 알려 주시면 어디를 어떻게 줄일지 정리해 드리겠습니다.');
+
+  Logger.log(L.join('\n'));
+}
