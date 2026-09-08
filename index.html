@@ -1463,6 +1463,8 @@ function renderSchoolGrades(grades, summary) {
     const has = v => (v !== null && v !== undefined && v !== '');
     const avg5 = has(s.avg5) ? Number(s.avg5).toFixed(2) : '';
     const avg9 = has(s.avg9) ? Number(s.avg9).toFixed(2) : '';
+    // 이전 학교 성적은 표에는 보이지만 평균에는 안 들어갑니다 — 왜 과목 수가 다른지 밝혀 둡니다
+    const prevCount = grades.filter(x => x.prevSchool).length;
 
     tfoot.innerHTML = `
         <tr class="border-t-2 border-slate-400">
@@ -1470,6 +1472,7 @@ function renderSchoolGrades(grades, summary) {
             <td class="p-1 border-r border-slate-300" colspan="6">
                 <span class="text-[10px] font-medium text-slate-500">
                     성적이 입력된 ${has(s.subjectCount) ? s.subjectCount : 0}과목 기준
+                    ${prevCount ? ' · 이전 학교 ' + prevCount + '과목은 평균에서 제외' : ''}
                     ${has(s.avgPct) ? ' · 전교 석차백분율 평균 상위 ' + s.avgPct + '%' : ''}
                 </span>
             </td>

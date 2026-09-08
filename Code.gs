@@ -1050,7 +1050,7 @@ function buildClassCards_(ss, cls) {
       var n5 = 0, s5 = 0, n9 = 0, s9 = 0;
       for (var si = 0; si < SUBJECTS.length; si++) {
         var c = subjectCalc_(gRow, si, ranks, null, tr);
-        if (!c.hasAny) continue;
+        if (!c.hasAny || c.prev) continue;      // 이전 학교 성적은 평균에 안 넣습니다
         var g5 = toNum_(c.fGrade);
         if (g5 !== null) { s5 += g5; n5++; }
         if (c.gFnine !== null) { s9 += c.gFnine; n9++; }
@@ -1182,7 +1182,9 @@ function apiGetAll_(req, user) {
         st.d[d + 8] = c.has2 ? 1 : 0;
         st.d[d + 9] = c.prev ? 1 : 0;      // 이전 학교 성적인가
 
-        if (c.hasAny) {
+        // 평균은 **우리 학교에서 본 시험만** 으로 냅니다.
+        // 전입생이 이전 학교에서 받아 온 성적(c.prev)은 표에는 보이지만 평균에는 안 넣습니다.
+        if (c.hasAny && !c.prev) {
           var g5 = toNum_(c.fGrade);
           if (g5 !== null) { acc.s5 += g5; acc.n5++; }
           if (c.gFnine !== null) { acc.s9 += c.gFnine; acc.n9++; }
