@@ -28,9 +28,11 @@ var SPREADSHEET_ID = '1SUzjzlI4KxJrpFMPbPeXTsZOPmH9MeniXDp7h04Zrz4';
 var SHEET_COUNSEL = '상담내용';
 var SHEET_GRADE   = '내신성적';
 var SHEET_TARGET  = '학생 목표';                 // 희망 대학 · 희망 학과 시트
+var SHEET_TRANSFER = '전입생_성적';              // 전입생이 이전 학교에서 받아 온 성적
 var SHEET_ACCOUNT = '계정';                      // 로그인 계정 시트 (자동 생성됩니다)
 
 var TARGET_KEYWORDS = ['학생', '목표'];          // '학생목표', '1학년 학생 목표' 등도 인식
+var TRANSFER_KEYWORDS = ['전입생'];              // '전입생성적', '전입생 성적' 등도 인식
 
 // 로그인 유지 시간 (시간 단위). 이 시간이 지나면 다시 비밀번호를 입력해야 합니다.
 var TOKEN_HOURS = 12;
@@ -788,7 +790,8 @@ function CARD_SHEETS_() {
   return [
     { key: 'grade',   name: SHEET_GRADE,   keywords: ['내신'] },
     { key: 'target',  name: SHEET_TARGET,  keywords: TARGET_KEYWORDS },
-    { key: 'counsel', name: SHEET_COUNSEL, keywords: ['상담'] }
+    { key: 'counsel', name: SHEET_COUNSEL, keywords: ['상담'] },
+    { key: 'transfer', name: SHEET_TRANSFER, keywords: TRANSFER_KEYWORDS }
   ];
 }
 
@@ -801,12 +804,129 @@ function ALL_SHEETS_() {
 }
 
 
+/* ══════════════════════════════════════════════════════════
+   전입생_성적 시트
+
+   전입생이 **이전 학교에서 받아 온 성적**을 담습니다.
+   한 줄에 「학생 한 명 · 과목 하나」씩 적습니다.
+
+     반 | 번호 | 이름 | 과목 | 환산총점 | 최종등급 | 최종성취도
+      5 |  28  | 진강민 | 공통국어1 |  78.5  |    2    |     B
+
+   ⚠️ 이 값은 **우리 학교 석차·등급컷·9등급 환산에 넣지 않습니다.**
+      이전 학교에서 받은 등급이라 우리 학교 분포와 섞으면 안 되기 때문입니다.
+      (`buildGradeRanks_`·`buildGradeCuts_` 는 내신성적만 읽으므로 자동으로 제외됩니다)
+
+   ⚠️ **내신성적 시트에 그 과목 점수가 있으면 그쪽이 이깁니다.**
+      2학기부터는 우리 학교에서 시험을 보므로, 그때는 다른 학생과 똑같이 나옵니다.
+   ══════════════════════════════════════════════════════════ */
+
+/** 머리글을 읽어 열 위치를 찾습니다. 못 찾으면 앞에서부터 순서대로 봅니다. */
+function analyzeTransferSheet_(values) {
+  var fallback = { c: 0, n: 1, nm: 2, subj: 3, total: 4, grade: 5, ach: 6 };
+  var result = { startRow: 1, cols: fallback, detected: false };
+  if (!values || !values.length) return result;
+
+  // 데이터가 시작되는 줄 = 반·번호가 모두 숫자인 첫 줄
+  var start = -1;
+  for (var r = 0; r < Math.min(values.length, 6); r++) {
+    if (!isNaN(toInt_(values[r][0])) && !isNaN(toInt_(values[r][1]))) { start = r; break; }
+  }
+  result.startRow = (start === -1) ? 1 : start;
+  if (result.startRow === 0) return result;          // 머리글이 없으면 기본 위치
+
+  var head = [];
+  var width = 0, w;
+  for (w = 0; w < values.length; w++) if (values[w].length > width) width = values[w].length;
+  for (var c2 = 0; c2 < width; c2++) {
+    var txt = '';
+    for (var hr = 0; hr < result.startRow; hr++) txt += String((values[hr] || [])[c2] || '');
+    head[c2] = normalize_(txt);
+  }
+
+  function find_(words) {
+    for (var i = 0; i < head.length; i++) {
+      for (var k = 0; k < words.length; k++) {
+        if (head[i] && head[i].indexOf(words[k]) !== -1) return i;
+      }
+    }
+    return -1;
+  }
+
+  var got = {
+    c:     find_(['반']),
+    n:     find_(['번호']),
+    nm:    find_(['이름', '성명']),
+    subj:  find_(['과목']),
+    total: find_(['환산']),
+    grade: find_(['등급']),
+    ach:   find_(['성취'])
+  };
+
+  var ok = true;
+  for (var k2 in got) { if (got.hasOwnProperty(k2) && got[k2] < 0) ok = false; }
+  if (ok) { result.cols = got; result.detected = true; }
+  return result;
+}
+
+/** 과목 이름을 SUBJECTS 순번으로 바꿉니다. 못 찾으면 -1. */
+function transferSubjIndex_(name) {
+  var t = normalize_(name);
+  if (!t) return -1;
+  var i;
+  for (i = 0; i < SUBJECTS.length; i++) {           // '공통국어1' 처럼 정확히 적은 경우
+    if (normalize_(SUBJECTS[i].name) === t) return i;
+  }
+  for (i = 0; i < SUBJECTS.length; i++) {           // '공통국어' 처럼 학기를 뺀 경우
+    if (SUBJECTS[i].sem === 1 && normalize_(SUBJECTS[i].base) === t) return i;
+  }
+  for (i = 0; i < SUBJECTS.length; i++) {           // 그 이름을 쓰는 과목이 하나뿐인 경우
+    if (normalize_(SUBJECTS[i].base) === t) return i;
+  }
+  return -1;
+}
+
+/** 전입생_성적 시트를 { '반-번호': { 과목순번: {total,grade,ach} } } 로 만듭니다. */
+function buildTransferMap_(values) {
+  var map = {};
+  if (!values || values.length < 2) return map;
+
+  var info = analyzeTransferSheet_(values);
+  for (var r = info.startRow; r < values.length; r++) {
+    var row = values[r] || [];
+    var c = toInt_(row[info.cols.c]), n = toInt_(row[info.cols.n]);
+    if (isNaN(c) || isNaN(n) || !n) continue;
+
+    var si = transferSubjIndex_(row[info.cols.subj]);
+    if (si < 0) continue;
+
+    var rec = {
+      total: cellVal_(row[info.cols.total]),
+      grade: cellVal_(row[info.cols.grade]),
+      ach:   cellVal_(row[info.cols.ach])
+    };
+    if (rec.total === null && rec.grade === null && rec.ach === null) continue;
+
+    var key = c + '-' + n;
+    if (!map[key]) map[key] = {};
+    map[key][si] = rec;
+  }
+  return map;
+}
+
+/** 그 학생의 전입 성적 묶음을 꺼냅니다. 없으면 null. */
+function transferOf_(map, cls, num) {
+  if (!map) return null;
+  return map[cls + '-' + num] || null;
+}
+
+
 /**
  * 내신성적 한 줄에서 과목 하나를 계산합니다.
  * getAll 과 getStudentsByClass 가 **같이** 쓰는 단 하나의 계산 자리입니다.
  * 여기만 고치면 두 화면이 늘 같은 값을 봅니다.
  */
-function subjectCalc_(gRow, si, ranks, cuts) {
+function subjectCalc_(gRow, si, ranks, cuts, tr) {
   var i  = subjStart_(si);
   var rk = (ranks && ranks[si]) || {};
   var ct = (cuts  && cuts[si])  || { first: {}, final: {} };
@@ -868,6 +988,24 @@ function subjectCalc_(gRow, si, ranks, cuts) {
       o.upNeed  = String(round_(diff, 2));
     }
   }
+
+  // ── 전입생 : 이전 학교에서 받아 온 성적 ──
+  // 우리 학교 시험 점수가 없을 때만 씁니다. 2학기부터는 여기 오지 않습니다.
+  o.prev = false;
+  var rec = (tr && tr[si]) ? tr[si] : null;
+  if (!o.hasAny && rec) {
+    o.total  = (rec.total === null || rec.total === undefined) ? '' : rec.total;
+    o.fGrade = (rec.grade === null || rec.grade === undefined) ? '' : rec.grade;
+    o.fAch   = (rec.ach   === null || rec.ach   === undefined) ? '' : rec.ach;
+    o.prev   = true;
+    o.hasAny = true;                    // 화면에 보이도록
+    o.nt     = toNum_(o.total);
+
+    // 아래는 전부 '우리 학교 전교생 기준' 값이라 전입생에게는 내지 않습니다
+    o.pct1 = null; o.pct2 = null; o.pctF = null;
+    o.g1nine = null; o.g2nine = null; o.gFnine = null;
+    o.upNow = ''; o.upGrade = ''; o.upNeed = ''; o.upBasis = '';
+  }
   return o;
 }
 
@@ -894,6 +1032,8 @@ function buildClassCards_(ss, cls) {
     return map[n];
   }
 
+  var trMap = buildTransferMap_(data.transfer);     // 전입생이 이전 학교에서 받아 온 성적
+
   // 1) 내신성적 — 평균 등급
   var gData = data.grade;
   if (gData) {
@@ -906,16 +1046,17 @@ function buildClassCards_(ss, cls) {
       if (isNaN(gn) || !gn) continue;
 
       var st = pick_(gn, String(gRow[2] || '').trim());
+      var tr = transferOf_(trMap, cls, gn);
       var n5 = 0, s5 = 0, n9 = 0, s9 = 0;
       for (var si = 0; si < SUBJECTS.length; si++) {
-        var c = subjectCalc_(gRow, si, ranks, null);
+        var c = subjectCalc_(gRow, si, ranks, null, tr);
         if (!c.hasAny) continue;
         var g5 = toNum_(c.fGrade);
         if (g5 !== null) { s5 += g5; n5++; }
         if (c.gFnine !== null) { s9 += c.gFnine; n9++; }
       }
       st.a5 = n5 ? round_(s5 / n5, 2) : null;
-      st.a9 = n9 ? round_(s9 / n9, 2) : null;
+      st.a9 = (n9 && n9 === n5) ? round_(s9 / n9, 2) : null;   // 같은 과목일 때만
     }
   }
 
@@ -968,7 +1109,7 @@ function apiGetAll_(req, user) {
   if (!ss) return err_('스프레드시트를 열 수 없습니다.');
 
   var G_LEN = SUBJECTS.length * 11;   // 내신 원본
-  var D_LEN = SUBJECTS.length * 9;    // 계산값
+  var D_LEN = SUBJECTS.length * 10;   // 계산값
   var M_LEN = MOCK_SUBJECTS.length * 4;
 
   var data = readSheets_(ss, ALL_SHEETS_());        // 시트 7개를 한 번에
@@ -999,6 +1140,8 @@ function apiGetAll_(req, user) {
   }
 
   // 1. 내신성적 (+ 9등급 환산 · 등급컷 · 평균)
+  var trMap = buildTransferMap_(data.transfer);     // 전입생이 이전 학교에서 받아 온 성적
+
   var gData = data.grade;
   if (gData) {
     syncSubjectCols_(gData);                        // 과목 열 위치를 머리글로 확인
@@ -1011,14 +1154,23 @@ function apiGetAll_(req, user) {
       if (isNaN(gc) || isNaN(gn) || !gn) continue;
 
       var st = ensure_(gc, gn, String(gRow[2] || '').trim());
+      var tr = transferOf_(trMap, gc, gn);
       var acc = { n5: 0, s5: 0, n9: 0, s9: 0, nSc: 0, sSc: 0, nP: 0, sP: 0 };
 
       for (var si = 0; si < SUBJECTS.length; si++) {
         var base = subjStart_(si);
         for (var f = 0; f < 11; f++) st.g[si * 11 + f] = E_(cellVal_(gRow[base + f]));
 
-        var c = subjectCalc_(gRow, si, ranks, cuts);
-        var d = si * 9;
+        var c = subjectCalc_(gRow, si, ranks, cuts, tr);
+
+        // 전입생 : 이전 학교 성적을 화면이 읽는 자리에 갈아 끼웁니다
+        if (c.prev) {
+          st.g[si * 11 + 6]  = E_(c.total);
+          st.g[si * 11 + 7]  = E_(c.fGrade);
+          st.g[si * 11 + 10] = E_(c.fAch);
+        }
+
+        var d = si * 10;
         st.d[d + 0] = E_(c.g1nine);
         st.d[d + 1] = E_(c.g2nine);
         st.d[d + 2] = E_(c.gFnine);
@@ -1028,6 +1180,7 @@ function apiGetAll_(req, user) {
         st.d[d + 6] = c.upBasis === '환산총점' ? 1 : (c.upBasis === '1차 점수' ? 2 : 0);
         st.d[d + 7] = c.has1 ? 1 : 0;
         st.d[d + 8] = c.has2 ? 1 : 0;
+        st.d[d + 9] = c.prev ? 1 : 0;      // 이전 학교 성적인가
 
         if (c.hasAny) {
           var g5 = toNum_(c.fGrade);
@@ -1038,12 +1191,15 @@ function apiGetAll_(req, user) {
         }
       }
 
+      // 9등급 평균·석차백분율 평균은 **5등급 평균과 같은 과목**을 담을 때만 냅니다.
+      // 전입생의 이전 학교 성적은 우리 학교 석차가 없어 9등급·백분율이 빠지는데,
+      // 그대로 나란히 두면 「2.14 → 9.00」 처럼 서로 다른 과목 수의 값이 붙어 오해를 부릅니다.
       st.s = [
         acc.n5 || acc.n9,
         acc.n5  ? round_(acc.s5  / acc.n5,  2) : '',
-        acc.n9  ? round_(acc.s9  / acc.n9,  2) : '',
+        (acc.n9  && acc.n9  === acc.n5) ? round_(acc.s9  / acc.n9,  2) : '',
         acc.nSc ? round_(acc.sSc / acc.nSc, 1) : '',
-        acc.nP  ? round_(acc.sP  / acc.nP,  1) : ''
+        (acc.nP  && acc.nP  === acc.n5) ? round_(acc.sP  / acc.nP,  1) : ''
       ];
     }
   }
@@ -1893,6 +2049,9 @@ function getStudentsByClass(classNum) {
       var ranks = buildGradeRanks_(gData);          // 전교생 기준 석차백분율 변환기
       var cuts  = buildGradeCuts_(gData);           // 전교생 기준 과목별 등급컷
 
+      var trSheet = findSheet_(ss, SHEET_TRANSFER, TRANSFER_KEYWORDS);
+      var trMap2  = trSheet ? buildTransferMap_(trSheet.getDataRange().getValues()) : {};
+
       for (var r = 1; r < gData.length; r++) {
         var gRow = gData[r];
         var gClass = toInt_(gRow[0]);
@@ -1905,9 +2064,10 @@ function getStudentsByClass(classNum) {
         // 평균 계산용 누적값
         var acc = { n5: 0, s5: 0, n9: 0, s9: 0, nSc: 0, sSc: 0, nP: 0, sP: 0 };
 
+        var tr2 = transferOf_(trMap2, gClass, gNum);
         SUBJECTS.forEach(function (subj, si) {
           // 계산은 subjectCalc_ 한 곳에서만 합니다 (getAll 과 같은 값)
-          var c = subjectCalc_(gRow, si, ranks, cuts);
+          var c = subjectCalc_(gRow, si, ranks, cuts, tr2);
 
           if (c.hasAny) {
             var g5 = toNum_(c.fGrade);
@@ -1931,6 +2091,7 @@ function getStudentsByClass(classNum) {
             finalGrade:       c.hasAny ? c.fGrade : '',
             finalAchievement: c.hasAny ? c.fAch   : '',
             hasData: c.hasAny,
+            prevSchool: c.prev,          // 이전 학교에서 받아 온 성적인가
 
             // 9등급제 환산 결과
             grade1_9:    (c.g1nine === null) ? '' : String(c.g1nine),
@@ -2399,6 +2560,77 @@ function check내신시트() {
                  ' / 최종등급 ' + cellText_(row, b + 7));
     }
   }
+}
+
+
+/**
+ * '전입생_성적' 시트를 어떻게 읽고 있는지 확인합니다.
+ *
+ *  Apps Script 편집기 위쪽 함수 목록에서 check전입생시트 를 고르고
+ *  ▷실행 을 누른 뒤, 아래 '실행 로그'에 나온 내용을 알려 주세요.
+ */
+function check전입생시트() {
+  var ss = getSpreadsheet_();
+  if (!ss) { Logger.log('❌ 스프레드시트를 열 수 없습니다.'); return; }
+
+  var sheet = findSheet_(ss, SHEET_TRANSFER, TRANSFER_KEYWORDS);
+  if (!sheet) {
+    Logger.log("ℹ️ '" + SHEET_TRANSFER + "' 시트가 없습니다.");
+    Logger.log('   전입생이 없으면 이대로 두셔도 됩니다. 홈페이지는 그대로 동작합니다.');
+    return;
+  }
+
+  var v = sheet.getDataRange().getValues();
+  Logger.log('✅ 시트를 찾았습니다: [' + sheet.getName() + ']');
+  Logger.log('   전체 ' + v.length + '행 / ' + (v[0] ? v[0].length : 0) + '열');
+  Logger.log('');
+
+  var info = analyzeTransferSheet_(v);
+  Logger.log('── 열 인식 ──');
+  Logger.log('   ' + (info.detected ? '✅ 머리글로 자동 인식' : '⚠️ 머리글을 못 읽어 기본 순서(반·번호·이름·과목·환산총점·최종등급·최종성취도)를 씁니다'));
+  Logger.log('   데이터 시작: ' + (info.startRow + 1) + '행');
+  Logger.log('   반 ' + colLetter_(info.cols.c) + ' / 번호 ' + colLetter_(info.cols.n) +
+             ' / 이름 ' + colLetter_(info.cols.nm) + ' / 과목 ' + colLetter_(info.cols.subj));
+  Logger.log('   환산총점 ' + colLetter_(info.cols.total) + ' / 최종등급 ' + colLetter_(info.cols.grade) +
+             ' / 최종성취도 ' + colLetter_(info.cols.ach));
+  Logger.log('');
+
+  Logger.log('── 줄마다 어떻게 읽었나 ──');
+  var bad = 0;
+  for (var r = info.startRow; r < v.length; r++) {
+    var row = v[r];
+    var c = toInt_(row[info.cols.c]), n = toInt_(row[info.cols.n]);
+    if (isNaN(c) || isNaN(n) || !n) continue;
+    var raw = String(row[info.cols.subj] || '');
+    var si = transferSubjIndex_(raw);
+    if (si < 0) {
+      bad++;
+      Logger.log('   ❌ ' + (r + 1) + '행  ' + c + '반 ' + n + '번  과목 "' + raw + '" → 못 알아봤습니다');
+    } else {
+      Logger.log('   ✅ ' + (r + 1) + '행  ' + c + '반 ' + n + '번 ' + String(row[info.cols.nm] || '') +
+                 '  ' + raw + ' → ' + SUBJECTS[si].name +
+                 '  환산 ' + cellText_(row, info.cols.total) +
+                 ' / 등급 ' + cellText_(row, info.cols.grade) +
+                 ' / 성취도 ' + cellText_(row, info.cols.ach));
+    }
+  }
+  Logger.log('');
+
+  var map = buildTransferMap_(v);
+  var who = [];
+  for (var k in map) { if (map.hasOwnProperty(k)) who.push(k + '(' + countKeys_(map[k]) + '과목)'); }
+  Logger.log('── 정리 ──');
+  Logger.log('   전입생 ' + who.length + '명 : ' + (who.join(' · ') || '없음'));
+  if (bad) Logger.log('   ⚠️ 과목 이름을 못 알아본 줄이 ' + bad + '개 있습니다. 내신성적 시트의 과목명과 똑같이 적어 주세요.');
+  Logger.log('');
+  Logger.log('※ 이 값은 우리 학교 석차·등급컷·9등급 환산에 넣지 않습니다.');
+  Logger.log('※ 내신성적 시트에 그 과목 시험 점수가 들어오면(2학기) 그쪽이 이깁니다.');
+}
+
+function countKeys_(o) {
+  var n = 0;
+  for (var k in o) { if (o.hasOwnProperty(k)) n++; }
+  return n;
 }
 
 
