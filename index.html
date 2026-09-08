@@ -1122,11 +1122,17 @@ function hydrate(row) {
     const LABEL = subjectLabels();
     const BASIS = { 1: '환산총점', 2: '1차 점수' };
 
+    // 서버가 과목당 몇 칸을 보냈는지 **길이를 보고 스스로 알아냅니다**.
+    // Code.gs 를 아직 새 버전으로 배포하지 않아 옛 모양(9칸)이 와도
+    // 한 칸씩 밀린 자리를 읽어 엉뚱한 값을 보여주지 않게 하려는 것입니다.
+    const STEP = (SUBJ.length && d.length) ? Math.round(d.length / SUBJ.length) : 10;
+
     const schoolGrades = SUBJ.map((name, si) => {
-        const b = si * 11, e = si * 10;
+        const b = si * 11, e = si * STEP;
         const has1 = !!d[e + 7], has2 = !!d[e + 8];
         // prev = 전입생이 이전 학교에서 받아 온 성적 (우리 학교 시험 점수는 없음)
-        const prev = !!d[e + 9];
+        // 옛 서버(9칸)는 이 값을 안 보내므로 그때는 늘 false 입니다.
+        const prev = (STEP >= 10) && !!d[e + 9];
         const hasAny = has1 || has2 || prev;
         return {
             subject: LABEL[si] || name,
@@ -1404,7 +1410,9 @@ function showStudent(s) {
 /** '2 → 3' 처럼 5등급과 9등급을 나란히 보여줍니다. */
 function gradePair(g5, g9, strong) {
     const a = (g5 === undefined || g5 === null || g5 === '-') ? '' : String(g5);
-    const b = (g9 === undefined || g9 === null || g9 === '-') ? '' : String(g9);
+    let b = (g9 === undefined || g9 === null || g9 === '-') ? '' : String(g9);
+    // 9등급 `0` 은 뜻이 없는 값입니다. (자료가 어긋났을 때만 나옵니다)
+    if (b && Number(b) === 0) b = '';
     if (!a && !b) return '';
     if (!b) return `<span class="${strong ? 'font-extrabold' : 'font-bold'}">${escapeHtml(a)}</span>`;
     return `<span class="${strong ? 'font-extrabold' : 'font-bold'} text-slate-600">${escapeHtml(a)}</span>`
