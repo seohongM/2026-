@@ -30,9 +30,11 @@ var SHEET_GRADE   = '내신성적';
 var SHEET_TARGET  = '학생 목표';                 // 희망 대학 · 희망 학과 시트
 var SHEET_TRANSFER = '전입생_성적';              // 전입생이 이전 학교에서 받아 온 성적
 var SHEET_ACCOUNT = '계정';                      // 로그인 계정 시트 (자동 생성됩니다)
+var SHEET_TGRADE  = '목표등급';                   // 선생님이 적어 두는 목표 등급 (자동 생성됩니다)
 
 var TARGET_KEYWORDS = ['학생', '목표'];          // '학생목표', '1학년 학생 목표' 등도 인식
 var TRANSFER_KEYWORDS = ['전입생'];              // '전입생성적', '전입생 성적' 등도 인식
+var TGRADE_KEYWORDS = ['목표등급'];              // '목표등급표' 등도 인식 ('학생 목표'와 안 겹칩니다)
 
 // 로그인 유지 시간 (시간 단위). 이 시간이 지나면 다시 비밀번호를 입력해야 합니다.
 var TOKEN_HOURS = 12;
@@ -315,6 +317,7 @@ function handle_(req) {
       case 'updateCounseling':
       case 'deleteCounseling':
       case 'saveTarget':
+      case 'saveTargetGrade':
       case 'logout':
         var user = verifyToken_(req.token);
         if (!user) return needLogin_();
@@ -328,6 +331,7 @@ function handle_(req) {
         if (action === 'updateCounseling') return apiUpdateCounseling_(req, user);
         if (action === 'deleteCounseling') return apiDeleteCounseling_(req, user);
         if (action === 'saveTarget')    return apiSaveTarget_(req, user);
+        if (action === 'saveTargetGrade') return apiSaveTargetGrade_(req, user);
         if (action === 'logout')        { dropToken_(req.token); return ok_({ message: '로그아웃되었습니다.' }); }
         break;
 
@@ -797,10 +801,43 @@ function CARD_SHEETS_() {
 
 function ALL_SHEETS_() {
   var list = CARD_SHEETS_();
+  list.push({ key: 'tgrade', name: SHEET_TGRADE, keywords: TGRADE_KEYWORDS });
   MOCK_SHEETS.forEach(function (cfg) {
     list.push({ key: cfg.key, name: cfg.name, keywords: cfg.keywords });
   });
   return list;
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   목표등급 시트  (자동 생성)
+
+   선생님이 **아직 시험을 보지 않은 과목**에 미리 적어 두는 목표 등급입니다.
+   5등급제 기준이고, 개별 상담 화면의 1차등급·2차등급 칸에서 바로 적습니다.
+
+     반 | 번호 | 이름 | 공통국어1 1차목표 | 공통국어1 2차목표 | 공통국어2 1차목표 | …
+
+   과목당 2칸씩 13과목 = 26칸. 과목 차례는 SUBJECTS 와 같습니다.
+   ⚠️ 성적 시트가 아니라 **선생님 메모**입니다. 석차·등급·평균 어디에도 안 들어갑니다.
+   ══════════════════════════════════════════════════════════ */
+
+function TG_LEN_() { return SUBJECTS.length * 2; }
+
+/** 목표등급 시트를 찾습니다. create 가 참이면 없을 때 만들어 줍니다. */
+function tgradeSheet_(ss, create) {
+  var sh = findSheet_(ss, SHEET_TGRADE, TGRADE_KEYWORDS);
+  if (sh) return sh;
+  if (!create) return null;
+
+  sh = ss.insertSheet(SHEET_TGRADE);
+  var head = ['반', '번호', '이름'];
+  for (var i = 0; i < SUBJECTS.length; i++) {
+    head.push(SUBJECTS[i].name + ' 1차목표');
+    head.push(SUBJECTS[i].name + ' 2차목표');
+  }
+  sh.getRange(1, 1, 1, head.length).setValues([head]);
+  sh.setFrozenRows(1);
+  return sh;
 }
 
 
@@ -1110,6 +1147,7 @@ function apiGetAll_(req, user) {
 
   var G_LEN = SUBJECTS.length * 11;   // 내신 원본
   var D_LEN = SUBJECTS.length * 10;   // 계산값
+  var TG_LEN = TG_LEN_();             // 목표 등급 (과목당 1차·2차 2칸)
   var M_LEN = MOCK_SUBJECTS.length * 4;
 
   var data = readSheets_(ss, ALL_SHEETS_());        // 시트 7개를 한 번에
@@ -1124,10 +1162,11 @@ function apiGetAll_(req, user) {
     var key = c + '-' + n;
     if (!index[key]) {
       var st = { c: c, n: n, nm: nm || '', u: '', mj: '', cd: '', h: [], hc: [],
-                 g: [], d: [], s: ['', '', '', '', ''], m: {} };
+                 g: [], d: [], s: ['', '', '', '', ''], tg: [], m: {} };
       var i;
       for (i = 0; i < G_LEN; i++) st.g.push('');
       for (i = 0; i < D_LEN; i++) st.d.push('');
+      for (i = 0; i < TG_LEN; i++) st.tg.push('');
       MOCK_SHEETS.forEach(function (cfg) {
         var arr = [];
         for (var k = 0; k < M_LEN; k++) arr.push('');
@@ -1236,7 +1275,19 @@ function apiGetAll_(req, user) {
     }
   }
 
-  // 4. 모의고사 (3·6·9·10월)
+  // 4. 목표등급 (선생님이 적어 둔 메모 — 성적이 아닙니다)
+  var tgData = data.tgrade;
+  if (tgData) {
+    for (var i4 = 1; i4 < tgData.length; i4++) {
+      var tgRow = tgData[i4];
+      var gc2 = toInt_(tgRow[0]), gn2 = toInt_(tgRow[1]);
+      if (isNaN(gc2) || isNaN(gn2) || !gn2) continue;
+      var st5 = ensure_(gc2, gn2, String(tgRow[2] || '').trim());
+      for (var q = 0; q < TG_LEN; q++) st5.tg[q] = E_(cellVal_(tgRow[3 + q]));
+    }
+  }
+
+  // 5. 모의고사 (3·6·9·10월)
   MOCK_SHEETS.forEach(function (cfg) {
     var mData = data[cfg.key];
     if (!mData || mData.length < 2) return;
@@ -1280,6 +1331,87 @@ function apiSaveCounseling_(req, user) {
   if (!res.success) return err_(res.error || '저장하지 못했습니다.');
   return ok_(res);
 }
+
+/**
+ * 목표 등급 한 칸을 저장합니다.
+ * 시트가 없으면 만들고, 학생 줄이 없으면 새로 답니다.
+ *   si    = 과목 번호 (0부터, SUBJECTS 차례)
+ *   phase = 1(1차) 또는 2(2차)
+ *   grade = '1'~'5' 또는 빈 값(지우기)
+ */
+function saveTargetGrade(classNum, studentNum, studentName, si, phase, grade) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (e) {
+    return { success: false, error: '다른 저장이 진행 중입니다. 잠시 후 다시 시도해 주세요.' };
+  }
+
+  try {
+    var classInt = toInt_(classNum);
+    var numInt   = toInt_(studentNum);
+    var siInt    = toInt_(si);
+    var phInt    = toInt_(phase);
+
+    if (isNaN(classInt) || isNaN(numInt)) return { success: false, error: '반과 번호를 확인해 주세요.' };
+    if (isNaN(siInt) || siInt < 0 || siInt >= SUBJECTS.length) return { success: false, error: '과목을 확인해 주세요.' };
+    if (phInt !== 1 && phInt !== 2) return { success: false, error: '1차·2차를 확인해 주세요.' };
+
+    var g = String((grade === null || grade === undefined) ? '' : grade).trim();
+    if (g !== '' && !/^[1-5]$/.test(g)) {
+      return { success: false, error: '목표 등급은 1~5 사이 숫자여야 합니다.' };
+    }
+
+    var ss = getSpreadsheet_();
+    if (!ss) return { success: false, error: '스프레드시트를 열 수 없습니다.' };
+
+    var sheet = tgradeSheet_(ss, true);
+    var col   = 3 + siInt * 2 + (phInt - 1);        // 0부터 셈
+    var value = (g === '') ? '' : Number(g);
+
+    var last = sheet.getLastRow();
+    var rowIndex = -1;
+    if (last >= 2) {
+      var keys = sheet.getRange(2, 1, last - 1, 2).getValues();
+      for (var i = 0; i < keys.length; i++) {
+        if (toInt_(keys[i][0]) === classInt && toInt_(keys[i][1]) === numInt) {
+          rowIndex = i + 2;
+          break;
+        }
+      }
+    }
+
+    if (rowIndex === -1) {
+      var width = 3 + TG_LEN_();
+      var fresh = [];
+      for (var k = 0; k < width; k++) fresh.push('');
+      fresh[0] = classInt;
+      fresh[1] = numInt;
+      fresh[2] = String(studentName || '');
+      fresh[col] = value;
+      sheet.appendRow(fresh);
+      rowIndex = sheet.getLastRow();
+    } else {
+      sheet.getRange(rowIndex, col + 1).setValue(value);
+    }
+
+    return { success: true, row: rowIndex, grade: g };
+
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+
+function apiSaveTargetGrade_(req, user) {
+  var res = saveTargetGrade(req.classNum, req.studentNum, req.studentName,
+                            req.subjectIndex, req.phase, req.grade);
+  if (!res.success) return err_(res.error || '저장하지 못했습니다.');
+  return ok_(res);
+}
+
 
 function apiSaveTarget_(req, user) {
   var res = saveStudentTarget(req.classNum, req.studentNum, req.studentName,
@@ -2829,6 +2961,8 @@ function 수식점검() {
   used[SHEET_TARGET] = '희망 대학·학과';
   used[SHEET_COUNSEL] = '상담 기록';
   used[SHEET_ACCOUNT] = '로그인 계정';
+  used[SHEET_TGRADE] = '목표 등급 (선생님 메모)';
+  used[SHEET_TRANSFER] = '전입생 이전 학교 성적';
   used[SHEET_GOAL] = '(지금은 화면에서 안 씀)';
   MOCK_SHEETS.forEach(function (m) { used[m.name] = '모의고사'; });
 

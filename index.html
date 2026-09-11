@@ -242,6 +242,18 @@
                 max-height: none !important;
                 overflow: visible !important;
             }
+            /* 목표 등급 입력칸 — 인쇄에는 적어 둔 값만 나옵니다 (테두리·안내 글자 없음) */
+            .goal-input {
+                border: none !important;
+                background: transparent !important;
+                padding: 0 !important;
+                width: auto !important;
+                min-width: 14px;
+                font-size: 7pt !important;
+                color: #000 !important;
+            }
+            .goal-input::placeholder { color: transparent !important; }
+
             .target-value {
                 white-space: normal !important;
                 overflow: visible !important;
@@ -514,7 +526,7 @@
                 <div class="print-card mb-2">
                     <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 flex-wrap print-section-title">
                         📊 내신 성적 상세
-                        <span class="font-medium text-[10px] text-slate-400">등급 표기 = 5등급제 → 9등급제 환산</span>
+                        <span class="font-medium text-[10px] text-slate-400">등급 표기 = 5등급제 → 9등급제 환산 · 시험 전 과목은 <b class="text-slate-500">목표 등급</b>을 적어 두면 나중에 <b class="text-blue-600">(목표)실제</b> 로 나옵니다 (<span class="text-blue-600">파랑=달성</span> · <span class="text-rose-600">빨강=미달성</span>)</span>
                         <span id="grade-summary" class="ml-auto flex items-center gap-1.5 flex-wrap"></span>
                     </h3>
                     <div class="overflow-hidden rounded-lg border border-slate-300">
@@ -1134,7 +1146,7 @@ function subjectLabels() {
  * 계산은 전부 서버에서 끝났고, 여기서는 이름표만 붙입니다.
  */
 function hydrate(row) {
-    const g = row.g || [], d = row.d || [], s = row.s || [];
+    const g = row.g || [], d = row.d || [], s = row.s || [], tg = row.tg || [];
     const SUBJ = (ALL && ALL.subjects) ? ALL.subjects : [];
     const LABEL = subjectLabels();
     const BASIS = { 1: '환산총점', 2: '1차 점수' };
@@ -1152,8 +1164,12 @@ function hydrate(row) {
         const prev = (STEP >= 10) && !!d[e + 9];
         const hasAny = has1 || has2 || prev;
         return {
+            index: si,
             subject: LABEL[si] || name,
             prevSchool: prev,
+            // 선생님이 적어 둔 목표 등급 (5등급제). 성적이 아니라 메모입니다.
+            goal1: V(tg[si * 2 + 0]) === '' ? '' : String(tg[si * 2 + 0]),
+            goal2: V(tg[si * 2 + 1]) === '' ? '' : String(tg[si * 2 + 1]),
             exam1:  has1 ? V(g[b + 0]) : '',
             grade1: has1 ? V(g[b + 1]) : '',
             eval1:  has1 ? V(g[b + 4]) : '',
@@ -1709,6 +1725,95 @@ function gradePair(g5, g9, strong) {
          + `<span class="font-extrabold text-blue-700">${escapeHtml(b)}</span>`;
 }
 
+/**
+ * 1차등급 · 2차등급 칸.
+ *
+ *   아직 시험을 안 본 과목 → 목표 등급을 적는 칸 (5등급제, 1~5)
+ *   성적이 들어왔고 목표도 있으면 → (목표)실제→9등급
+ *        목표를 이뤘으면 파란색 (실제 등급이 목표와 같거나 더 좋을 때)
+ *        못 이뤘으면 빨간색
+ *   목표가 없으면 → 예전처럼 5등급 → 9등급
+ */
+function goalGradeCell(g, phase) {
+    const real5 = phase === 1 ? g.grade1   : g.grade2;
+    const real9 = phase === 1 ? g.grade1_9 : g.grade2_9;
+    const goal  = phase === 1 ? g.goal1    : g.goal2;
+    const empty = v => (v === undefined || v === null || v === '' || v === '-');
+
+    if (empty(real5)) {
+        return `<input type="text" inputmode="numeric" maxlength="1" value="${escapeHtml(goal || '')}"
+                       placeholder="목표" title="목표 등급을 1~5 로 적어 두세요 (시험 전 메모)"
+                       data-si="${g.index}" data-ph="${phase}" data-saved="${escapeHtml(goal || '')}"
+                       onchange="saveGoalGrade(this)"
+                       class="goal-input w-11 text-center text-[10px] py-0.5 rounded
+                              border border-dashed border-slate-300 bg-white text-slate-700
+                              focus:border-blue-500 focus:bg-blue-50/40 outline-none">`;
+    }
+    if (empty(goal)) return gradePair(real5, real9, false);
+
+    const done = Number(real5) <= Number(goal);       // 등급은 낮을수록 좋습니다
+    const tone = done ? 'text-blue-700' : 'text-rose-700';
+    let nine = empty(real9) ? '' : String(real9);
+    if (nine && Number(nine) === 0) nine = '';
+
+    return `<span class="${tone} font-extrabold whitespace-nowrap"
+                  title="목표 ${escapeHtml(goal)}등급 · ${done ? '달성' : '미달성'}">`
+         + `<span class="opacity-70">(${escapeHtml(goal)})</span>${escapeHtml(String(real5))}`
+         + (nine ? `<span class="mx-0.5 font-normal opacity-40">→</span>${escapeHtml(nine)}` : '')
+         + `</span>`;
+}
+
+/** 목표 등급 한 칸을 시트에 저장합니다. */
+async function saveGoalGrade(el) {
+    if (!selectedStudent) return;
+    const si = Number(el.dataset.si), ph = Number(el.dataset.ph);
+
+    let v = String(el.value || '').trim();
+    if (v && !/^[1-5]$/.test(v)) {
+        el.value = el.dataset.saved || '';
+        alert('목표 등급은 1 부터 5 사이 숫자로 적어 주세요.');
+        return;
+    }
+    el.value = v;
+    if (v === (el.dataset.saved || '')) return;      // 안 바뀌었으면 저장하지 않습니다
+
+    const keep = el.className;
+    el.disabled = true;
+    try {
+        await api('saveTargetGrade', {
+            classNum:    selectedStudent.classNum,
+            studentNum:  selectedStudent.number,
+            studentName: selectedStudent.name,
+            subjectIndex: si, phase: ph, grade: v
+        });
+
+        el.dataset.saved = v;
+        const row = selectedStudent.schoolGrades && selectedStudent.schoolGrades[si];
+        if (row) { if (ph === 1) row.goal1 = v; else row.goal2 = v; }
+        updateAllRow(selectedStudent.classNum, selectedStudent.number, r => {
+            if (!r.tg) r.tg = [];
+            r.tg[si * 2 + (ph - 1)] = v;
+        });
+
+        el.className = keep + ' !border-emerald-400 !border-solid';
+        setTimeout(() => { el.className = keep; }, 1200);
+    } catch (e) {
+        el.value = el.dataset.saved || '';
+        if (e.message === 'needLogin') { /* 로그인 화면이 알아서 뜹니다 */ }
+        else if (/알 수 없는 요청/.test(e.message)) {
+            // Code.gs 를 새 버전으로 배포하지 않으면 서버가 이 요청을 모릅니다
+            alert('목표 등급은 아직 저장할 수 없습니다.\n\n' +
+                  'Apps Script 에서 Code.gs 를 저장하신 뒤\n' +
+                  '배포 → 배포 관리 → 연필(✏️) → 버전: 새 버전 → 배포\n' +
+                  '를 한 번 해 주시면 됩니다. (주소는 그대로입니다)');
+        } else {
+            alert('목표 등급을 저장하지 못했습니다.\n' + e.message);
+        }
+    } finally {
+        el.disabled = false;
+    }
+}
+
 function renderSchoolGrades(grades, summary) {
     const tbody = document.getElementById('school-grades-tbody');
     const tfoot = document.getElementById('school-grades-tfoot');
@@ -1743,9 +1848,9 @@ function renderSchoolGrades(grades, summary) {
         tr.innerHTML = `
             <td class="p-1 font-semibold border-r border-slate-200${hasData ? '' : ' text-slate-400'}">${g.subject}${prevTag}</td>
             <td class="p-1 border-r border-slate-200">${cell(g.exam1)}</td>
-            <td class="p-1 border-r border-slate-200">${gradePair(g.grade1, g.grade1_9, false)}</td>
+            <td class="p-1 border-r border-slate-200">${goalGradeCell(g, 1)}</td>
             <td class="p-1 border-r border-slate-200">${cell(g.exam2)}</td>
-            <td class="p-1 border-r border-slate-200">${gradePair(g.grade2, g.grade2_9, false)}</td>
+            <td class="p-1 border-r border-slate-200">${goalGradeCell(g, 2)}</td>
             <td class="p-1 border-r border-slate-200">${cell(g.eval1)}</td>
             <td class="p-1 border-r border-slate-200">${cell(g.eval2)}</td>
             <td class="p-1 border-r border-slate-200 font-bold text-emerald-700${hasData ? ' bg-emerald-50/50' : ''}">${cell(g.totalScore)}</td>
