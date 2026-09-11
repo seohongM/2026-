@@ -410,6 +410,9 @@
 
             <div id="student-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             </div>
+
+            <!-- 성적이 오른 학생 · 내린 학생 (우리 반) -->
+            <div id="movers" class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
         </section>
 
         <section id="view-counseling" class="hidden">
@@ -1299,6 +1302,7 @@ function showLoading() {
     document.getElementById('student-grid').innerHTML =
         '<div class="col-span-full bg-white border border-slate-200 text-slate-500 p-6 rounded-xl text-sm text-center">' +
         '학생 명단을 불러오는 중입니다…</div>';
+    document.getElementById('movers').innerHTML = '';
 }
 
 function onDataLoaded(data) {
@@ -1309,6 +1313,7 @@ function onDataLoaded(data) {
     document.getElementById('student-count').textContent = studentsData.length;
     updateTargetCount();
     renderStudentGrid();
+    renderMovers();
 }
 
 function onDataLoadError(err) {
@@ -1319,6 +1324,7 @@ function onDataLoadError(err) {
     document.getElementById('student-grid').innerHTML =
         '<div class="col-span-full bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-xl text-sm">' +
         '명단을 불러오지 못했습니다.<br><span class="text-xs">' + escapeHtml(err && err.message) + '</span></div>';
+    document.getElementById('movers').innerHTML = '';
 }
 
 function renderStudentGrid() {
@@ -1376,6 +1382,252 @@ function renderStudentGrid() {
         `;
         grid.appendChild(card);
     });
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   성적이 오른 학생 · 내린 학생  (우리 반 학생 목록 아래)
+
+   서버를 더 부르지 않습니다. 2단계(getAll)로 이미 받아 둔
+   전교 데이터(ALL)만 가지고 화면에서 계산합니다.
+     · 내신  = 1차 시험 → 2차 시험     (두 번 다 본 과목만)
+     · 모의  = 직전 회차 → 최근 회차   (두 번 다 본 과목만)
+   전입생이 이전 학교에서 받아 온 성적은 우리 학교 시험이 아니므로 뺍니다.
+   ══════════════════════════════════════════════════════════ */
+
+/** 숫자로 읽습니다. 빈 칸·'-' 는 '값 없음'(null). */
+function mvNum(v) {
+    const t = String(V(v)).trim();
+    if (t === '' || t === '-') return null;
+    const x = Number(t);
+    return isFinite(x) ? x : null;
+}
+
+/** 내신 : 그 학생의 1차 → 2차 평균 (두 번 다 본 과목만) */
+function mvNaesin(row) {
+    const SUBJ = (ALL && ALL.subjects) ? ALL.subjects : [];
+    const g = row.g || [], d = row.d || [];
+    const STEP = (SUBJ.length && d.length) ? Math.round(d.length / SUBJ.length) : 10;
+
+    let n = 0, s1 = 0, s2 = 0, ng = 0, a1 = 0, a2 = 0;
+    for (let si = 0; si < SUBJ.length; si++) {
+        const b = si * 11, e = si * STEP;
+        if (STEP >= 10 && d[e + 9]) continue;          // 이전 학교 성적은 제외
+        const x1 = mvNum(g[b + 0]), x2 = mvNum(g[b + 2]);
+        if (x1 === null || x2 === null) continue;      // 1차·2차 시험을 둘 다 본 과목만
+        n++; s1 += x1; s2 += x2;
+        const q1 = mvNum(g[b + 1]), q2 = mvNum(g[b + 3]);
+        if (q1 !== null && q2 !== null) { ng++; a1 += q1; a2 += q2; }
+    }
+    if (!n || !ng) return null;
+    return { n: n, score1: s1 / n, score2: s2 / n, grade1: a1 / ng, grade2: a2 / ng };
+}
+
+/** 모의 : 그 학생의 직전 회차 → 최근 회차 평균 (두 번 다 본 과목만) */
+function mvMock(row, prevKey, curKey) {
+    const SUBS = (ALL && ALL.mockSubjects) || [];
+    const A = (row.m && row.m[prevKey]) || [];
+    const B = (row.m && row.m[curKey])  || [];
+
+    let n = 0, s1 = 0, s2 = 0, ng = 0, a1 = 0, a2 = 0;
+    for (let ui = 0; ui < SUBS.length; ui++) {
+        const x1 = mvNum(A[ui * 4 + 0]), x2 = mvNum(B[ui * 4 + 0]);
+        if (x1 === null || x2 === null) continue;
+        n++; s1 += x1; s2 += x2;
+        const q1 = mvNum(A[ui * 4 + 3]), q2 = mvNum(B[ui * 4 + 3]);
+        if (q1 !== null && q2 !== null) { ng++; a1 += q1; a2 += q2; }
+    }
+    if (!n) return null;
+    return { n: n, score1: s1 / n, score2: s2 / n,
+             grade1: ng ? a1 / ng : null, grade2: ng ? a2 / ng : null };
+}
+
+/** 점수가 높은 쪽이 1위. 동점이면 같은 등수 (1·2·2·4). */
+function mvRank(recs, get, key) {
+    const sorted = recs.slice().sort((x, y) => get(y) - get(x));
+    let lastVal = null, lastRank = 0;
+    sorted.forEach((r, i) => {
+        const v = get(r);
+        if (lastVal === null || v !== lastVal) { lastRank = i + 1; lastVal = v; }
+        r[key] = lastRank;
+    });
+}
+
+/** 모의고사 회차 중 점수가 들어와 있는 것만 (순서 그대로) */
+function mvMockMonths() {
+    const months = (ALL && ALL.mockMonths) || [];
+    const rows = (ALL && ALL.students) || [];
+    return months.filter(mm =>
+        rows.some(row => ((row.m && row.m[mm.key]) || []).some(v => mvNum(v) !== null)));
+}
+
+/** 내신 : 전교생을 계산하고 학년 석차까지 매깁니다. */
+function mvNaesinAll() {
+    const rows = (ALL && ALL.students) || [];
+    const recs = [];
+    rows.forEach(row => {
+        const mv = mvNaesin(row);
+        if (mv) recs.push({ c: Number(row.c), n: Number(row.n), nm: row.nm || '', mv: mv });
+    });
+    if (!recs.length) return [];
+    mvRank(recs, r => r.mv.score1, 'rank1');
+    mvRank(recs, r => r.mv.score2, 'rank2');
+    recs.forEach(r => {
+        r.dGrade = r.mv.grade1 - r.mv.grade2;   // 등급은 낮을수록 좋으므로 (전 - 후)
+        r.dRank  = r.rank1 - r.rank2;           // 석차도 낮을수록 좋으므로 (전 - 후)
+        r.dScore = r.mv.score2 - r.mv.score1;
+    });
+    return recs;
+}
+
+/** 모의 : 우리 반만 계산합니다 (석차는 내지 않습니다). */
+function mvMockAll(prevKey, curKey) {
+    const rows = (ALL && ALL.students) || [];
+    const recs = [];
+    rows.forEach(row => {
+        const mv = mvMock(row, prevKey, curKey);
+        if (!mv) return;
+        recs.push({
+            c: Number(row.c), n: Number(row.n), nm: row.nm || '', mv: mv,
+            dScore: mv.score2 - mv.score1,
+            dGrade: (mv.grade1 === null || mv.grade2 === null) ? null : (mv.grade1 - mv.grade2)
+        });
+    });
+    return recs;
+}
+
+// 색깔 이름을 글자로 이어 붙이지 않고 통째로 적어 둡니다.
+// (Tailwind 가 못 알아보는 이름이 만들어지는 것을 막으려고)
+const MV_UP = {
+    mark: '▲',
+    head: 'text-emerald-700',
+    row:  'hover:border-emerald-300 hover:bg-emerald-50'
+};
+const MV_DOWN = {
+    mark: '▼',
+    head: 'text-rose-700',
+    row:  'hover:border-rose-300 hover:bg-rose-50'
+};
+
+/** 화살표가 붙은 변화량 한 조각. 값이 클수록 좋아진 것입니다. */
+function mvDelta(v, digits, unit) {
+    if (v === null || v === undefined || !isFinite(v)) return '';
+    const cls  = v === 0 ? 'text-slate-400' : (v > 0 ? 'text-emerald-600' : 'text-rose-600');
+    const mark = v === 0 ? '–' : (v > 0 ? '▲' : '▼');
+    return '<span class="' + cls + ' font-extrabold">' + mark + ' ' +
+           Math.abs(v).toFixed(digits) + unit + '</span>';
+}
+
+function mvPanel(title, sub, side, rows, emptyMsg) {
+    const head =
+        '<div class="flex items-baseline justify-between gap-2 mb-2 pb-2 border-b border-slate-100">' +
+          '<h3 class="text-sm font-extrabold ' + side.head + '">' + side.mark + ' ' + escapeHtml(title) + '</h3>' +
+          '<span class="text-[11px] text-slate-400 font-medium">' + escapeHtml(sub) + '</span>' +
+        '</div>';
+
+    let body;
+    if (!rows.length) {
+        body = '<div class="text-xs text-slate-400 py-4 text-center">' + escapeHtml(emptyMsg) + '</div>';
+    } else {
+        body = '<ol class="space-y-1.5">' + rows.map((r, i) =>
+            '<li class="rounded-lg border border-slate-100 ' + side.row + ' ' +
+                'transition cursor-pointer px-2.5 py-2" onclick="selectStudent(' + r.n + ')">' +
+              '<div class="flex items-center gap-2">' +
+                '<span class="w-4 text-[11px] font-black text-slate-300">' + (i + 1) + '</span>' +
+                '<span class="text-sm font-bold text-slate-800">' + escapeHtml(r.nm) + '</span>' +
+                '<span class="text-[10px] text-slate-400 font-medium">' + r.n + '번</span>' +
+                '<span class="ml-auto text-xs">' + r.headline + '</span>' +
+              '</div>' +
+              '<div class="mt-1 pl-6 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500 font-medium">' +
+                r.detail + '</div>' +
+            '</li>').join('') + '</ol>';
+    }
+    return '<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">' + head + body + '</div>';
+}
+
+/** 한 칸 : 「이름표 전값 → 후값」 */
+function mvCell(label, a, b, digits, suffix) {
+    const f = v => (v === null || v === undefined || !isFinite(v)) ? '-' : Number(v).toFixed(digits);
+    return '<span><span class="text-slate-400">' + label + '</span> ' +
+           f(a) + ' <span class="text-slate-300">→</span> ' +
+           '<span class="text-slate-700 font-bold">' + f(b) + '</span>' + (suffix || '') + '</span>';
+}
+
+function renderMovers() {
+    const box = document.getElementById('movers');
+    if (!box) return;
+
+    if (!ALL) {
+        box.innerHTML =
+            '<div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 text-xs text-slate-400 text-center">' +
+            '성적 변화를 계산할 자료를 불러오는 중입니다…</div>';
+        return;
+    }
+
+    const cls = Number(currentClass);
+    let html = '';
+
+    /* ── ① 내신 : 1차 → 2차 ── */
+    const nAll  = mvNaesinAll();
+    const nMine = nAll.filter(r => r.c === cls);
+    const nSub  = '1차 → 2차 시험 · 학년 석차 순';
+    const nEmpty = '1차·2차 시험을 모두 본 과목이 아직 없습니다.';
+
+    // 몇 등 올랐나를 기준으로 줄 세웁니다.
+    // (등급은 여섯 과목 평균이라 잘 안 움직여 순서를 가리기 어렵습니다)
+    const nUp = nMine.filter(r => r.dRank > 0)
+                     .sort((a, b) => (b.dRank - a.dRank) || (b.dGrade - a.dGrade) || (b.dScore - a.dScore))
+                     .slice(0, 5);
+    const nDown = nMine.filter(r => r.dRank < 0)
+                       .sort((a, b) => (a.dRank - b.dRank) || (a.dGrade - b.dGrade) || (a.dScore - b.dScore))
+                       .slice(0, 5);
+
+    const nRow = r => ({
+        n: r.n, nm: r.nm,
+        headline: mvDelta(r.dRank, 0, '위'),
+        detail: mvCell('등급', r.mv.grade1, r.mv.grade2, 2, '') +
+                mvCell('학년석차', r.rank1, r.rank2, 0, '위') +
+                mvCell('점수', r.mv.score1, r.mv.score2, 1, '점') +
+                '<span class="text-slate-300">' + r.mv.n + '과목</span>'
+    });
+
+    html += mvPanel('내신이 오른 학생 5명', nSub, MV_UP,   nUp.map(nRow),   nEmpty);
+    html += mvPanel('내신이 내린 학생 5명', nSub, MV_DOWN, nDown.map(nRow), nEmpty);
+
+    /* ── ② 모의고사 : 직전 회차 → 최근 회차 ── */
+    const mm = mvMockMonths();
+    if (mm.length < 2) {
+        const why = mm.length
+            ? mm[0].label + ' 모의고사 하나뿐이라 견줄 직전 회차가 없습니다.'
+            : '모의고사 점수가 아직 들어오지 않았습니다.';
+        html += '<div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 ' +
+                'text-xs text-slate-400 text-center">' + escapeHtml(why) + '</div>';
+    } else {
+        const prev = mm[mm.length - 2], cur = mm[mm.length - 1];
+        const mSub = prev.label + ' → ' + cur.label + ' · 점수 향상 순';
+        const mEmpty = '두 회차를 모두 본 학생이 없습니다.';
+        const mMine = mvMockAll(prev.key, cur.key).filter(r => r.c === cls);
+
+        const mUp = mMine.filter(r => r.dScore > 0)
+                         .sort((a, b) => (b.dScore - a.dScore) || ((b.dGrade || 0) - (a.dGrade || 0)))
+                         .slice(0, 5);
+        const mDown = mMine.filter(r => r.dScore < 0)
+                           .sort((a, b) => (a.dScore - b.dScore) || ((a.dGrade || 0) - (b.dGrade || 0)))
+                           .slice(0, 5);
+
+        const mRow = r => ({
+            n: r.n, nm: r.nm,
+            headline: mvDelta(r.dScore, 1, ' 점'),
+            detail: mvCell('등급', r.mv.grade1, r.mv.grade2, 2, '') +
+                    mvCell('점수', r.mv.score1, r.mv.score2, 1, '점') +
+                    '<span class="text-slate-300">' + r.mv.n + '과목</span>'
+        });
+
+        html += mvPanel('모의고사가 오른 학생 5명', mSub, MV_UP,   mUp.map(mRow),   mEmpty);
+        html += mvPanel('모의고사가 내린 학생 5명', mSub, MV_DOWN, mDown.map(mRow), mEmpty);
+    }
+
+    box.innerHTML = html;
 }
 
 /** 학생 한 명을 개별 상담 화면에 올립니다. */
