@@ -37,12 +37,12 @@
         /* ── 우리반 학생 목록 : 학생 카드는 왼쪽, 「오른/내린 5명」은 오른쪽 ──
            자리가 모자라면 CSS 가 알아서 아래로 내려 줍니다(flex-wrap).
            화면 너비를 숫자로 못 박지 않으므로 모니터가 바뀌어도 깨지지 않습니다.
-             왼쪽  희망 너비 950px  (학생 카드 5칸이 지금 크기로 들어가는 너비)
-             오른쪽 희망 너비 600px  (패널 2칸)
-           둘을 합친 1574px 가 안 나오면 오른쪽 블록이 아래 줄로 내려갑니다. */
+             왼쪽  희망 너비 900px  (학생 카드 5칸)
+             오른쪽 희망 너비 700px  (패널 3칸 — 오름·내림·변화 적음)
+           둘을 합친 1624px 가 안 나오면 오른쪽 블록이 아래 줄로 내려갑니다. */
         #home-wrap  { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; }
-        #home-left  { flex: 1 1 950px; min-width: 0; }
-        #movers     { flex: 1 1 600px; min-width: 0; }
+        #home-left  { flex: 1 1 900px; min-width: 0; }
+        #movers     { flex: 1 1 700px; min-width: 0; }
 
         /* ══════════════════════════════════════════════════════
            통합 성적 관리 화면 전용 디자인
@@ -425,7 +425,7 @@
             </div><!-- /home-left -->
 
             <!-- 성적이 오른 학생 · 내린 학생 (우리 반) — 자리가 넉넉하면 오른쪽, 좁으면 아래 -->
-            <div id="movers" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+            <div id="movers" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
           </div><!-- /home-wrap -->
         </section>
 
@@ -1526,6 +1526,11 @@ const MV_DOWN = {
     head: 'text-rose-700',
     row:  'hover:border-rose-300 hover:bg-rose-50'
 };
+const MV_FLAT = {
+    mark: '≈',
+    head: 'text-slate-600',
+    row:  'hover:border-slate-300 hover:bg-slate-50'
+};
 
 /** 화살표가 붙은 변화량 한 조각. 값이 클수록 좋아진 것입니다. */
 function mvDelta(v, digits, unit) {
@@ -1577,7 +1582,7 @@ function renderMovers() {
 
     if (!ALL) {
         box.innerHTML =
-            '<div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 text-xs text-slate-400 text-center">' +
+            '<div class="col-span-full bg-white rounded-2xl border border-slate-200 p-4 text-xs text-slate-400 text-center">' +
             '성적 변화를 계산할 자료를 불러오는 중입니다…</div>';
         return;
     }
@@ -1599,6 +1604,11 @@ function renderMovers() {
     const nDown = nMine.filter(r => r.dRank < 0)
                        .sort((a, b) => (a.dRank - b.dRank) || (a.dGrade - b.dGrade) || (a.dScore - b.dScore))
                        .slice(0, 5);
+    // 변화가 가장 적은 5명 — 오른쪽·왼쪽 어느 쪽도 아닌, 석차가 거의 그대로인 학생
+    const nFlat = nMine.slice()
+                       .sort((a, b) => (Math.abs(a.dRank) - Math.abs(b.dRank)) ||
+                                       (Math.abs(a.dScore) - Math.abs(b.dScore)))
+                       .slice(0, 5);
 
     const nRow = r => ({
         n: r.n, nm: r.nm,
@@ -1608,8 +1618,10 @@ function renderMovers() {
                 '<span class="text-slate-300">' + r.mv.n + '과목</span>'
     });
 
-    html += mvPanel('내신이 오른 학생 5명', nSub, MV_UP,   nUp.map(nRow),   nEmpty);
-    html += mvPanel('내신이 내린 학생 5명', nSub, MV_DOWN, nDown.map(nRow), nEmpty);
+    html += mvPanel('내신이 오른 학생 5명',   nSub, MV_UP,   nUp.map(nRow),   nEmpty);
+    html += mvPanel('내신이 내린 학생 5명',   nSub, MV_DOWN, nDown.map(nRow), nEmpty);
+    html += mvPanel('내신 변화가 적은 학생 5명',
+                    '1차 → 2차 시험 · 석차가 거의 그대로', MV_FLAT, nFlat.map(nRow), nEmpty);
 
     /* ── ② 모의고사 : 직전 회차 → 최근 회차 ── */
     const mm = mvMockMonths();
@@ -1617,7 +1629,7 @@ function renderMovers() {
         const why = mm.length
             ? mm[0].label + ' 모의고사 하나뿐이라 견줄 직전 회차가 없습니다.'
             : '모의고사 점수가 아직 들어오지 않았습니다.';
-        html += '<div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 ' +
+        html += '<div class="col-span-full bg-white rounded-2xl border border-slate-200 shadow-sm p-4 ' +
                 'text-xs text-slate-400 text-center">' + escapeHtml(why) + '</div>';
     } else {
         const prev = mm[mm.length - 2], cur = mm[mm.length - 1];
@@ -1631,6 +1643,11 @@ function renderMovers() {
         const mDown = mMine.filter(r => r.dScore < 0)
                            .sort((a, b) => (a.dScore - b.dScore) || ((a.dGrade || 0) - (b.dGrade || 0)))
                            .slice(0, 5);
+        // 총점이 거의 그대로인 5명
+        const mFlat = mMine.slice()
+                           .sort((a, b) => (Math.abs(a.dScore) - Math.abs(b.dScore)) ||
+                                           (Math.abs(a.dGrade || 0) - Math.abs(b.dGrade || 0)))
+                           .slice(0, 5);
 
         const mRow = r => ({
             n: r.n, nm: r.nm,
@@ -1640,8 +1657,11 @@ function renderMovers() {
                     '<span class="text-slate-300">' + r.mv.n + '과목</span>'
         });
 
-        html += mvPanel('모의고사가 오른 학생 5명', mSub, MV_UP,   mUp.map(mRow),   mEmpty);
-        html += mvPanel('모의고사가 내린 학생 5명', mSub, MV_DOWN, mDown.map(mRow), mEmpty);
+        html += mvPanel('모의고사가 오른 학생 5명',   mSub, MV_UP,   mUp.map(mRow),   mEmpty);
+        html += mvPanel('모의고사가 내린 학생 5명',   mSub, MV_DOWN, mDown.map(mRow), mEmpty);
+        html += mvPanel('모의고사 변화가 적은 학생 5명',
+                        prev.label + ' → ' + cur.label + ' · 총점이 거의 그대로',
+                        MV_FLAT, mFlat.map(mRow), mEmpty);
     }
 
     box.innerHTML = html;
