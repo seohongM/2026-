@@ -1437,7 +1437,10 @@ function mvNaesin(row) {
     return { n: n, score1: s1 / n, score2: s2 / n, grade1: a1 / ng, grade2: a2 / ng };
 }
 
-/** 모의 : 그 학생의 직전 회차 → 최근 회차 평균 (두 번 다 본 과목만) */
+// 모의고사에서 총점에 넣는 과목 (2026.09 사용자 결정 — 한국사는 뺍니다)
+const MV_MOCK_SUBS = ['국어', '수학', '영어', '통합사회', '통합과학'];
+
+/** 모의 : 그 학생의 직전 회차 → 최근 회차 **총점** (두 번 다 본 과목만) */
 function mvMock(row, prevKey, curKey) {
     const SUBS = (ALL && ALL.mockSubjects) || [];
     const A = (row.m && row.m[prevKey]) || [];
@@ -1445,14 +1448,15 @@ function mvMock(row, prevKey, curKey) {
 
     let n = 0, s1 = 0, s2 = 0, ng = 0, a1 = 0, a2 = 0;
     for (let ui = 0; ui < SUBS.length; ui++) {
+        if (MV_MOCK_SUBS.indexOf(SUBS[ui]) < 0) continue;   // 국·수·영·사·과만
         const x1 = mvNum(A[ui * 4 + 0]), x2 = mvNum(B[ui * 4 + 0]);
         if (x1 === null || x2 === null) continue;
-        n++; s1 += x1; s2 += x2;
+        n++; s1 += x1; s2 += x2;                            // 평균이 아니라 **합계**
         const q1 = mvNum(A[ui * 4 + 3]), q2 = mvNum(B[ui * 4 + 3]);
         if (q1 !== null && q2 !== null) { ng++; a1 += q1; a2 += q2; }
     }
     if (!n) return null;
-    return { n: n, score1: s1 / n, score2: s2 / n,
+    return { n: n, score1: s1, score2: s2,
              grade1: ng ? a1 / ng : null, grade2: ng ? a2 / ng : null };
 }
 
@@ -1599,9 +1603,8 @@ function renderMovers() {
     const nRow = r => ({
         n: r.n, nm: r.nm,
         headline: mvDelta(r.dRank, 0, '위'),
-        detail: mvCell('등급', r.mv.grade1, r.mv.grade2, 2, '') +
-                mvCell('학년석차', r.rank1, r.rank2, 0, '위') +
-                mvCell('점수', r.mv.score1, r.mv.score2, 1, '점') +
+        detail: mvCell('학년석차', r.rank1, r.rank2, 0, '위') +
+                mvCell('평균점수', r.mv.score1, r.mv.score2, 1, '점') +
                 '<span class="text-slate-300">' + r.mv.n + '과목</span>'
     });
 
@@ -1618,7 +1621,7 @@ function renderMovers() {
                 'text-xs text-slate-400 text-center">' + escapeHtml(why) + '</div>';
     } else {
         const prev = mm[mm.length - 2], cur = mm[mm.length - 1];
-        const mSub = prev.label + ' → ' + cur.label + ' · 점수 향상 순';
+        const mSub = prev.label + ' → ' + cur.label + ' · 국·수·영·사·과 총점 순';
         const mEmpty = '두 회차를 모두 본 학생이 없습니다.';
         const mMine = mvMockAll(prev.key, cur.key).filter(r => r.c === cls);
 
@@ -1631,9 +1634,9 @@ function renderMovers() {
 
         const mRow = r => ({
             n: r.n, nm: r.nm,
-            headline: mvDelta(r.dScore, 1, ' 점'),
-            detail: mvCell('등급', r.mv.grade1, r.mv.grade2, 2, '') +
-                    mvCell('점수', r.mv.score1, r.mv.score2, 1, '점') +
+            headline: mvDelta(r.dScore, 0, ' 점'),
+            detail: mvCell('총점', r.mv.score1, r.mv.score2, 0, '점') +
+                    mvCell('평균등급', r.mv.grade1, r.mv.grade2, 2, '') +
                     '<span class="text-slate-300">' + r.mv.n + '과목</span>'
         });
 
