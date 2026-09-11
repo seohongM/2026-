@@ -34,6 +34,16 @@
            로그인 전 화면이 잠깐 보이는 일이 없도록 미리 숨깁니다. */
         .hidden { display: none !important; }
 
+        /* ── 우리반 학생 목록 : 학생 카드는 왼쪽, 「오른/내린 5명」은 오른쪽 ──
+           자리가 모자라면 CSS 가 알아서 아래로 내려 줍니다(flex-wrap).
+           화면 너비를 숫자로 못 박지 않으므로 모니터가 바뀌어도 깨지지 않습니다.
+             왼쪽  희망 너비 950px  (학생 카드 5칸이 지금 크기로 들어가는 너비)
+             오른쪽 희망 너비 600px  (패널 2칸)
+           둘을 합친 1574px 가 안 나오면 오른쪽 블록이 아래 줄로 내려갑니다. */
+        #home-wrap  { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; }
+        #home-left  { flex: 1 1 950px; min-width: 0; }
+        #movers     { flex: 1 1 600px; min-width: 0; }
+
         /* ══════════════════════════════════════════════════════
            통합 성적 관리 화면 전용 디자인
            ('통합성적관리' 파일의 CSS 를 이 화면 안에서만 쓰도록 옮긴 것)
@@ -384,9 +394,11 @@
         </div>
     </aside>
 
-    <main class="flex-1 p-4 md:p-8 w-full max-w-7xl mx-auto overflow-y-auto">
+    <main class="flex-1 p-4 md:p-8 w-full overflow-y-auto">
 
         <section id="view-home" class="block no-print">
+          <div id="home-wrap">
+            <div id="home-left">
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h2 class="text-2xl font-extrabold text-slate-900 flex items-center gap-2">
@@ -410,12 +422,14 @@
 
             <div id="student-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             </div>
+            </div><!-- /home-left -->
 
-            <!-- 성적이 오른 학생 · 내린 학생 (우리 반) -->
-            <div id="movers" class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+            <!-- 성적이 오른 학생 · 내린 학생 (우리 반) — 자리가 넉넉하면 오른쪽, 좁으면 아래 -->
+            <div id="movers" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+          </div><!-- /home-wrap -->
         </section>
 
-        <section id="view-counseling" class="hidden">
+        <section id="view-counseling" class="hidden max-w-7xl mx-auto">
 
             <div class="bg-white p-5 rounded-2xl shadow-sm border border-blue-100 mb-6 no-print">
                 <h3 class="text-sm font-bold text-blue-700 mb-3 flex items-center gap-2">
@@ -594,7 +608,7 @@
         </section>
 
         <!-- ══════════ 통합 성적 관리 ══════════ -->
-        <section id="view-stats" class="hidden no-print">
+        <section id="view-stats" class="hidden no-print max-w-7xl mx-auto">
 
             <div class="panel glass" style="padding:18px 22px;margin:0 0 4px;">
                 <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:14px;">
