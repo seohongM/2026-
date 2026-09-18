@@ -31,12 +31,18 @@ var SHEET_TARGET  = '학생 목표';                 // 희망 대학 · 희망 
 var SHEET_TRANSFER = '전입생_성적';              // 전입생이 이전 학교에서 받아 온 성적
 var SHEET_ACCOUNT = '계정';                      // 로그인 계정 시트 (자동 생성됩니다)
 var SHEET_TGRADE  = '목표등급';                   // 선생님이 적어 두는 목표 등급 (자동 생성됩니다)
-var SHEET_UNIV    = '대학자료';                   // 대학 정시 결과 (선생님이 붙여넣은 표)
+var SHEET_UNIV    = '정시_대학자료';              // 정시 결과 (선생님이 붙여넣은 표)
+var SHEET_SUSI    = '수시_대학자료';              // 수시 지원 이력 (선배들의 합격·불합격)
 
 var TARGET_KEYWORDS = ['학생', '목표'];          // '학생목표', '1학년 학생 목표' 등도 인식
 var TRANSFER_KEYWORDS = ['전입생'];              // '전입생성적', '전입생 성적' 등도 인식
 var TGRADE_KEYWORDS = ['목표등급'];              // '목표등급표' 등도 인식 ('학생 목표'와 안 겹칩니다)
-var UNIV_KEYWORDS = ['대학자료'];                // '대학 자료' 등도 인식
+var UNIV_KEYWORDS = ['정시', '대학자료'];        // '정시 대학자료' 등도 인식
+var SUSI_KEYWORDS = ['수시', '대학자료'];
+
+// 수시 전교과는 **내신 등급**입니다. 1~9 밖의 값은 뜻이 다른 값이라 뺍니다.
+var SUSI_MIN = 1;
+var SUSI_MAX = 9;
 
 // 대학자료 '평균70' 은 대학마다 적어 둔 값의 뜻이 다릅니다.
 //   1~9      → 백분위가 아니라 **등급**을 적어 둔 줄 (260줄)
@@ -328,6 +334,7 @@ function handle_(req) {
       case 'saveTarget':
       case 'saveTargetGrade':
       case 'getUniv':
+      case 'getSusi':
       case 'logout':
         var user = verifyToken_(req.token);
         if (!user) return needLogin_();
@@ -343,6 +350,7 @@ function handle_(req) {
         if (action === 'saveTarget')    return apiSaveTarget_(req, user);
         if (action === 'saveTargetGrade') return apiSaveTargetGrade_(req, user);
         if (action === 'getUniv')       return apiGetUniv_(req, user);
+        if (action === 'getSusi')       return apiGetSusi_(req, user);
         if (action === 'logout')        { dropToken_(req.token); return ok_({ message: '로그아웃되었습니다.' }); }
         break;
 
@@ -1551,6 +1559,120 @@ function apiGetUniv_(req, user) {
     u: uList, d: dList, r: rows,
     min: UNIV_MIN, max: UNIV_MAX,
     rowsRead: lastRow - 1,
+    updated: nowStr_()
+  });
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   수시_대학자료 시트 — 선배들의 수시 지원 이력
+
+   한 줄에 「학생 한 명이 어느 대학 어느 학과에 지원해서 어떻게 됐나」 입니다.
+   홈페이지는 **일곱 칸만** 씁니다.
+       G 대학명 · J 전형 · K 세부유형 · M 모집단위 · R 최종단계 · U 비고 · AG 전교과
+   열 위치는 머리글 이름으로 찾고, 못 찾으면 위의 글자 위치를 씁니다.
+
+   ⚠️ **합격한 줄만** 셉니다 (`최종단계` 에 '합격' 이 들어가고 '불합격' 이 아닌 줄).
+      불합격자의 등급을 합격선으로 착각하면 안 되기 때문입니다.
+   ⚠️ 전교과는 **내신 등급**이라 **숫자가 작을수록 좋습니다** (정시 백분위와 반대).
+      1~9 밖의 값은 뜻이 다른 값이라 뺍니다.
+
+   같은 대학·모집단위에 합격자가 여럿이면 **합격자 평균**을 그 학과의 점수로 씁니다
+   (2026.09 사용자 결정).
+
+   보내는 모양
+       { u:[대학], d:[모집단위], t:[전형 표시],
+         r:[[대학번호, 학과번호, 전교과평균, 합격인원, 전형번호(-1이면 여러 전형)], …] }
+   `r` 은 **전교과 오름차순**(좋은 대학부터)으로 정렬해 보냅니다.
+   ══════════════════════════════════════════════════════════ */
+
+// 머리글을 못 찾았을 때 쓸 기본 열 위치 (0부터 셈)
+var SUSI_COL_FALLBACK = { uni: 6, jh: 9, sub: 10, dept: 12, res: 17, memo: 20, gr: 32 };
+
+function apiGetSusi_(req, user) {
+  var ss = getSpreadsheet_();
+  if (!ss) return err_('스프레드시트를 열 수 없습니다.');
+
+  var sheet = findSheet_(ss, SHEET_SUSI, SUSI_KEYWORDS);
+  if (!sheet) return ok_({ u: [], d: [], t: [], r: [], missing: true });
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 2) return ok_({ u: [], d: [], t: [], r: [] });
+
+  // ── 머리글로 열 찾기 ──
+  var head = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var c = { uni: -1, jh: -1, sub: -1, dept: -1, res: -1, memo: -1, gr: -1 };
+  for (var h = 0; h < head.length; h++) {
+    var t = normalize_(head[h]);
+    if (!t) continue;
+    if      (c.uni  < 0 && t === '대학명')   c.uni  = h;
+    else if (c.jh   < 0 && t === '전형')     c.jh   = h;
+    else if (c.sub  < 0 && t === '세부유형') c.sub  = h;
+    else if (c.dept < 0 && t === '모집단위') c.dept = h;
+    else if (c.res  < 0 && t === '최종단계') c.res  = h;
+    else if (c.memo < 0 && t === '비고')     c.memo = h;
+    else if (c.gr   < 0 && t === '전교과')   c.gr   = h;
+  }
+  var guessed = [];
+  var keys = ['uni', 'jh', 'sub', 'dept', 'res', 'memo', 'gr'];
+  for (var k = 0; k < keys.length; k++) {
+    if (c[keys[k]] < 0) { c[keys[k]] = SUSI_COL_FALLBACK[keys[k]]; guessed.push(keys[k]); }
+  }
+  if (c.uni >= lastCol || c.dept >= lastCol || c.gr >= lastCol) {
+    return err_("'" + SHEET_SUSI + "' 시트에서 대학명·모집단위·전교과 열을 찾지 못했습니다. " +
+                '머리글(1행)에 그 이름이 있는지 확인해 주세요.');
+  }
+
+  var want = [c.uni, c.dept, c.gr, c.res, c.jh, c.sub];
+  var got  = readColumns_(ss, sheet, want, lastRow);
+  var colU = got[0], colD = got[1], colG = got[2], colR = got[3], colJ = got[4], colS = got[5];
+
+  var box = {}, uIdx = {}, dIdx = {}, tIdx = {}, uList = [], dList = [], tList = [];
+
+  function txt(v) { return String(v === null || v === undefined ? '' : v).trim(); }
+
+  for (var r = 0; r < colU.length; r++) {
+    var res = txt(colR[r]);
+    if (res.indexOf('합격') === -1) continue;          // 합격 글자가 없으면 건너뜁니다
+    if (res.indexOf('불합격') !== -1) continue;        // 불합격은 뺍니다
+
+    var g = toNum_(colG[r]);
+    if (g === null || g < SUSI_MIN || g > SUSI_MAX) continue;
+
+    var uName = txt(colU[r]), dName = txt(colD[r]);
+    if (!uName || !dName) continue;
+
+    if (uIdx[uName] === undefined) { uIdx[uName] = uList.length; uList.push(uName); }
+    if (dIdx[dName] === undefined) { dIdx[dName] = dList.length; dList.push(dName); }
+
+    var label = txt(colJ[r]);
+    var sub2  = txt(colS[r]);
+    if (sub2 && sub2 !== label) label = label ? (label + ' · ' + sub2) : sub2;
+    if (label && tIdx[label] === undefined) { tIdx[label] = tList.length; tList.push(label); }
+    var ti = label ? tIdx[label] : -1;
+
+    var key = uIdx[uName] + '|' + dIdx[dName];
+    if (!box[key]) box[key] = { u: uIdx[uName], d: dIdx[dName], sum: 0, n: 0, t: ti, many: false };
+    var o = box[key];
+    o.sum += g; o.n++;
+    if (o.t === -1) o.t = ti;
+    else if (ti !== -1 && ti !== o.t) o.many = true;
+  }
+
+  var rows = [];
+  for (var key2 in box) {
+    if (!box.hasOwnProperty(key2)) continue;
+    var b = box[key2];
+    rows.push([b.u, b.d, round_(b.sum / b.n, 2), b.n, b.many ? -1 : b.t]);
+  }
+  rows.sort(function (x, y) { return x[2] - y[2]; });    // 등급은 낮을수록 좋습니다
+
+  return ok_({
+    u: uList, d: dList, t: tList, r: rows,
+    min: SUSI_MIN, max: SUSI_MAX,
+    rowsRead: lastRow - 1,
+    guessed: guessed,
     updated: nowStr_()
   });
 }
@@ -3113,7 +3235,8 @@ function 수식점검() {
   used[SHEET_COUNSEL] = '상담 기록';
   used[SHEET_ACCOUNT] = '로그인 계정';
   used[SHEET_TGRADE] = '목표 등급 (선생님 메모)';
-  used[SHEET_UNIV] = '대학 정시 결과 (대학·학과·연도·평균70 네 칸만)';
+  used[SHEET_UNIV] = '정시 결과 (대학·학과·연도·평균70 네 칸만)';
+  used[SHEET_SUSI] = '수시 지원 이력 (대학명·모집단위·전교과 등 일곱 칸만)';
   used[SHEET_TRANSFER] = '전입생 이전 학교 성적';
   used[SHEET_GOAL] = '(지금은 화면에서 안 씀)';
   MOCK_SHEETS.forEach(function (m) { used[m.name] = '모의고사'; });
