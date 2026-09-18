@@ -31,10 +31,19 @@ var SHEET_TARGET  = '학생 목표';                 // 희망 대학 · 희망 
 var SHEET_TRANSFER = '전입생_성적';              // 전입생이 이전 학교에서 받아 온 성적
 var SHEET_ACCOUNT = '계정';                      // 로그인 계정 시트 (자동 생성됩니다)
 var SHEET_TGRADE  = '목표등급';                   // 선생님이 적어 두는 목표 등급 (자동 생성됩니다)
+var SHEET_UNIV    = '대학자료';                   // 대학 정시 결과 (선생님이 붙여넣은 표)
 
 var TARGET_KEYWORDS = ['학생', '목표'];          // '학생목표', '1학년 학생 목표' 등도 인식
 var TRANSFER_KEYWORDS = ['전입생'];              // '전입생성적', '전입생 성적' 등도 인식
 var TGRADE_KEYWORDS = ['목표등급'];              // '목표등급표' 등도 인식 ('학생 목표'와 안 겹칩니다)
+var UNIV_KEYWORDS = ['대학자료'];                // '대학 자료' 등도 인식
+
+// 대학자료 '평균70' 은 대학마다 적어 둔 값의 뜻이 다릅니다.
+//   1~9      → 백분위가 아니라 **등급**을 적어 둔 줄 (260줄)
+//   100 초과 → 백분위가 아니라 **표준점수·총점** (537줄, 최대 504.7)
+// 학생 백분위와 견줄 수 있는 것은 이 사이 값뿐이라 나머지는 뺍니다.
+var UNIV_MIN = 10;
+var UNIV_MAX = 100;
 
 // 로그인 유지 시간 (시간 단위). 이 시간이 지나면 다시 비밀번호를 입력해야 합니다.
 var TOKEN_HOURS = 12;
@@ -318,6 +327,7 @@ function handle_(req) {
       case 'deleteCounseling':
       case 'saveTarget':
       case 'saveTargetGrade':
+      case 'getUniv':
       case 'logout':
         var user = verifyToken_(req.token);
         if (!user) return needLogin_();
@@ -332,6 +342,7 @@ function handle_(req) {
         if (action === 'deleteCounseling') return apiDeleteCounseling_(req, user);
         if (action === 'saveTarget')    return apiSaveTarget_(req, user);
         if (action === 'saveTargetGrade') return apiSaveTargetGrade_(req, user);
+        if (action === 'getUniv')       return apiGetUniv_(req, user);
         if (action === 'logout')        { dropToken_(req.token); return ok_({ message: '로그아웃되었습니다.' }); }
         break;
 
@@ -1402,6 +1413,146 @@ function saveTargetGrade(classNum, studentNum, studentName, si, phase, grade) {
   } finally {
     try { lock.releaseLock(); } catch (e) {}
   }
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   대학자료 시트 — 정시 결과 (2022~2025)
+
+   선생님이 붙여넣으신 표입니다. 홈페이지는 **네 칸만** 씁니다.
+       대학 · 학과 · 연도 · 평균70
+   2만 줄이 넘어 통째로 읽으면 느리므로, 머리글로 열을 찾아
+   **그 네 열만** 읽습니다. 나머지 열은 건드리지 않습니다.
+
+   같은 대학·학과가 해마다 있으므로 **가장 최근 연도** 한 줄만 씁니다.
+   같은 해에 전형이 여럿이면(정시 가·나·다) **더 높은 평균70** 을 씁니다
+   — 낮은 쪽을 쓰면 "갈 수 있다"고 잘못 나올 수 있어서입니다.
+
+   보내는 모양 (이름이 수천 번 되풀이되지 않도록 번호로 바꿔 보냅니다)
+       { u:[대학 이름들], d:[학과 이름들], r:[[대학번호, 학과번호, 평균70, 연도], …] }
+   ══════════════════════════════════════════════════════════ */
+
+/** 0 → 'A', 25 → 'Z', 26 → 'AA' */
+function colName_(i) {
+  var s = '', n = i + 1;
+  while (n > 0) {
+    var r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+/** 필요한 열만 골라 읽습니다. 고급 서비스가 켜져 있으면 왕복 한 번. */
+function readColumns_(ss, sheet, cols, lastRow) {
+  var name = String(sheet.getName());
+  var out = [], i;
+
+  if (_batchOK !== false) {
+    try {
+      var ranges = [];
+      for (i = 0; i < cols.length; i++) {
+        ranges.push("'" + name.replace(/'/g, "''") + "'!" +
+                    colName_(cols[i]) + '2:' + colName_(cols[i]) + lastRow);
+      }
+      var res = Sheets.Spreadsheets.Values.batchGet(ss.getId(), {
+        ranges: ranges,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+        dateTimeRenderOption: 'FORMATTED_STRING'
+      });
+      var vr = (res && res.valueRanges) || [];
+      if (vr.length === cols.length) {
+        for (i = 0; i < cols.length; i++) {
+          var vals = vr[i].values || [];
+          var flat = [];
+          for (var k = 0; k < lastRow - 1; k++) flat.push(vals[k] ? vals[k][0] : '');
+          out.push(flat);
+        }
+        _batchOK = true;
+        return out;
+      }
+    } catch (e) {
+      _batchOK = false;
+      Logger.log('대학자료를 한 번에 읽지 못해 하나씩 읽습니다: ' + e);
+    }
+  }
+
+  for (i = 0; i < cols.length; i++) {
+    var block = sheet.getRange(2, cols[i] + 1, lastRow - 1, 1).getValues();
+    var one = [];
+    for (var j = 0; j < block.length; j++) one.push(block[j][0]);
+    out.push(one);
+  }
+  return out;
+}
+
+
+function apiGetUniv_(req, user) {
+  var ss = getSpreadsheet_();
+  if (!ss) return err_('스프레드시트를 열 수 없습니다.');
+
+  var sheet = findSheet_(ss, SHEET_UNIV, UNIV_KEYWORDS);
+  if (!sheet) return ok_({ u: [], d: [], r: [], missing: true });
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 2) return ok_({ u: [], d: [], r: [] });
+
+  // ── 머리글로 열 찾기 ──
+  var head = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var cU = -1, cD = -1, cY = -1, cP = -1;
+  for (var h = 0; h < head.length; h++) {
+    var t = normalize_(head[h]);
+    if (!t) continue;
+    if (cU < 0 && t === '대학') cU = h;
+    else if (cD < 0 && t === '학과') cD = h;
+    else if (cY < 0 && t === '연도') cY = h;
+    else if (cP < 0 && t.indexOf('평균70') === 0) cP = h;
+  }
+  if (cU < 0 || cD < 0 || cP < 0) {
+    return err_("'" + SHEET_UNIV + "' 시트에서 대학·학과·평균70 열을 찾지 못했습니다. " +
+                '머리글(1행)에 그 이름이 있는지 확인해 주세요.');
+  }
+
+  var want = [cU, cD, cP];
+  if (cY >= 0) want.push(cY);
+  var got = readColumns_(ss, sheet, want, lastRow);
+  var colU = got[0], colD = got[1], colP = got[2], colY = (cY >= 0) ? got[3] : null;
+
+  // ── 대학·학과마다 가장 최근 연도 한 줄만 ──
+  var best = {}, uIdx = {}, dIdx = {}, uList = [], dList = [];
+
+  for (var r = 0; r < colU.length; r++) {
+    var p = toNum_(colP[r]);
+    if (p === null || p < UNIV_MIN || p > UNIV_MAX) continue;
+
+    var uName = String(colU[r] === null || colU[r] === undefined ? '' : colU[r]).trim();
+    var dName = String(colD[r] === null || colD[r] === undefined ? '' : colD[r]).trim();
+    if (!uName || !dName) continue;
+
+    var y = colY ? toNum_(colY[r]) : null;
+    if (y === null) y = 0;
+
+    if (uIdx[uName] === undefined) { uIdx[uName] = uList.length; uList.push(uName); }
+    if (dIdx[dName] === undefined) { dIdx[dName] = dList.length; dList.push(dName); }
+
+    var key = uIdx[uName] + '|' + dIdx[dName];
+    var cur = best[key];
+    if (!cur || y > cur[3] || (y === cur[3] && p > cur[2])) {
+      best[key] = [uIdx[uName], dIdx[dName], round_(p, 2), y];
+    }
+  }
+
+  var rows = [];
+  for (var k2 in best) { if (best.hasOwnProperty(k2)) rows.push(best[k2]); }
+  rows.sort(function (a, b) { return b[2] - a[2]; });      // 평균70 높은 순
+
+  return ok_({
+    u: uList, d: dList, r: rows,
+    min: UNIV_MIN, max: UNIV_MAX,
+    rowsRead: lastRow - 1,
+    updated: nowStr_()
+  });
 }
 
 
@@ -2962,6 +3113,7 @@ function 수식점검() {
   used[SHEET_COUNSEL] = '상담 기록';
   used[SHEET_ACCOUNT] = '로그인 계정';
   used[SHEET_TGRADE] = '목표 등급 (선생님 메모)';
+  used[SHEET_UNIV] = '대학 정시 결과 (대학·학과·연도·평균70 네 칸만)';
   used[SHEET_TRANSFER] = '전입생 이전 학교 성적';
   used[SHEET_GOAL] = '(지금은 화면에서 안 씀)';
   MOCK_SHEETS.forEach(function (m) { used[m.name] = '모의고사'; });

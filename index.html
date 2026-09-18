@@ -40,6 +40,11 @@
              왼쪽  희망 너비 900px  (학생 카드 5칸)
              오른쪽 희망 너비 700px  (패널 3칸 — 오름·내림·변화 적음)
            둘을 합친 1624px 가 안 나오면 오른쪽 블록이 아래 줄로 내려갑니다. */
+        /* 모의고사 표 오른쪽에 「갈 수 있는 대학」. 좁으면 아래로 내려갑니다. */
+        #mock-wrap { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
+        #mock-exams-container { flex: 1 1 780px; min-width: 0; }
+        #univ-panel { flex: 1 1 340px; min-width: 0; }
+
         #home-wrap  { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; }
         #home-left  { flex: 1 1 900px; min-width: 0; }
         #movers     { flex: 1 1 700px; min-width: 0; }
@@ -557,7 +562,11 @@
                     <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 print-section-title">
                         📈 전국 연합 학력평가(모의고사) 성적 추이
                     </h3>
-                    <div id="mock-exams-container" class="overflow-x-auto rounded-lg border border-slate-300 bg-white">
+                    <div id="mock-wrap">
+                        <div id="mock-exams-container" class="overflow-x-auto rounded-lg border border-slate-300 bg-white">
+                        </div>
+                        <!-- 백분위로 갈 수 있는 대학 (화면 전용 — 인쇄에는 안 나옵니다) -->
+                        <div id="univ-panel" class="no-print"></div>
                     </div>
                 </div>
 
@@ -999,8 +1008,10 @@ function startApp(me) {
 
     // 2단계 — 전교 전체. 카드가 로그인 응답에 실려 왔으면(=서버를 더 부를 일이 없으면)
     //          곧바로 출발시킵니다. 늦게 출발하면 학생을 눌렀을 때 그만큼 기다리게 됩니다.
-    if (PRELOADED_USED) loadAll(false).catch(() => {});
-    else first.then(() => loadAll(false).catch(() => {}));
+    // 3단계 — 대학 자료. 첫 화면·전교 데이터가 다 끝난 뒤에 조용히 받아 둡니다.
+    //          (개별 상담 화면을 열 때 이미 와 있도록)
+    const stage2 = PRELOADED_USED ? loadAll(false) : first.then(() => loadAll(false));
+    stage2.catch(() => {}).then(() => loadUniv(false).catch(() => {}));
 }
 
 function buildClassSelect(list, selected) {
@@ -1031,6 +1042,8 @@ function forceLogout(msg) {
     selectedStudent = null;
     ALL = null;
     allPromise = null;
+    UNIV = null;
+    univPromise = null;
     PRELOADED_CARDS = null;
     PRELOADED_USED = false;
     statsReset();
@@ -1683,6 +1696,175 @@ function renderMovers() {
     box.innerHTML = html;
 }
 
+
+/* ══════════════════════════════════════════════════════════
+   🎓 백분위로 갈 수 있는 대학  (개별 상담 화면 · 모의고사 표 오른쪽)
+
+   시트 `대학자료` 의 **평균70** 과 학생의 **백분위 평균**을 견줍니다.
+     · 학생 점수 = 국어·수학·통합사회·통합과학 **백분위 평균**
+       (영어·한국사는 절대평가라 백분위가 없어 뺍니다)
+     · **네 과목 백분위가 모두 있는 가장 최근 회차**를 씁니다.
+       9월처럼 가채점이라 백분위가 없으면 저절로 6월을 봅니다.
+     · 평균70 **보다 높으면** 갈 수 있는 것으로 보고, 평균70 높은 순으로 놓습니다.
+   화면에서만 계산합니다 — 서버는 대학 자료를 그대로 보내 줄 뿐입니다.
+   ══════════════════════════════════════════════════════════ */
+
+let UNIV = null;             // 대학 자료 (로그인 뒤 뒤에서 받아 둡니다)
+let univPromise = null;
+let univShown = 30;          // 한 번에 보여 줄 개수
+
+const UNIV_SUBS = ['국어', '수학', '통합사회', '통합과학'];
+
+/** 대학 자료를 받아 둡니다. 실패해도 나머지 화면은 그대로 씁니다. */
+function loadUniv(force) {
+    if (UNIV && !force) return Promise.resolve(UNIV);
+    if (univPromise && !force) return univPromise;
+
+    univPromise = api('getUniv', {}).then(d => {
+        UNIV = d;
+        univPromise = null;
+        if (selectedStudent) renderUnivMatch();
+        return d;
+    }).catch(e => {
+        univPromise = null;
+        UNIV = { error: e.message };
+        if (selectedStudent) renderUnivMatch();
+        if (e.message !== 'needLogin') console.warn('대학 자료를 받지 못했습니다:', e.message);
+        throw e;
+    });
+    return univPromise;
+}
+
+/** 그 학생의 백분위 평균. 네 과목이 모두 있는 가장 최근 회차를 씁니다. */
+function myPercentile(s) {
+    const months = ((ALL && ALL.mockMonths) || []).slice().reverse();   // 최근 회차부터
+    for (let i = 0; i < months.length; i++) {
+        const list = (s && s.mockExams && s.mockExams[months[i].key]) || [];
+        const vals = UNIV_SUBS.map(name => {
+            const f = list.find(x => x.subject === name);
+            const v = f ? String(f.percent === undefined ? '' : f.percent).trim() : '';
+            if (v === '' || v === '-') return null;
+            const n = Number(v);
+            return isFinite(n) ? n : null;
+        });
+        if (vals.every(v => v !== null)) {
+            return {
+                avg: vals.reduce((a, b) => a + b, 0) / vals.length,
+                key: months[i].key, label: months[i].label
+            };
+        }
+    }
+    return null;
+}
+
+const univNorm = v => String(v === undefined || v === null ? '' : v).replace(/\s+/g, '').toLowerCase();
+
+function univNote(text) {
+    return '<div class="text-[11px] text-slate-400 text-center py-6 px-2">' + escapeHtml(text) + '</div>';
+}
+
+/** 목록 한 덩어리 */
+function univList(rows, total, headNote) {
+    const U = UNIV.u || [], D = UNIV.d || [];
+    if (!rows.length) return univNote('해당하는 대학·학과가 없습니다.');
+
+    const show = rows.slice(0, univShown);
+    let html = '<ol class="divide-y divide-slate-100">' + show.map((x, i) =>
+        '<li class="flex items-center gap-2 py-1.5 px-1">' +
+          '<span class="w-5 shrink-0 text-[10px] font-black text-slate-300 text-right">' + (i + 1) + '</span>' +
+          '<span class="min-w-0 flex-1">' +
+            '<span class="text-xs font-bold text-slate-800">' + escapeHtml(U[x[0]] || '') + '</span> ' +
+            '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
+          '</span>' +
+          '<span class="shrink-0 text-right">' +
+            '<span class="text-xs font-extrabold text-indigo-700">' + Number(x[2]).toFixed(2) + '</span>' +
+            '<span class="block text-[9px] text-slate-400 leading-none">' + (x[3] ? x[3] + '년' : '') + '</span>' +
+          '</span>' +
+        '</li>').join('') + '</ol>';
+
+    html += '<div class="pt-2 mt-1 border-t border-slate-100 flex items-center justify-between gap-2">' +
+              '<span class="text-[10px] text-slate-400">' + escapeHtml(headNote) +
+                ' · 모두 ' + total.toLocaleString() + '곳 중 ' + show.length + '곳</span>' +
+              (rows.length > show.length
+                ? '<button onclick="univMore()" class="text-[10px] font-bold text-indigo-700 ' +
+                  'bg-indigo-50 border border-indigo-200 rounded px-2 py-1 hover:bg-indigo-100">30곳 더 보기</button>'
+                : '') +
+            '</div>';
+    return html;
+}
+
+function univMore() { univShown += 30; univFilter(); }
+
+/** 검색칸 내용에 따라 목록만 다시 그립니다. */
+function univFilter() {
+    const body = document.getElementById('univ-body');
+    if (!body) return;
+
+    if (!UNIV)        { body.innerHTML = univNote('대학 자료를 불러오는 중입니다…'); return; }
+    if (UNIV.error)   { body.innerHTML = univNote('대학 자료를 불러오지 못했습니다. ' + UNIV.error); return; }
+    if (UNIV.missing) { body.innerHTML = univNote("구글 시트에 '대학자료' 탭이 없습니다."); return; }
+
+    const U = UNIV.u || [], D = UNIV.d || [], rows = UNIV.r || [];
+    const qU = univNorm((document.getElementById('univ-q-u') || {}).value);
+    const qD = univNorm((document.getElementById('univ-q-d') || {}).value);
+
+    // ① 검색칸에 뭔가 적혀 있으면 검색 결과 (평균70 높은 순은 서버가 이미 맞춰 보냈습니다)
+    if (qU || qD) {
+        const hit = rows.filter(x =>
+            (!qU || univNorm(U[x[0]]).indexOf(qU) > -1) &&
+            (!qD || univNorm(D[x[1]]).indexOf(qD) > -1));
+        const what = (qU && qD) ? '검색한 대학·학과' : (qU ? '그 대학의 학과' : '그 학과가 있는 대학');
+        body.innerHTML = univList(hit, hit.length, what + ' · 평균70 높은 순');
+        return;
+    }
+
+    // ② 비어 있으면 '내 백분위로 갈 수 있는 곳'
+    const pc = selectedStudent ? myPercentile(selectedStudent) : null;
+    if (!pc) {
+        body.innerHTML = univNote('국어·수학·통합사회·통합과학 백분위가 모두 들어온 회차가 아직 없습니다. ' +
+                                  '위 검색칸으로는 지금도 찾아보실 수 있습니다.');
+        return;
+    }
+    const reach = rows.filter(x => pc.avg > x[2]);
+    body.innerHTML = univList(reach, reach.length, '평균70 높은 순');
+}
+
+/** 학생을 바꿀 때마다 패널을 통째로 다시 그립니다. */
+function renderUnivMatch() {
+    const box = document.getElementById('univ-panel');
+    if (!box) return;
+
+    univShown = 30;
+    const pc = selectedStudent ? myPercentile(selectedStudent) : null;
+
+    const scoreLine = pc
+        ? '<span class="text-[10px] text-slate-500">' + escapeHtml(pc.label) +
+          ' 국·수·사·과 백분위 평균 <b class="text-sm text-indigo-700">' + pc.avg.toFixed(2) + '</b></span>'
+        : '<span class="text-[10px] text-slate-400">백분위 평균 없음</span>';
+
+    box.innerHTML =
+        '<div class="rounded-lg border border-slate-300 bg-white p-2.5">' +
+          '<div class="flex items-baseline justify-between gap-2 mb-2">' +
+            '<h4 class="text-xs font-extrabold text-slate-800 whitespace-nowrap">🎓 갈 수 있는 대학</h4>' +
+            scoreLine +
+          '</div>' +
+          '<div class="flex gap-1.5 mb-2">' +
+            '<input id="univ-q-u" type="text" placeholder="대학 검색" oninput="univReset()" ' +
+                   'class="flex-1 min-w-0 text-[11px] px-2 py-1 rounded border border-slate-300 ' +
+                          'focus:border-indigo-500 outline-none">' +
+            '<input id="univ-q-d" type="text" placeholder="학과 검색" oninput="univReset()" ' +
+                   'class="flex-1 min-w-0 text-[11px] px-2 py-1 rounded border border-slate-300 ' +
+                          'focus:border-indigo-500 outline-none">' +
+          '</div>' +
+          '<div id="univ-body" class="max-h-96 overflow-y-auto"></div>' +
+        '</div>';
+
+    univFilter();
+}
+
+/** 검색칸을 고치면 처음 30곳부터 다시 셉니다. */
+function univReset() { univShown = 30; univFilter(); }
+
 /** 학생 한 명을 개별 상담 화면에 올립니다. */
 function showStudent(s) {
     selectedStudent = s;
@@ -1703,6 +1885,7 @@ function showStudent(s) {
     renderSchoolGrades(selectedStudent.schoolGrades, selectedStudent.summary);
     renderUplift(selectedStudent.schoolGrades);
     renderMockExams(selectedStudent.mockExams);
+    renderUnivMatch();
     renderMockCharts(selectedStudent.mockExams);
     renderHistory(selectedStudent);
 
@@ -2302,6 +2485,7 @@ async function refreshAll() {
     try {
         await loadAll(true);
         statsReset();
+        loadUniv(true).catch(() => {});      // 대학 자료도 다시 읽습니다
     } catch (e) {
         if (e.message !== 'needLogin') onDataLoadError(e);
     } finally {
