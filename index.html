@@ -1829,36 +1829,93 @@ function univWish(v) {
     return (t === '' || t === '-') ? '' : t;
 }
 
+/**
+ * 내 점수가 목록의 **몇 번째 자리**에 들어가는지 찾습니다.
+ *   정시 : 평균70 내림차순 → 내 백분위보다 낮아지는 첫 줄
+ *   수시 : 전교과 오름차순 → 내 등급보다 같거나 커지는 첫 줄
+ * 그 자리부터 아래가 「갈 수 있는 곳」이고, 위는 「더 어려운 곳」입니다.
+ * 못 구하면 -1.
+ */
+function pivotAt(rows, isReachable) {
+    if (!rows || !rows.length || !isReachable) return -1;
+    for (let i = 0; i < rows.length; i++) if (isReachable(rows[i])) return i;
+    return rows.length;          // 하나도 못 가면 맨 아래가 내 자리
+}
+
+/**
+ * 내 자리 줄이 칸 가운데에 오도록 스크롤합니다.
+ * ⚠️ 화면을 아직 안 보여 준 상태(display:none)에서는 높이가 0 이라 스크롤이 먹히지 않습니다.
+ *    그래서 **다음 차례**로 미뤄 둡니다 (화면 전환이 끝난 뒤에 실행되도록).
+ */
+function scrollToPivot(bodyId, markId) {
+    setTimeout(function () {
+        const body = document.getElementById(bodyId);
+        const el   = document.getElementById(markId);
+        if (!body || !el) return;
+        const top = el.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+        body.scrollTop = Math.max(0, top - body.clientHeight / 2 + el.offsetHeight / 2);
+    }, 0);
+}
+
+/** 내 자리 표시줄 */
+function pivotRow(id, text) {
+    return '<li id="' + id + '" class="flex items-center gap-2 py-1 px-1 bg-slate-100 rounded sticky-none">' +
+             '<span class="flex-1 h-px bg-slate-300"></span>' +
+             '<span class="text-[9px] font-extrabold text-slate-500 whitespace-nowrap">' + escapeHtml(text) + '</span>' +
+             '<span class="flex-1 h-px bg-slate-300"></span>' +
+           '</li>';
+}
+
 function univNote(text) {
     return '<div class="text-[11px] text-slate-400 text-center py-6 px-2">' + escapeHtml(text) + '</div>';
 }
 
 /** 목록 한 덩어리 */
-function univList(rows, total, headNote, markSet) {
+function univList(rows, headNote, markSet, pivot, myScore) {
     const U = UNIV.u || [], D = UNIV.d || [];
     if (!rows.length) return univNote('해당하는 대학·학과가 없습니다.');
 
-    const show = rows.slice(0, univShown);
-    let html = '<ol class="divide-y divide-slate-100">' + show.map((x, i) =>
-        '<li class="flex items-center gap-2 py-1.5 px-1' +
-            ((markSet && markSet[x[0] + '|' + x[1]]) ? ' bg-amber-50 rounded' : '') + '">' +
-          '<span class="w-5 shrink-0 text-[10px] font-black text-slate-300 text-right">' + (i + 1) + '</span>' +
-          '<span class="min-w-0 flex-1">' +
-            '<span class="text-xs font-bold text-slate-800">' + escapeHtml(U[x[0]] || '') + '</span> ' +
-            '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
-          '</span>' +
-          '<span class="shrink-0 text-right">' +
-            '<span class="text-xs font-extrabold text-indigo-700">' + Number(x[2]).toFixed(2) + '</span>' +
-            '<span class="block text-[9px] text-slate-400 leading-none">' + (x[3] ? x[3] + '년' : '') + '</span>' +
-          '</span>' +
-        '</li>').join('') + '</ol>';
+    // 내 자리를 **가운데**에 두고 위아래로 보여 줍니다.
+    // 위로 올리면 더 어려운 대학, 아래로 내리면 더 수월한 대학이 나옵니다.
+    let start = 0, end = Math.min(rows.length, univShown);
+    if (pivot >= 0) {
+        start = Math.max(0, pivot - Math.round(univShown / 2));
+        end   = Math.min(rows.length, start + univShown);
+        start = Math.max(0, end - univShown);
+    }
+
+    let html = '<ol class="divide-y divide-slate-100">';
+    for (let i = start; i < end; i++) {
+        if (i === pivot) html += pivotRow('univ-pivot', '▼ 여기부터 갈 수 있는 곳 · 내 백분위 ' + myScore);
+        const x = rows[i];
+        html +=
+          '<li class="flex items-center gap-2 py-1.5 px-1' +
+              ((markSet && markSet[x[0] + '|' + x[1]]) ? ' bg-amber-50 rounded' : '') + '">' +
+            '<span class="w-6 shrink-0 text-[10px] font-black text-slate-300 text-right">' + (i + 1) + '</span>' +
+            '<span class="min-w-0 flex-1">' +
+              '<span class="text-xs font-bold ' + (pivot >= 0 && i < pivot ? 'text-slate-500' : 'text-slate-800') + '">' +
+                escapeHtml(U[x[0]] || '') + '</span> ' +
+              '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
+            '</span>' +
+            '<span class="shrink-0 text-right">' +
+              '<span class="text-xs font-extrabold ' + (pivot >= 0 && i < pivot ? 'text-slate-400' : 'text-indigo-700') + '">' +
+                Number(x[2]).toFixed(2) + '</span>' +
+              '<span class="block text-[9px] text-slate-400 leading-none">' + (x[3] ? x[3] + '년' : '') + '</span>' +
+            '</span>' +
+          '</li>';
+    }
+    if (pivot === rows.length && end === rows.length) {
+        html += pivotRow('univ-pivot', '▼ 여기부터 갈 수 있는 곳 · 내 백분위 ' + myScore);
+    }
+    html += '</ol>';
 
     html += '<div class="pt-2 mt-1 border-t border-slate-100 flex items-center justify-between gap-2">' +
               '<span class="text-[10px] text-slate-400">' + escapeHtml(headNote) +
-                ' · 모두 ' + total.toLocaleString() + '곳 중 ' + show.length + '곳</span>' +
-              (rows.length > show.length
+                ' · 모두 ' + rows.length.toLocaleString() + '곳 중 ' +
+                (start + 1) + '~' + end + '번째</span>' +
+              (end - start < rows.length
                 ? '<button onclick="univMore()" class="text-[10px] font-bold text-indigo-700 ' +
-                  'bg-indigo-50 border border-indigo-200 rounded px-2 py-1 hover:bg-indigo-100">30곳 더 보기</button>'
+                  'bg-indigo-50 border border-indigo-200 rounded px-2 py-1 hover:bg-indigo-100">더 보기</button>'
                 : '') +
             '</div>';
     return html;
@@ -1876,6 +1933,11 @@ function univFilter() {
     if (UNIV.missing) { body.innerHTML = univNote("구글 시트에 '대학자료' 탭이 없습니다."); return; }
 
     const U = UNIV.u || [], D = UNIV.d || [], rows = UNIV.r || [];
+    // 내 백분위 — 목록에서 내 자리를 찾는 데 씁니다 (검색할 때도 자리 표시는 나옵니다)
+    const pcNow = selectedStudent ? myPercentile(selectedStudent) : null;
+    const myAvg = pcNow ? pcNow.avg : null;
+    const reachable = (myAvg === null) ? null : (x => myAvg > x[2]);
+    const myTxt = (myAvg === null) ? '' : myAvg.toFixed(2);
     const qUraw = String((document.getElementById('univ-q-u') || {}).value || '').trim();
     const qDraw = String((document.getElementById('univ-q-d') || {}).value || '').trim();
     const qU = univNorm(qUraw), qD = univNorm(qDraw);
@@ -1929,7 +1991,9 @@ function univFilter() {
                     '</div>').join('') +
                   '</div>';
         }
-        body.innerHTML = top + univList(same, same.length, '같은 학과 · 평균70 높은 대학 순', mark);
+        body.innerHTML = top + univList(same, '같은 학과 · 평균70 높은 대학 순', mark,
+                                       pivotAt(same, reachable), myTxt);
+        scrollToPivot('univ-body', 'univ-pivot');
         return;
     }
 
@@ -1938,19 +2002,23 @@ function univFilter() {
         const hit = rows.filter(x =>
             (!qU || univHit(U[x[0]], qU)) && (!qD || univHit(D[x[1]], qD)));
         const what = qU ? '그 대학의 학과' : '그 학과가 있는 대학';
-        body.innerHTML = univList(hit, hit.length, what + ' · 평균70 높은 순');
+        body.innerHTML = univList(hit, what + ' · 평균70 높은 순', null,
+                                  pivotAt(hit, reachable), myTxt);
+        scrollToPivot('univ-body', 'univ-pivot');
         return;
     }
 
-    // ② 비어 있으면 '내 백분위로 갈 수 있는 곳'
-    const pc = selectedStudent ? myPercentile(selectedStudent) : null;
-    if (!pc) {
+    // ③ 비어 있으면 전체를 평균70 높은 순으로 놓고 **내 자리를 가운데**에 둡니다.
+    //    위로 올리면 더 어려운 대학, 아래로 내리면 더 수월한 대학이 나옵니다.
+    if (myAvg === null) {
         body.innerHTML = univNote('국어·수학·통합사회·통합과학 백분위가 모두 들어온 회차가 아직 없습니다. ' +
                                   '위 검색칸으로는 지금도 찾아보실 수 있습니다.');
         return;
     }
-    const reach = rows.filter(x => pc.avg > x[2]);
-    body.innerHTML = univList(reach, reach.length, '평균70 높은 순');
+    const canGo = rows.filter(reachable).length;
+    body.innerHTML = univList(rows, '갈 수 있는 곳 ' + canGo.toLocaleString() + '곳', null,
+                              pivotAt(rows, reachable), myTxt);
+    scrollToPivot('univ-body', 'univ-pivot');
 }
 
 /** 학생을 바꿀 때마다 패널을 통째로 다시 그립니다. */
@@ -2069,33 +2137,53 @@ function susiNote(text) {
 }
 
 /** 목록 한 덩어리 */
-function susiList(rows, total, headNote, markSet) {
+function susiList(rows, headNote, markSet, pivot, myScore) {
     const U = SUSI.u || [], D = SUSI.d || [], T = SUSI.t || [];
     if (!rows.length) return susiNote('해당하는 대학·학과가 없습니다.');
 
-    const show = rows.slice(0, susiShown);
-    let html = '<ol class="divide-y divide-slate-100">' + show.map((x, i) =>
-        '<li class="flex items-center gap-2 py-1.5 px-1' +
-            ((markSet && markSet[x[0] + '|' + x[1]]) ? ' bg-amber-50 rounded' : '') + '">' +
-          '<span class="w-5 shrink-0 text-[10px] font-black text-slate-300 text-right">' + (i + 1) + '</span>' +
-          '<span class="min-w-0 flex-1">' +
-            '<span class="text-xs font-bold text-slate-800">' + escapeHtml(U[x[0]] || '') + '</span> ' +
-            '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
-            '<span class="block text-[9px] text-slate-400 leading-tight truncate">' +
-              escapeHtml(x[4] >= 0 ? (T[x[4]] || '') : '전형 여러 가지') + '</span>' +
-          '</span>' +
-          '<span class="shrink-0 text-right">' +
-            '<span class="text-xs font-extrabold text-teal-700">' + Number(x[2]).toFixed(2) + '</span>' +
-            '<span class="block text-[9px] text-slate-400 leading-none">합격 ' + x[3] + '명</span>' +
-          '</span>' +
-        '</li>').join('') + '</ol>';
+    // 내 등급 자리를 **가운데**에 두고 위아래로 보여 줍니다.
+    let start = 0, end = Math.min(rows.length, susiShown);
+    if (pivot >= 0) {
+        start = Math.max(0, pivot - Math.round(susiShown / 2));
+        end   = Math.min(rows.length, start + susiShown);
+        start = Math.max(0, end - susiShown);
+    }
+
+    let html = '<ol class="divide-y divide-slate-100">';
+    for (let i = start; i < end; i++) {
+        if (i === pivot) html += pivotRow('susi-pivot', '▼ 여기부터 갈 수 있는 곳 · 내 등급 ' + myScore);
+        const x = rows[i];
+        const dim = (pivot >= 0 && i < pivot);
+        html +=
+          '<li class="flex items-center gap-2 py-1.5 px-1' +
+              ((markSet && markSet[x[0] + '|' + x[1]]) ? ' bg-amber-50 rounded' : '') + '">' +
+            '<span class="w-6 shrink-0 text-[10px] font-black text-slate-300 text-right">' + (i + 1) + '</span>' +
+            '<span class="min-w-0 flex-1">' +
+              '<span class="text-xs font-bold ' + (dim ? 'text-slate-500' : 'text-slate-800') + '">' +
+                escapeHtml(U[x[0]] || '') + '</span> ' +
+              '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
+              '<span class="block text-[9px] text-slate-400 leading-tight truncate">' +
+                escapeHtml(x[4] >= 0 ? (T[x[4]] || '') : '전형 여러 가지') + '</span>' +
+            '</span>' +
+            '<span class="shrink-0 text-right">' +
+              '<span class="text-xs font-extrabold ' + (dim ? 'text-slate-400' : 'text-teal-700') + '">' +
+                Number(x[2]).toFixed(2) + '</span>' +
+              '<span class="block text-[9px] text-slate-400 leading-none">합격 ' + x[3] + '명</span>' +
+            '</span>' +
+          '</li>';
+    }
+    if (pivot === rows.length && end === rows.length) {
+        html += pivotRow('susi-pivot', '▼ 여기부터 갈 수 있는 곳 · 내 등급 ' + myScore);
+    }
+    html += '</ol>';
 
     html += '<div class="pt-2 mt-1 border-t border-slate-100 flex items-center justify-between gap-2">' +
               '<span class="text-[10px] text-slate-400">' + escapeHtml(headNote) +
-                ' · 모두 ' + total.toLocaleString() + '곳 중 ' + show.length + '곳</span>' +
-              (rows.length > show.length
+                ' · 모두 ' + rows.length.toLocaleString() + '곳 중 ' +
+                (start + 1) + '~' + end + '번째</span>' +
+              (end - start < rows.length
                 ? '<button onclick="susiMore()" class="text-[10px] font-bold text-teal-700 ' +
-                  'bg-teal-50 border border-teal-200 rounded px-2 py-1 hover:bg-teal-100">30곳 더 보기</button>'
+                  'bg-teal-50 border border-teal-200 rounded px-2 py-1 hover:bg-teal-100">더 보기</button>'
                 : '') +
             '</div>';
     return html;
@@ -2113,6 +2201,10 @@ function susiFilter() {
     if (SUSI.missing) { body.innerHTML = susiNote("구글 시트에 '수시_대학자료' 탭이 없습니다."); return; }
 
     const U = SUSI.u || [], D = SUSI.d || [], rows = SUSI.r || [];
+    // 내 9등급 평균 — 목록에서 내 자리를 찾는 데 씁니다
+    const myG = selectedStudent ? my9Grade(selectedStudent) : null;
+    const reachable = (myG === null) ? null : (x => myG <= x[2]);   // 등급은 작을수록 좋습니다
+    const myTxt = (myG === null) ? '' : myG.toFixed(2);
     const qUraw = String((document.getElementById('susi-q-u') || {}).value || '').trim();
     const qDraw = String((document.getElementById('susi-q-d') || {}).value || '').trim();
     const qU = univNorm(qUraw), qD = univNorm(qDraw);
@@ -2164,7 +2256,9 @@ function susiFilter() {
                     '</div>').join('') +
                   '</div>';
         }
-        body.innerHTML = top + susiList(same, same.length, '같은 학과 · 전교과 좋은 대학 순', mark);
+        body.innerHTML = top + susiList(same, '같은 학과 · 전교과 좋은 대학 순', mark,
+                                       pivotAt(same, reachable), myTxt);
+        scrollToPivot('susi-body', 'susi-pivot');
         return;
     }
 
@@ -2173,18 +2267,21 @@ function susiFilter() {
         const hit = rows.filter(x =>
             (!qU || univHit(U[x[0]], qU)) && (!qD || univHit(D[x[1]], qD)));
         const what = qU ? '그 대학의 학과' : '그 학과가 있는 대학';
-        body.innerHTML = susiList(hit, hit.length, what + ' · 전교과 좋은 순');
+        body.innerHTML = susiList(hit, what + ' · 전교과 좋은 순', null,
+                                  pivotAt(hit, reachable), myTxt);
+        scrollToPivot('susi-body', 'susi-pivot');
         return;
     }
 
-    // ③ 비어 있으면 '내 9등급 평균으로 갈 수 있는 곳'
-    const g9 = selectedStudent ? my9Grade(selectedStudent) : null;
-    if (g9 === null) {
+    // ③ 비어 있으면 전체를 전교과 좋은 순으로 놓고 **내 자리를 가운데**에 둡니다.
+    if (myG === null) {
         body.innerHTML = susiNote('9등급제 평균이 아직 없습니다. 위 검색칸으로는 지금도 찾아보실 수 있습니다.');
         return;
     }
-    const reach = rows.filter(x => g9 <= x[2]);     // 내 등급이 같거나 더 좋으면
-    body.innerHTML = susiList(reach, reach.length, '전교과 좋은 대학 순');
+    const canGo = rows.filter(reachable).length;
+    body.innerHTML = susiList(rows, '갈 수 있는 곳 ' + canGo.toLocaleString() + '곳', null,
+                              pivotAt(rows, reachable), myTxt);
+    scrollToPivot('susi-body', 'susi-pivot');
 }
 
 /** 학생을 바꿀 때마다 패널을 통째로 다시 그립니다. */
@@ -2233,7 +2330,6 @@ function renderSusiMatch() {
             ? '<div class="text-[10px] text-slate-400 -mt-1 mb-1.5">희망 진로 「' + escapeHtml(wishMiss.join(' · ')) +
               '」 는 선배 합격 기록에 없습니다.</div>'
             : '') +
-          '<div class="text-[10px] text-slate-400 mb-1.5">숫자는 <b>선배 합격자들의 전교과 평균 등급</b>입니다. 작을수록 들어가기 어렵습니다.</div>' +
           '<div id="susi-body" class="max-h-96 overflow-y-auto"></div>' +
         '</div>';
 
