@@ -40,6 +40,11 @@
              왼쪽  희망 너비 900px  (학생 카드 5칸)
              오른쪽 희망 너비 700px  (패널 3칸 — 오름·내림·변화 적음)
            둘을 합친 1624px 가 안 나오면 오른쪽 블록이 아래 줄로 내려갑니다. */
+        /* 내신 표 오른쪽에 「수시로 갈 수 있는 대학」. 좁으면 아래로 내려갑니다. */
+        #naesin-wrap { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
+        #naesin-table-box { flex: 1 1 760px; min-width: 0; }
+        #susi-panel { flex: 1 1 340px; min-width: 0; }
+
         /* 모의고사 표 오른쪽에 「갈 수 있는 대학」. 좁으면 아래로 내려갑니다. */
         #mock-wrap { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
         #mock-exams-container { flex: 1 1 780px; min-width: 0; }
@@ -247,6 +252,9 @@
                 max-height: none !important;
                 overflow: visible !important;
             }
+            /* 인쇄에서는 옆칸(대학 패널)이 사라지므로 표가 가로를 다 쓰게 둡니다 */
+            #naesin-wrap, #mock-wrap { display: block !important; }
+
             /* 목표 등급 입력칸 — 인쇄에는 적어 둔 값만 나옵니다 (테두리·안내 글자 없음) */
             .goal-input {
                 border: none !important;
@@ -534,7 +542,8 @@
                         <span class="font-medium text-[10px] text-slate-400">등급 표기 = 5등급제 → 9등급제 환산 · 시험 전 과목은 <b class="text-slate-500">목표 등급</b>을 적어 두면 나중에 <b class="text-blue-600">(목표)실제</b> 로 나옵니다 (<span class="text-blue-600">파랑=달성</span> · <span class="text-rose-600">빨강=미달성</span>)</span>
                         <span id="grade-summary" class="ml-auto flex items-center gap-1.5 flex-wrap"></span>
                     </h3>
-                    <div class="overflow-hidden rounded-lg border border-slate-300">
+                    <div id="naesin-wrap">
+                    <div class="overflow-hidden rounded-lg border border-slate-300" id="naesin-table-box">
                         <table class="print-table w-full text-xs text-center">
                             <thead class="bg-slate-100 text-slate-700 font-bold">
                                 <tr>
@@ -555,6 +564,9 @@
                             <tfoot id="school-grades-tfoot" class="bg-slate-50 font-bold text-slate-800">
                             </tfoot>
                         </table>
+                    </div>
+                        <!-- 수시로 갈 수 있는 대학 (화면 전용 — 인쇄에는 안 나옵니다) -->
+                        <div id="susi-panel" class="no-print"></div>
                     </div>
                 </div>
 
@@ -1011,7 +1023,9 @@ function startApp(me) {
     // 3단계 — 대학 자료. 첫 화면·전교 데이터가 다 끝난 뒤에 조용히 받아 둡니다.
     //          (개별 상담 화면을 열 때 이미 와 있도록)
     const stage2 = PRELOADED_USED ? loadAll(false) : first.then(() => loadAll(false));
-    stage2.catch(() => {}).then(() => loadUniv(false).catch(() => {}));
+    stage2.catch(() => {})
+          .then(() => loadUniv(false).catch(() => {}))
+          .then(() => loadSusi(false).catch(() => {}));
 }
 
 function buildClassSelect(list, selected) {
@@ -1044,6 +1058,8 @@ function forceLogout(msg) {
     allPromise = null;
     UNIV = null;
     univPromise = null;
+    SUSI = null;
+    susiPromise = null;
     PRELOADED_CARDS = null;
     PRELOADED_USED = false;
     statsReset();
@@ -2002,6 +2018,228 @@ function renderUnivMatch() {
 /** 검색칸을 고치면 처음 30곳부터 다시 셉니다. */
 function univReset() { univShown = 30; univFilter(); }
 
+
+/* ══════════════════════════════════════════════════════════
+   🎒 수시로 갈 수 있는 대학  (개별 상담 화면 · 내신 표 오른쪽)
+
+   시트 `수시_대학자료` 의 **전교과**(선배 합격자들의 내신 등급 평균)와
+   학생의 **9등급제 평균**을 견줍니다.
+
+   ⚠️ 내신 등급은 **숫자가 작을수록 좋습니다** (정시 백분위와 반대).
+      그래서 **내 평균 ≤ 전교과** 이면 갈 수 있는 것으로 보고,
+      목록은 **전교과 오름차순**(좋은 대학부터)으로 놓습니다.
+      (2026.09 사용자 결정)
+
+   검색·희망 진로·비슷한 학과 찾기는 정시 패널과 똑같이 동작합니다.
+   ══════════════════════════════════════════════════════════ */
+
+let SUSI = null;
+let susiPromise = null;
+let susiShown = 30;
+
+function loadSusi(force) {
+    if (SUSI && !force) return Promise.resolve(SUSI);
+    if (susiPromise && !force) return susiPromise;
+
+    susiPromise = api('getSusi', {}).then(d => {
+        SUSI = d;
+        susiPromise = null;
+        if (selectedStudent) renderSusiMatch();
+        return d;
+    }).catch(e => {
+        susiPromise = null;
+        SUSI = { error: e.message };
+        if (selectedStudent) renderSusiMatch();
+        if (e.message !== 'needLogin') console.warn('수시 자료를 받지 못했습니다:', e.message);
+        throw e;
+    });
+    return susiPromise;
+}
+
+/** 그 학생의 9등급제 평균 (내신 표 오른쪽 위에 나오는 그 값) */
+function my9Grade(s) {
+    const v = s && s.summary ? s.summary.avg9 : null;
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return isFinite(n) ? n : null;
+}
+
+function susiNote(text) {
+    return '<div class="text-[11px] text-slate-400 text-center py-6 px-2">' + escapeHtml(text) + '</div>';
+}
+
+/** 목록 한 덩어리 */
+function susiList(rows, total, headNote, markSet) {
+    const U = SUSI.u || [], D = SUSI.d || [], T = SUSI.t || [];
+    if (!rows.length) return susiNote('해당하는 대학·학과가 없습니다.');
+
+    const show = rows.slice(0, susiShown);
+    let html = '<ol class="divide-y divide-slate-100">' + show.map((x, i) =>
+        '<li class="flex items-center gap-2 py-1.5 px-1' +
+            ((markSet && markSet[x[0] + '|' + x[1]]) ? ' bg-amber-50 rounded' : '') + '">' +
+          '<span class="w-5 shrink-0 text-[10px] font-black text-slate-300 text-right">' + (i + 1) + '</span>' +
+          '<span class="min-w-0 flex-1">' +
+            '<span class="text-xs font-bold text-slate-800">' + escapeHtml(U[x[0]] || '') + '</span> ' +
+            '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
+            '<span class="block text-[9px] text-slate-400 leading-tight truncate">' +
+              escapeHtml(x[4] >= 0 ? (T[x[4]] || '') : '전형 여러 가지') + '</span>' +
+          '</span>' +
+          '<span class="shrink-0 text-right">' +
+            '<span class="text-xs font-extrabold text-teal-700">' + Number(x[2]).toFixed(2) + '</span>' +
+            '<span class="block text-[9px] text-slate-400 leading-none">합격 ' + x[3] + '명</span>' +
+          '</span>' +
+        '</li>').join('') + '</ol>';
+
+    html += '<div class="pt-2 mt-1 border-t border-slate-100 flex items-center justify-between gap-2">' +
+              '<span class="text-[10px] text-slate-400">' + escapeHtml(headNote) +
+                ' · 모두 ' + total.toLocaleString() + '곳 중 ' + show.length + '곳</span>' +
+              (rows.length > show.length
+                ? '<button onclick="susiMore()" class="text-[10px] font-bold text-teal-700 ' +
+                  'bg-teal-50 border border-teal-200 rounded px-2 py-1 hover:bg-teal-100">30곳 더 보기</button>'
+                : '') +
+            '</div>';
+    return html;
+}
+
+function susiMore() { susiShown += 30; susiFilter(); }
+function susiReset() { susiShown = 30; susiFilter(); }
+
+function susiFilter() {
+    const body = document.getElementById('susi-body');
+    if (!body) return;
+
+    if (!SUSI)        { body.innerHTML = susiNote('수시 자료를 불러오는 중입니다…'); return; }
+    if (SUSI.error)   { body.innerHTML = susiNote('수시 자료를 불러오지 못했습니다. ' + SUSI.error); return; }
+    if (SUSI.missing) { body.innerHTML = susiNote("구글 시트에 '수시_대학자료' 탭이 없습니다."); return; }
+
+    const U = SUSI.u || [], D = SUSI.d || [], rows = SUSI.r || [];
+    const qUraw = String((document.getElementById('susi-q-u') || {}).value || '').trim();
+    const qDraw = String((document.getElementById('susi-q-d') || {}).value || '').trim();
+    const qU = univNorm(qUraw), qD = univNorm(qDraw);
+
+    // ① 대학·학과를 둘 다 적었을 때
+    if (qU && qD) {
+        const hit  = rows.filter(x => univHit(U[x[0]], qU) && univHit(D[x[1]], qD));
+        const same = rows.filter(x => univHit(D[x[1]], qD));
+        const mark = {};
+        hit.forEach(x => { mark[x[0] + '|' + x[1]] = true; });
+
+        let top;
+        if (!hit.length) {
+            // 그 대학에 그 학과가 없으면 **비슷한 학과**를 찾아 보여 줍니다
+            const near = rows.filter(x => univHit(U[x[0]], qU))
+                             .map(x => ({ x: x, s: univSim(D[x[1]], qDraw) }))
+                             .filter(o => o.s >= UNIV_SIM_MIN)
+                             .sort((a2, b2) => (b2.s - a2.s) || (a2.x[2] - b2.x[2]))
+                             .slice(0, 5);
+
+            top = '<div class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 mb-2">' +
+                  '<div class="text-[11px] text-amber-800">' +
+                    '<b>' + escapeHtml(qUraw) + ' ' + escapeHtml(qDraw) + '</b> 로 붙은 선배 기록이 없습니다.' +
+                    (near.length ? ' 비슷한 학과를 찾았습니다.' : '') +
+                  '</div>' +
+                  (near.length
+                    ? '<div class="mt-1.5 pt-1.5 border-t border-amber-200">' +
+                        near.map(o =>
+                          '<div class="flex items-center gap-2">' +
+                            '<span class="min-w-0 flex-1 text-xs truncate">' +
+                              '<span class="font-bold text-slate-800">' + escapeHtml(U[o.x[0]]) + '</span> ' +
+                              '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span>' +
+                            '</span>' +
+                            '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
+                            '<span class="shrink-0 text-[9px] text-slate-400">' + o.x[3] + '명</span>' +
+                          '</div>').join('') +
+                      '</div>'
+                    : '') +
+                  '</div>';
+        } else {
+            top = '<div class="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-2 mb-2">' +
+                  hit.slice(0, 4).map(x =>
+                    '<div class="flex items-center gap-2">' +
+                      '<span class="min-w-0 flex-1 text-xs font-bold text-slate-800 truncate">' +
+                        escapeHtml(U[x[0]]) + ' <span class="font-medium text-slate-600">' + escapeHtml(D[x[1]]) + '</span>' +
+                      '</span>' +
+                      '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(x[2]).toFixed(2) + '</span>' +
+                      '<span class="shrink-0 text-[9px] text-slate-400">합격 ' + x[3] + '명</span>' +
+                    '</div>').join('') +
+                  '</div>';
+        }
+        body.innerHTML = top + susiList(same, same.length, '같은 학과 · 전교과 좋은 대학 순', mark);
+        return;
+    }
+
+    // ② 한 칸만 적었을 때
+    if (qU || qD) {
+        const hit = rows.filter(x =>
+            (!qU || univHit(U[x[0]], qU)) && (!qD || univHit(D[x[1]], qD)));
+        const what = qU ? '그 대학의 학과' : '그 학과가 있는 대학';
+        body.innerHTML = susiList(hit, hit.length, what + ' · 전교과 좋은 순');
+        return;
+    }
+
+    // ③ 비어 있으면 '내 9등급 평균으로 갈 수 있는 곳'
+    const g9 = selectedStudent ? my9Grade(selectedStudent) : null;
+    if (g9 === null) {
+        body.innerHTML = susiNote('9등급제 평균이 아직 없습니다. 위 검색칸으로는 지금도 찾아보실 수 있습니다.');
+        return;
+    }
+    const reach = rows.filter(x => g9 <= x[2]);     // 내 등급이 같거나 더 좋으면
+    body.innerHTML = susiList(reach, reach.length, '전교과 좋은 대학 순');
+}
+
+/** 학생을 바꿀 때마다 패널을 통째로 다시 그립니다. */
+function renderSusiMatch() {
+    const box = document.getElementById('susi-panel');
+    if (!box) return;
+
+    susiShown = 30;
+    const g9 = selectedStudent ? my9Grade(selectedStudent) : null;
+
+    // 희망 대학·학과 — 찾아지는 것만 채웁니다 (정시 패널과 같은 규칙)
+    const wantU = univWish(selectedStudent && selectedStudent.targetUni);
+    const wantD = univWish(selectedStudent && selectedStudent.targetMajor);
+    let wishU = '', wishD = '', wishMiss = [];
+    if (SUSI && SUSI.r && SUSI.r.length) {
+        const U = SUSI.u || [], D = SUSI.d || [];
+        if (wantU) { if (SUSI.r.some(x => univHit(U[x[0]], wantU))) wishU = wantU; else wishMiss.push(wantU); }
+        if (wantD) { if (SUSI.r.some(x => univHit(D[x[1]], wantD))) wishD = wantD; else wishMiss.push(wantD); }
+    }
+
+    const scoreLine = (g9 !== null)
+        ? '<span class="text-[10px] text-slate-500">9등급제 평균 ' +
+          '<b class="text-sm text-teal-700">' + g9.toFixed(2) + '</b></span>'
+        : '<span class="text-[10px] text-slate-400">9등급제 평균 없음</span>';
+
+    box.innerHTML =
+        '<div class="rounded-lg border border-slate-300 bg-white p-2.5">' +
+          '<div class="flex items-baseline justify-between gap-2 mb-2">' +
+            '<h4 class="text-xs font-extrabold text-slate-800 whitespace-nowrap">🎒 수시로 갈 수 있는 대학</h4>' +
+            scoreLine +
+          '</div>' +
+          '<div class="flex gap-1.5 mb-2">' +
+            '<input id="susi-q-u" type="text" placeholder="대학 검색" oninput="susiReset()" ' +
+                   'value="' + escapeHtml(wishU) + '" ' +
+                   'class="flex-1 min-w-0 text-[11px] px-2 py-1 rounded border outline-none focus:border-teal-500 ' +
+                          (wishU ? 'border-amber-300 bg-amber-50/50' : 'border-slate-300') + '">' +
+            '<input id="susi-q-d" type="text" placeholder="학과 검색" oninput="susiReset()" ' +
+                   'value="' + escapeHtml(wishD) + '" ' +
+                   'class="flex-1 min-w-0 text-[11px] px-2 py-1 rounded border outline-none focus:border-teal-500 ' +
+                          (wishD ? 'border-amber-300 bg-amber-50/50' : 'border-slate-300') + '">' +
+          '</div>' +
+          ((wishU || wishD)
+            ? '<div class="text-[10px] text-amber-700 -mt-1 mb-1.5">🎯 희망 진로로 채워 두었습니다. 지우시면 내 등급으로 갈 수 있는 곳이 나옵니다.</div>'
+            : '') +
+          (wishMiss.length
+            ? '<div class="text-[10px] text-slate-400 -mt-1 mb-1.5">희망 진로 「' + escapeHtml(wishMiss.join(' · ')) +
+              '」 는 선배 합격 기록에 없습니다.</div>'
+            : '') +
+          '<div class="text-[10px] text-slate-400 mb-1.5">숫자는 <b>선배 합격자들의 전교과 평균 등급</b>입니다. 작을수록 들어가기 어렵습니다.</div>' +
+          '<div id="susi-body" class="max-h-96 overflow-y-auto"></div>' +
+        '</div>';
+
+    susiFilter();
+}
+
 /** 학생 한 명을 개별 상담 화면에 올립니다. */
 function showStudent(s) {
     selectedStudent = s;
@@ -2023,6 +2261,7 @@ function showStudent(s) {
     renderUplift(selectedStudent.schoolGrades);
     renderMockExams(selectedStudent.mockExams);
     renderUnivMatch();
+    renderSusiMatch();
     renderMockCharts(selectedStudent.mockExams);
     renderHistory(selectedStudent);
 
@@ -2622,7 +2861,8 @@ async function refreshAll() {
     try {
         await loadAll(true);
         statsReset();
-        loadUniv(true).catch(() => {});      // 대학 자료도 다시 읽습니다
+        loadUniv(true).catch(() => {});      // 정시 자료도 다시 읽습니다
+        loadSusi(true).catch(() => {});      // 수시 자료도 다시 읽습니다
     } catch (e) {
         if (e.message !== 'needLogin') onDataLoadError(e);
     } finally {
