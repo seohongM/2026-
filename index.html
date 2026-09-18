@@ -1773,6 +1773,40 @@ function univHit(dataName, query) {
     return a.indexOf(b) > -1 || b.indexOf(a) > -1;
 }
 
+/**
+ * 학과 이름이 얼마나 비슷한가 (0~1).
+ * 「서울대 화학공학과」처럼 그 대학에 그 학과가 없을 때
+ * 「화학부 · 화학생물공학부」 같은 비슷한 과를 찾아 주려고 씁니다.
+ *
+ *   끝의 과·부·군·전공·계열과 괄호를 떼고 견줍니다.
+ *     화학공학과 → 화학공학   ·   화학부 → 화학   ·   음악과(현악) → 음악
+ *   같으면 1, 한쪽이 다른 쪽에 통째로 들어 있으면 0.9,
+ *   아니면 두 글자씩 끊어 겹치는 정도로 셉니다 (화학공학 ↔ 화학생물공학 = 0.5).
+ */
+function univCore(name) {
+    return univNorm(name).replace(/\([^)]*\)/g, '')
+                         .replace(/(전공|계열|학군)$/, '')
+                         .replace(/[과부군]$/, '');
+}
+function univSim(a, b) {
+    const A = univCore(a), B = univCore(b);
+    if (!A || !B) return 0;
+    if (A === B) return 1;
+    if (A.indexOf(B) > -1 || B.indexOf(A) > -1) return 0.9;
+
+    const two = t => { const o = {}; for (let i = 0; i < t.length - 1; i++) o[t.substr(i, 2)] = 1; return o; };
+    const ga = two(A), gb = two(B);
+    const ka = Object.keys(ga), kb = Object.keys(gb);
+    if (!ka.length || !kb.length) return 0;
+    let same = 0;
+    ka.forEach(k => { if (gb[k]) same++; });
+    return 2 * same / (ka.length + kb.length);
+}
+// 이 값보다 비슷해야 「비슷한 학과」로 내놓습니다.
+// 0.4 면 '화학공학과 ↔ 화학부·화학생물공학부' 는 걸리고,
+// '공학' 두 글자만 같은 재료공학부·기계공학부(0.33)는 안 걸립니다.
+const UNIV_SIM_MIN = 0.4;
+
 /** 빈 값·'-' 를 걸러 낸 희망 대학 / 희망 학과 */
 function univWish(v) {
     const t = String(v === undefined || v === null ? '' : v).trim();
@@ -1841,8 +1875,31 @@ function univFilter() {
 
         let top;
         if (!hit.length) {
-            top = '<div class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 mb-2 text-[11px] text-amber-800">' +
-                  '찾으시는 <b>' + escapeHtml(qUraw) + ' ' + escapeHtml(qDraw) + '</b> 는 대학자료에 없습니다.' +
+            // 그 대학에 그 학과가 없으면 **비슷한 학과**를 찾아 보여 줍니다.
+            const near = rows.filter(x => univHit(U[x[0]], qU))
+                             .map(x => ({ x: x, s: univSim(D[x[1]], qDraw) }))
+                             .filter(o => o.s >= UNIV_SIM_MIN)
+                             .sort((a2, b2) => (b2.s - a2.s) || (b2.x[2] - a2.x[2]))
+                             .slice(0, 5);
+
+            top = '<div class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 mb-2">' +
+                  '<div class="text-[11px] text-amber-800">' +
+                    '<b>' + escapeHtml(qUraw) + ' ' + escapeHtml(qDraw) + '</b> 는 대학자료에 없습니다.' +
+                    (near.length ? ' 비슷한 학과를 찾았습니다.' : '') +
+                  '</div>' +
+                  (near.length
+                    ? '<div class="mt-1.5 pt-1.5 border-t border-amber-200">' +
+                        near.map(o =>
+                          '<div class="flex items-center gap-2">' +
+                            '<span class="min-w-0 flex-1 text-xs truncate">' +
+                              '<span class="font-bold text-slate-800">' + escapeHtml(U[o.x[0]]) + '</span> ' +
+                              '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span>' +
+                            '</span>' +
+                            '<span class="shrink-0 text-sm font-extrabold text-indigo-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
+                            '<span class="shrink-0 text-[9px] text-slate-400">' + (o.x[3] ? o.x[3] + '년' : '') + '</span>' +
+                          '</div>').join('') +
+                      '</div>'
+                    : '') +
                   '</div>';
         } else {
             top = '<div class="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 mb-2">' +
