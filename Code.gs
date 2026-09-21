@@ -1589,6 +1589,22 @@ function apiGetUniv_(req, user) {
 // 머리글을 못 찾았을 때 쓸 기본 열 위치 (0부터 셈)
 var SUSI_COL_FALLBACK = { uni: 6, jh: 9, sub: 10, dept: 12, res: 17, memo: 20, gr: 32 };
 
+/**
+ * `최종단계` 글자가 '합격' 을 뜻하는가.
+ * 시트마다 적는 말이 달라서 (합격 · 충원합격 · 합 · 추합 …) 넓게 받습니다.
+ * '불합' 이 들어가면 무조건 아닙니다.
+ */
+var SUSI_PASS_WORDS_ = ['합', '추합', '충원합', '최초합', '추가합', '정시합'];
+
+function susiPass_(v) {
+  var t = normalize_(v);
+  if (!t) return false;
+  if (t.indexOf('불합') !== -1) return false;   // 불합격 · 1단계불합격
+  if (t.indexOf('합격') !== -1) return true;    // 합격 · 충원합격 · 추가합격 · 최초합격
+  return SUSI_PASS_WORDS_.indexOf(t) !== -1;    // 합 · 추합 · 충원합 …
+}
+
+
 function apiGetSusi_(req, user) {
   var ss = getSpreadsheet_();
   if (!ss) return err_('스프레드시트를 열 수 없습니다.');
@@ -1629,19 +1645,23 @@ function apiGetSusi_(req, user) {
   var colU = got[0], colD = got[1], colG = got[2], colR = got[3], colJ = got[4], colS = got[5];
 
   var box = {}, uIdx = {}, dIdx = {}, tIdx = {}, uList = [], dList = [], tList = [];
+  var stat = { used: 0, noRes: 0, notPass: 0, noGrade: 0, badGrade: 0, noName: 0, res: {} };
 
   function txt(v) { return String(v === null || v === undefined ? '' : v).trim(); }
 
   for (var r = 0; r < colU.length; r++) {
     var res = txt(colR[r]);
-    if (res.indexOf('합격') === -1) continue;          // 합격 글자가 없으면 건너뜁니다
-    if (res.indexOf('불합격') !== -1) continue;        // 불합격은 뺍니다
+    noteRes_(stat.res, res);
+    if (!res)            { stat.noRes++;   continue; }   // 최종단계가 비어 있음
+    if (!susiPass_(res)) { stat.notPass++; continue; }   // 불합격 등
 
     var g = toNum_(colG[r]);
-    if (g === null || g < SUSI_MIN || g > SUSI_MAX) continue;
+    if (g === null)                   { stat.noGrade++;  continue; }   // 전교과가 비어 있음
+    if (g < SUSI_MIN || g > SUSI_MAX) { stat.badGrade++; continue; }   // 1~9 밖
 
     var uName = txt(colU[r]), dName = txt(colD[r]);
-    if (!uName || !dName) continue;
+    if (!uName || !dName) { stat.noName++; continue; }
+    stat.used++;
 
     if (uIdx[uName] === undefined) { uIdx[uName] = uList.length; uList.push(uName); }
     if (dIdx[dName] === undefined) { dIdx[dName] = dList.length; dList.push(dName); }
@@ -1673,8 +1693,18 @@ function apiGetSusi_(req, user) {
     min: SUSI_MIN, max: SUSI_MAX,
     rowsRead: lastRow - 1,
     guessed: guessed,
+    stat: stat,
     updated: nowStr_()
   });
+}
+
+
+/** 최종단계에 어떤 말이 몇 번 적혀 있는지 세어 둡니다 (진단용) */
+function noteRes_(bag, text) {
+  var t = String(text === null || text === undefined ? '' : text).trim();
+  if (!t) t = '(빈칸)';
+  if (bag[t] === undefined && countKeys_(bag) >= 40) return;   // 너무 많으면 그만
+  bag[t] = (bag[t] || 0) + 1;
 }
 
 
@@ -3033,6 +3063,117 @@ function check전입생시트() {
   Logger.log('※ 이 값은 우리 학교 석차·등급컷·9등급 환산에 넣지 않습니다.');
   Logger.log('※ 내신성적 시트에 그 과목 시험 점수가 들어오면(2학기) 그쪽이 이깁니다.');
 }
+
+/**
+ * `수시_대학자료` 시트를 어떻게 읽고 있는지 보여 줍니다.
+ * Apps Script 편집기에서 이 함수를 골라 [실행] → 아래 '실행 기록' 을 보세요.
+ * ⚠️ 보기만 합니다. 시트를 고치지 않습니다.
+ */
+function check수시시트() {
+  var ss = getSpreadsheet_();
+  if (!ss) { Logger.log('❌ 스프레드시트를 열 수 없습니다.'); return; }
+
+  var sheet = findSheet_(ss, SHEET_SUSI, SUSI_KEYWORDS);
+  if (!sheet) {
+    Logger.log("❌ '" + SHEET_SUSI + "' 시트를 찾지 못했습니다. 탭 이름을 확인해 주세요.");
+    return;
+  }
+
+  var lastRow = sheet.getLastRow(), lastCol = sheet.getLastColumn();
+  Logger.log('✅ 시트를 찾았습니다: [' + sheet.getName() + ']  ' + lastRow + '행 / ' + lastCol + '열');
+  if (lastRow < 2) { Logger.log('   자료가 없습니다.'); return; }
+
+  var head = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var c = { uni: -1, jh: -1, sub: -1, dept: -1, res: -1, memo: -1, gr: -1 };
+  for (var h = 0; h < head.length; h++) {
+    var t = normalize_(head[h]);
+    if (!t) continue;
+    if      (c.uni  < 0 && t === '대학명')   c.uni  = h;
+    else if (c.jh   < 0 && t === '전형')     c.jh   = h;
+    else if (c.sub  < 0 && t === '세부유형') c.sub  = h;
+    else if (c.dept < 0 && t === '모집단위') c.dept = h;
+    else if (c.res  < 0 && t === '최종단계') c.res  = h;
+    else if (c.memo < 0 && t === '비고')     c.memo = h;
+    else if (c.gr   < 0 && t === '전교과')   c.gr   = h;
+  }
+  var label = { uni: '대학명', jh: '전형', sub: '세부유형', dept: '모집단위',
+                res: '최종단계', memo: '비고', gr: '전교과' };
+  var keys = ['uni', 'dept', 'gr', 'res', 'jh', 'sub', 'memo'];
+
+  Logger.log('');
+  Logger.log('── 어느 열을 읽고 있나 ──');
+  for (var k = 0; k < keys.length; k++) {
+    var key = keys[k], byHead = c[key] >= 0;
+    if (!byHead) c[key] = SUSI_COL_FALLBACK[key];
+    Logger.log('   ' + (byHead ? '✅' : '⚠️') + ' ' + label[key] + ' → ' + colLetter_(c[key]) +
+               '  (머리글 "' + String(head[c[key]] || '(빈칸)') + '")' +
+               (byHead ? '' : '  ← 머리글을 못 찾아 정해 둔 자리를 씁니다'));
+  }
+
+  var want = [c.uni, c.dept, c.gr, c.res, c.jh, c.sub];
+  var got  = readColumns_(ss, sheet, want, lastRow);
+  var colU = got[0], colD = got[1], colG = got[2], colR = got[3];
+
+  Logger.log('');
+  Logger.log('── 최종단계(' + colLetter_(c.res) + ')에 적힌 말 ──');
+  var bag = {};
+  for (var r = 0; r < colR.length; r++) noteRes_(bag, colR[r]);
+  var words = [];
+  for (var w in bag) { if (bag.hasOwnProperty(w)) words.push([w, bag[w]]); }
+  words.sort(function (a, b) { return b[1] - a[1]; });
+  for (var i = 0; i < words.length; i++) {
+    Logger.log('   ' + (susiPass_(words[i][0]) ? '✅ 합격으로 셈' : '⛔ 안 셈  ') +
+               '  "' + words[i][0] + '"  ' + words[i][1] + '줄');
+  }
+
+  Logger.log('');
+  Logger.log('── 줄마다 왜 빠졌나 ──');
+  var st = { used: 0, noRes: 0, notPass: 0, noGrade: 0, badGrade: 0, noName: 0 };
+  var ex = { noGrade: [], badGrade: [], noName: [] };
+  for (var r2 = 0; r2 < colU.length; r2++) {
+    var line = r2 + 2;
+    var res = String(colR[r2] === null || colR[r2] === undefined ? '' : colR[r2]).trim();
+    if (!res)            { st.noRes++;   continue; }
+    if (!susiPass_(res)) { st.notPass++; continue; }
+    var g = toNum_(colG[r2]);
+    if (g === null) {
+      st.noGrade++;
+      if (ex.noGrade.length < 5) ex.noGrade.push(line + '행 ' + String(colU[r2] || '') + ' ' + String(colD[r2] || ''));
+      continue;
+    }
+    if (g < SUSI_MIN || g > SUSI_MAX) {
+      st.badGrade++;
+      if (ex.badGrade.length < 5) ex.badGrade.push(line + '행 ' + String(colU[r2] || '') + ' → ' + g);
+      continue;
+    }
+    var uName = String(colU[r2] || '').trim(), dName = String(colD[r2] || '').trim();
+    if (!uName || !dName) {
+      st.noName++;
+      if (ex.noName.length < 5) ex.noName.push(line + '행 대학"' + uName + '" 모집단위"' + dName + '"');
+      continue;
+    }
+    st.used++;
+  }
+  Logger.log('   ✅ 화면에 쓰는 줄          ' + st.used + '줄');
+  Logger.log('   ⛔ 최종단계가 빈칸         ' + st.noRes + '줄');
+  Logger.log('   ⛔ 합격이 아님(불합격 등)  ' + st.notPass + '줄');
+  Logger.log('   ⛔ 전교과가 비어 있음      ' + st.noGrade + '줄' +
+             (ex.noGrade.length ? '   예) ' + ex.noGrade.join(' / ') : ''));
+  Logger.log('   ⛔ 전교과가 1~9 밖         ' + st.badGrade + '줄' +
+             (ex.badGrade.length ? '   예) ' + ex.badGrade.join(' / ') : ''));
+  Logger.log('   ⛔ 대학명·모집단위가 빈칸  ' + st.noName + '줄' +
+             (ex.noName.length ? '   예) ' + ex.noName.join(' / ') : ''));
+
+  Logger.log('');
+  Logger.log('── 맨 아래 다섯 줄을 그대로 보여 드립니다 ──');
+  for (var r3 = Math.max(0, colU.length - 5); r3 < colU.length; r3++) {
+    Logger.log('   ' + (r3 + 2) + '행  대학"' + String(colU[r3] || '') + '"  모집단위"' + String(colD[r3] || '') +
+               '"  최종단계"' + String(colR[r3] || '') + '"  전교과"' + String(colG[r3] || '') + '"');
+  }
+  Logger.log('');
+  Logger.log('※ 화면에 나오려면 ① 최종단계가 합격 ② 전교과가 1~9 ③ 대학명·모집단위가 있어야 합니다.');
+}
+
 
 function countKeys_(o) {
   var n = 0;
