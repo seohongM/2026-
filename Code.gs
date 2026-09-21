@@ -1589,6 +1589,31 @@ function apiGetUniv_(req, user) {
 // 머리글을 못 찾았을 때 쓸 기본 열 위치 (0부터 셈)
 var SUSI_COL_FALLBACK = { uni: 6, jh: 9, sub: 10, dept: 12, res: 17, memo: 20, gr: 32 };
 
+/* 합격 연도를 어디서 읽을까 — 앞쪽부터 먼저 찾습니다 */
+var SUSI_YEAR_HEADS_ = ['연도', '년도', '학년도', '합격연도', '합격년도', '지원연도', '입학연도'];
+var SUSI_DATE_HEADS_ = ['합격자발표', '최종발표', '발표일', '면접일자', '논술일자', '실기일자', '적성일자'];
+
+/**
+ * 아무 칸에서나 4자리 연도를 뽑아냅니다.
+ * 날짜 칸은 시트를 어떻게 읽었느냐에 따라 Date 로도, '2025-12-15' 같은 글자로도 옵니다.
+ * 못 찾으면 0.
+ */
+function susiYear_(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    var y = v.getFullYear();
+    return (y >= 1990 && y <= 2100) ? y : 0;
+  }
+  var t = String(v).trim();
+  if (/^[0-9]{4}$/.test(t)) {
+    var n = parseInt(t, 10);
+    return (n >= 1990 && n <= 2100) ? n : 0;
+  }
+  var m = t.match(/(?:19|20)[0-9]{2}/);
+  return m ? parseInt(m[0], 10) : 0;
+}
+
+
 /**
  * `최종단계` 글자가 '합격' 을 뜻하는가.
  * 시트마다 적는 말이 달라서 (합격 · 충원합격 · 합 · 추합 …) 넓게 받습니다.
@@ -1635,17 +1660,23 @@ function apiGetSusi_(req, user) {
   for (var k = 0; k < keys.length; k++) {
     if (c[keys[k]] < 0) { c[keys[k]] = SUSI_COL_FALLBACK[keys[k]]; guessed.push(keys[k]); }
   }
+
+  // 합격 연도 — 연도 칸이 있으면 그것을, 없으면 날짜 칸에서 뽑습니다. 둘 다 없으면 안 보여 줍니다.
+  var yInfo = findSusiYearCol_(head);
+  c.yr = yInfo.col;
   if (c.uni >= lastCol || c.dept >= lastCol || c.gr >= lastCol) {
     return err_("'" + SHEET_SUSI + "' 시트에서 대학명·모집단위·전교과 열을 찾지 못했습니다. " +
                 '머리글(1행)에 그 이름이 있는지 확인해 주세요.');
   }
 
   var want = [c.uni, c.dept, c.gr, c.res, c.jh, c.sub];
+  if (c.yr >= 0) want.push(c.yr);
   var got  = readColumns_(ss, sheet, want, lastRow);
   var colU = got[0], colD = got[1], colG = got[2], colR = got[3], colJ = got[4], colS = got[5];
+  var colY = (c.yr >= 0) ? got[6] : null;
 
   var box = {}, uIdx = {}, dIdx = {}, tIdx = {}, uList = [], dList = [], tList = [];
-  var stat = { used: 0, noRes: 0, notPass: 0, noGrade: 0, badGrade: 0, noName: 0, res: {} };
+  var stat = { used: 0, noRes: 0, notPass: 0, noGrade: 0, badGrade: 0, noName: 0, withYear: 0, res: {} };
 
   function txt(v) { return String(v === null || v === undefined ? '' : v).trim(); }
 
@@ -1673,9 +1704,16 @@ function apiGetSusi_(req, user) {
     var ti = label ? tIdx[label] : -1;
 
     var key = uIdx[uName] + '|' + dIdx[dName];
-    if (!box[key]) box[key] = { u: uIdx[uName], d: dIdx[dName], sum: 0, n: 0, t: ti, many: false };
+    if (!box[key]) box[key] = { u: uIdx[uName], d: dIdx[dName], sum: 0, n: 0, t: ti, many: false,
+                                y0: 0, y1: 0 };
     var o = box[key];
     o.sum += g; o.n++;
+    var yr = colY ? susiYear_(colY[r]) : 0;
+    if (yr) {
+      if (!o.y0 || yr < o.y0) o.y0 = yr;
+      if (yr > o.y1) o.y1 = yr;
+      stat.withYear++;
+    }
     if (o.t === -1) o.t = ti;
     else if (ti !== -1 && ti !== o.t) o.many = true;
   }
@@ -1684,7 +1722,7 @@ function apiGetSusi_(req, user) {
   for (var key2 in box) {
     if (!box.hasOwnProperty(key2)) continue;
     var b = box[key2];
-    rows.push([b.u, b.d, round_(b.sum / b.n, 2), b.n, b.many ? -1 : b.t]);
+    rows.push([b.u, b.d, round_(b.sum / b.n, 2), b.n, b.many ? -1 : b.t, b.y0, b.y1]);
   }
   rows.sort(function (x, y) { return x[2] - y[2]; });    // 등급은 낮을수록 좋습니다
 
@@ -1693,9 +1731,32 @@ function apiGetSusi_(req, user) {
     min: SUSI_MIN, max: SUSI_MAX,
     rowsRead: lastRow - 1,
     guessed: guessed,
+    yearCol: yInfo.name,
     stat: stat,
     updated: nowStr_()
   });
+}
+
+
+/**
+ * 합격 연도를 읽을 열을 찾습니다.
+ * ① `연도`·`학년도` 처럼 연도 칸이 있으면 그것을 씁니다.
+ * ② 없으면 `합격자발표`·`면접일자` 같은 날짜 칸에서 연도만 뽑아 씁니다.
+ * 둘 다 없으면 col = -1 (화면에 연도를 안 보여 줍니다).
+ */
+function findSusiYearCol_(head) {
+  var i, h, lists = [SUSI_YEAR_HEADS_, SUSI_DATE_HEADS_];
+  for (var L = 0; L < lists.length; L++) {
+    for (var w = 0; w < lists[L].length; w++) {
+      for (i = 0; i < head.length; i++) {
+        h = normalize_(head[i]);
+        if (h && h === lists[L][w]) {
+          return { col: i, name: String(head[i]).trim(), byDate: (L === 1) };
+        }
+      }
+    }
+  }
+  return { col: -1, name: '', byDate: false };
 }
 
 
@@ -3110,9 +3171,22 @@ function check수시시트() {
                (byHead ? '' : '  ← 머리글을 못 찾아 정해 둔 자리를 씁니다'));
   }
 
+  var yInfo = findSusiYearCol_(head);
+  Logger.log('');
+  Logger.log('── 합격 연도를 어디서 읽나 ──');
+  if (yInfo.col < 0) {
+    Logger.log('   ⚠️ 연도 칸도 날짜 칸도 없습니다 → 화면에 연도를 안 보여 줍니다.');
+    Logger.log('      머리글에 「연도」 칸을 하나 만들어 2025 처럼 적으시면 바로 나옵니다.');
+  } else {
+    Logger.log('   ✅ ' + colLetter_(yInfo.col) + '  (머리글 "' + yInfo.name + '")' +
+               (yInfo.byDate ? '  ← 날짜에서 연도만 뽑아 씁니다' : ''));
+  }
+
   var want = [c.uni, c.dept, c.gr, c.res, c.jh, c.sub];
+  if (yInfo.col >= 0) want.push(yInfo.col);
   var got  = readColumns_(ss, sheet, want, lastRow);
   var colU = got[0], colD = got[1], colG = got[2], colR = got[3];
+  var colY = (yInfo.col >= 0) ? got[6] : null;
 
   Logger.log('');
   Logger.log('── 최종단계(' + colLetter_(c.res) + ')에 적힌 말 ──');
@@ -3128,7 +3202,7 @@ function check수시시트() {
 
   Logger.log('');
   Logger.log('── 줄마다 왜 빠졌나 ──');
-  var st = { used: 0, noRes: 0, notPass: 0, noGrade: 0, badGrade: 0, noName: 0 };
+  var st = { used: 0, noRes: 0, notPass: 0, noGrade: 0, badGrade: 0, noName: 0, withYear: 0 };
   var ex = { noGrade: [], badGrade: [], noName: [] };
   for (var r2 = 0; r2 < colU.length; r2++) {
     var line = r2 + 2;
@@ -3153,8 +3227,10 @@ function check수시시트() {
       continue;
     }
     st.used++;
+    if (colY && susiYear_(colY[r2])) st.withYear++;
   }
   Logger.log('   ✅ 화면에 쓰는 줄          ' + st.used + '줄');
+  Logger.log('   📅 그중 연도를 읽은 줄     ' + st.withYear + '줄');
   Logger.log('   ⛔ 최종단계가 빈칸         ' + st.noRes + '줄');
   Logger.log('   ⛔ 합격이 아님(불합격 등)  ' + st.notPass + '줄');
   Logger.log('   ⛔ 전교과가 비어 있음      ' + st.noGrade + '줄' +
@@ -3168,7 +3244,8 @@ function check수시시트() {
   Logger.log('── 맨 아래 다섯 줄을 그대로 보여 드립니다 ──');
   for (var r3 = Math.max(0, colU.length - 5); r3 < colU.length; r3++) {
     Logger.log('   ' + (r3 + 2) + '행  대학"' + String(colU[r3] || '') + '"  모집단위"' + String(colD[r3] || '') +
-               '"  최종단계"' + String(colR[r3] || '') + '"  전교과"' + String(colG[r3] || '') + '"');
+               '"  최종단계"' + String(colR[r3] || '') + '"  전교과"' + String(colG[r3] || '') + '"' +
+               (colY ? '  연도"' + (susiYear_(colY[r3]) || '') + '"' : ''));
   }
   Logger.log('');
   Logger.log('※ 화면에 나오려면 ① 최종단계가 합격 ② 전교과가 1~9 ③ 대학명·모집단위가 있어야 합니다.');

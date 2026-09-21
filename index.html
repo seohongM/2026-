@@ -2132,6 +2132,13 @@ function my9Grade(s) {
     return isFinite(n) ? n : null;
 }
 
+/** 합격 연도 표시 — 한 해면 '2025', 여러 해면 '2023~2025'. 모르면 빈 글자 */
+function susiYearText(x) {
+    const y0 = Number(x[5] || 0), y1 = Number(x[6] || 0);
+    if (!y1) return '';
+    return (y0 && y0 !== y1) ? (y0 + '~' + y1) : String(y1);
+}
+
 function susiNote(text) {
     return '<div class="text-[11px] text-slate-400 text-center py-6 px-2">' + escapeHtml(text) + '</div>';
 }
@@ -2163,6 +2170,7 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
                 escapeHtml(U[x[0]] || '') + '</span> ' +
               '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
               '<span class="block text-[9px] text-slate-400 leading-tight truncate">' +
+                (susiYearText(x) ? escapeHtml(susiYearText(x)) + ' · ' : '') +
                 escapeHtml(x[4] >= 0 ? (T[x[4]] || '') : '전형 여러 가지') + '</span>' +
             '</span>' +
             '<span class="shrink-0 text-right">' +
@@ -2239,7 +2247,8 @@ function susiFilter() {
                               '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span>' +
                             '</span>' +
                             '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
-                            '<span class="shrink-0 text-[9px] text-slate-400">' + o.x[3] + '명</span>' +
+                            '<span class="shrink-0 text-[9px] text-slate-400 text-right leading-tight whitespace-nowrap">' +
+                              (susiYearText(o.x) ? escapeHtml(susiYearText(o.x)) + ' · ' : '') + o.x[3] + '명</span>' +
                           '</div>').join('') +
                       '</div>'
                     : '') +
@@ -2252,7 +2261,8 @@ function susiFilter() {
                         escapeHtml(U[x[0]]) + ' <span class="font-medium text-slate-600">' + escapeHtml(D[x[1]]) + '</span>' +
                       '</span>' +
                       '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(x[2]).toFixed(2) + '</span>' +
-                      '<span class="shrink-0 text-[9px] text-slate-400">합격 ' + x[3] + '명</span>' +
+                      '<span class="shrink-0 text-[9px] text-slate-400 text-right leading-tight whitespace-nowrap">' +
+                        (susiYearText(x) ? escapeHtml(susiYearText(x)) + ' · ' : '') + '합격 ' + x[3] + '명</span>' +
                     '</div>').join('') +
                   '</div>';
         }
