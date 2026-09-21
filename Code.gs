@@ -1592,7 +1592,14 @@ var SUSI_COL_FALLBACK = { uni: 6, jh: 9, sub: 10, dept: 12, res: 17, memo: 20, g
 /* 합격 연도를 어디서 읽을까 — 앞쪽부터 먼저 찾습니다 */
 var SUSI_YEAR_HEADS_ = ['연도', '년도', '학년도', '합격연도', '합격년도', '지원연도', '입학연도'];
 var SUSI_DATE_HEADS_ = ['합격자발표', '최종발표', '발표일', '면접일자', '논술일자', '실기일자', '적성일자'];
-var SUSI_YEAR_MAX_COLS_ = 5;   // 너무 많이 읽으면 느려지므로 앞의 다섯 칸까지만
+var SUSI_YEAR_MAX_COLS_ = 6;   // 너무 많이 읽으면 느려지므로 앞의 여섯 칸까지만
+                               // (E열 1 + 날짜 칸 5)
+
+/* E열(왼쪽에서 다섯 번째)에 합격 연도가 적혀 있습니다 — 2026.09 사용자 지시.
+   `2025` 처럼 연도만 적힌 줄도, `2025-10` 처럼 월까지 적힌 줄도 있어서
+   머리글 이름을 보지 않고 **늘 가장 먼저** 이 칸에서 연도만 뽑습니다.
+   이 칸에서 연도가 안 나오면 아래의 연도 칸·날짜 칸으로 넘어갑니다. */
+var SUSI_YEAR_COL_FIXED_ = 4;
 
 /**
  * 아무 칸에서나 4자리 연도를 뽑아냅니다.
@@ -1749,6 +1756,16 @@ function apiGetSusi_(req, user) {
  */
 function findSusiYearCols_(head) {
   var i, h, w, L, out = [], seen = {};
+
+  // ① E열 — 머리글이 무엇이든 늘 먼저 봅니다
+  if (SUSI_YEAR_COL_FIXED_ < head.length) {
+    seen[SUSI_YEAR_COL_FIXED_] = true;
+    out.push({ col:  SUSI_YEAR_COL_FIXED_,
+               name: String(head[SUSI_YEAR_COL_FIXED_] || '').trim() || '(머리글 없음)',
+               byDate: false, fixed: true });
+  }
+
+  // ② 그 다음 머리글로 찾은 연도 칸 → 날짜 칸
   var lists = [SUSI_YEAR_HEADS_, SUSI_DATE_HEADS_];
   for (L = 0; L < lists.length; L++) {
     for (w = 0; w < lists[L].length; w++) {
@@ -3209,7 +3226,8 @@ function check수시시트() {
     Logger.log('   줄마다 아래 차례로 보고, 처음 연도가 나오는 칸을 씁니다.');
     for (var yj = 0; yj < yCols.length; yj++) {
       Logger.log('   ' + (yj + 1) + '. ' + colLetter_(yCols[yj].col) + '  (머리글 "' + yCols[yj].name + '")' +
-                 (yCols[yj].byDate ? '  ← 날짜에서 연도만 뽑음' : '  ← 연도 칸'));
+                 (yCols[yj].fixed ? '  ← 늘 여기를 먼저 봅니다'
+                                  : (yCols[yj].byDate ? '  ← 날짜에서 연도만 뽑음' : '  ← 연도 칸')));
     }
   }
 
@@ -3220,6 +3238,20 @@ function check수시시트() {
   var colU = got[0], colD = got[1], colG = got[2], colR = got[3];
   var colY = [];
   for (yk = 0; yk < yCols.length; yk++) colY.push(got[6 + yk]);
+
+  if (yCols.length) {
+    Logger.log('   ── 그 칸에 실제로 적힌 값 (앞의 세 개) ──');
+    for (yk = 0; yk < yCols.length; yk++) {
+      var peek = [], pn = 0;
+      for (var pr = 0; pr < colY[yk].length && pn < 3; pr++) {
+        var pv = colY[yk][pr];
+        if (pv === null || pv === undefined || String(pv).trim() === '') continue;
+        peek.push('"' + String(pv).trim() + '" → ' + (susiYear_(pv) || '연도 없음'));
+        pn++;
+      }
+      Logger.log('      ' + colLetter_(yCols[yk].col) + ' : ' + (peek.join('  /  ') || '(전부 비어 있음)'));
+    }
+  }
 
   Logger.log('');
   Logger.log('── 최종단계(' + colLetter_(c.res) + ')에 적힌 말 ──');
