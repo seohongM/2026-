@@ -314,7 +314,7 @@ function handle_(req) {
 
       /* 로그인 없이 가능한 요청 */
       case 'ping':
-        return ok_({ message: 'ok', classList: CLASS_LIST, gradeLabel: GRADE_LABEL });
+        return ok_({ message: 'ok', classList: CLASS_LIST, gradeLabel: GRADE_LABEL, ver: APP_VER });
 
       case 'login':
         return apiLogin_(req);
@@ -1604,6 +1604,11 @@ var SUSI_YEAR_COL_FIXED_ = 4;
 /* 한 대학·모집단위에 전형이 여러 가지면 몇 개까지 보낼지 */
 var SUSI_JH_MAX_ = 8;
 
+/* 이 Code.gs 의 버전. 화면(index.html)의 PAGE_VER 와 짝이 맞아야 합니다.
+   「고쳤는데 화면이 그대로다」 의 원인은 거의 늘 새 버전 배포를 안 한 것이라,
+   ping 응답에 실어 보내 화면이 스스로 알아채게 합니다. */
+var APP_VER = '2026-09-22';
+
 /**
  * 아무 칸에서나 4자리 연도를 뽑아냅니다.
  * 날짜 칸은 시트를 어떻게 읽었느냐에 따라 Date 로도, '2025-12-15' 같은 글자로도 옵니다.
@@ -1744,6 +1749,7 @@ function apiGetSusi_(req, user) {
     min: SUSI_MIN, max: SUSI_MAX,
     rowsRead: lastRow - 1,
     guessed: guessed,
+    ver: APP_VER,
     yearCols: yearColNames_(yCols),
     stat: stat,
     updated: nowStr_()
