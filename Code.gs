@@ -1607,7 +1607,7 @@ var SUSI_JH_MAX_ = 8;
 /* 이 Code.gs 의 버전. 화면(index.html)의 PAGE_VER 와 짝이 맞아야 합니다.
    「고쳤는데 화면이 그대로다」 의 원인은 거의 늘 새 버전 배포를 안 한 것이라,
    ping 응답에 실어 보내 화면이 스스로 알아채게 합니다. */
-var APP_VER = '2026-09-22';
+var APP_VER = '2026-09-22b';
 
 /**
  * 아무 칸에서나 4자리 연도를 뽑아냅니다.
@@ -1627,6 +1627,26 @@ function susiYear_(v) {
   }
   var m = t.match(/(?:19|20)[0-9]{2}/);
   return m ? parseInt(m[0], 10) : 0;
+}
+
+
+/* 충원(추가)합격을 뜻하는 말들. `합격` 이 같이 붙어 있어도 이쪽이 먼저입니다. */
+var SUSI_ADD_WORDS_ = ['충원', '추합', '추가', '예비'];
+
+/**
+ * 합격한 줄이 **최초합격**인지 **충원합격(추합)**인지 가려냅니다.
+ * 시트마다 적는 말이 달라서(합격 · 합 · 충원합격 · 추합 · 추가합격 …) 글자를 섞어 봅니다.
+ *   ''      → 합격이 아님 (불합격 · 빈칸 …)
+ *   'add'   → 충원합격(추합)
+ *   'first' → 최초합격
+ */
+function susiPassKind_(v) {
+  if (!susiPass_(v)) return '';
+  var t = normalize_(v);
+  for (var i = 0; i < SUSI_ADD_WORDS_.length; i++) {
+    if (t.indexOf(SUSI_ADD_WORDS_[i]) !== -1) return 'add';
+  }
+  return 'first';
 }
 
 
@@ -1694,7 +1714,8 @@ function apiGetSusi_(req, user) {
   for (yi = 0; yi < yCols.length; yi++) colY.push(got[6 + yi]);
 
   var box = {}, uIdx = {}, dIdx = {}, tIdx = {}, uList = [], dList = [], tList = [];
-  var stat = { used: 0, noRes: 0, notPass: 0, noGrade: 0, badGrade: 0, noName: 0, withYear: 0, res: {} };
+  var stat = { used: 0, first: 0, add: 0, noRes: 0, notPass: 0, noGrade: 0, badGrade: 0,
+               noName: 0, withYear: 0, res: {} };
 
   function txt(v) { return String(v === null || v === undefined ? '' : v).trim(); }
 
@@ -1702,7 +1723,8 @@ function apiGetSusi_(req, user) {
     var res = txt(colR[r]);
     noteRes_(stat.res, res);
     if (!res)            { stat.noRes++;   continue; }   // 최종단계가 비어 있음
-    if (!susiPass_(res)) { stat.notPass++; continue; }   // 불합격 등
+    var kind = susiPassKind_(res);
+    if (!kind)           { stat.notPass++; continue; }   // 불합격 등
 
     var g = toNum_(colG[r]);
     if (g === null)                   { stat.noGrade++;  continue; }   // 전교과가 비어 있음
@@ -1723,9 +1745,10 @@ function apiGetSusi_(req, user) {
 
     var key = uIdx[uName] + '|' + dIdx[dName];
     if (!box[key]) box[key] = { u: uIdx[uName], d: dIdx[dName], sum: 0, n: 0,
-                                ts: {}, y0: 0, y1: 0 };
+                                nf: 0, na: 0, ts: {}, y0: 0, y1: 0 };
     var o = box[key];
     o.sum += g; o.n++;
+    if (kind === 'add') { o.na++; stat.add++; } else { o.nf++; stat.first++; }
     var yr = susiRowYear_(colY, r);
     if (yr) {
       if (!o.y0 || yr < o.y0) o.y0 = yr;
@@ -1740,7 +1763,7 @@ function apiGetSusi_(req, user) {
   for (var key2 in box) {
     if (!box.hasOwnProperty(key2)) continue;
     var b = box[key2];
-    rows.push([b.u, b.d, round_(b.sum / b.n, 2), b.n, tListOf_(b.ts), b.y0, b.y1]);
+    rows.push([b.u, b.d, round_(b.sum / b.n, 2), b.n, tListOf_(b.ts), b.y0, b.y1, b.nf, b.na]);
   }
   rows.sort(function (x, y) { return x[2] - y[2]; });    // 등급은 낮을수록 좋습니다
 
@@ -3286,20 +3309,25 @@ function check수시시트() {
   for (var w in bag) { if (bag.hasOwnProperty(w)) words.push([w, bag[w]]); }
   words.sort(function (a, b) { return b[1] - a[1]; });
   for (var i = 0; i < words.length; i++) {
-    Logger.log('   ' + (susiPass_(words[i][0]) ? '✅ 합격으로 셈' : '⛔ 안 셈  ') +
+    var kd = susiPassKind_(words[i][0]);
+    Logger.log('   ' + (kd === 'add'   ? '✅ 추합(충원)으로 셈'
+                      : kd === 'first' ? '✅ 최초합격으로 셈  '
+                                       : '⛔ 안 셈            ') +
                '  "' + words[i][0] + '"  ' + words[i][1] + '줄');
   }
 
   Logger.log('');
   Logger.log('── 줄마다 왜 빠졌나 ──');
-  var st = { used: 0, noRes: 0, notPass: 0, noGrade: 0, badGrade: 0, noName: 0, withYear: 0, noYearEx: [] };
+  var st = { used: 0, first: 0, add: 0, noRes: 0, notPass: 0, noGrade: 0, badGrade: 0,
+             noName: 0, withYear: 0, noYearEx: [] };
   var byCol = {};
   var ex = { noGrade: [], badGrade: [], noName: [] };
   for (var r2 = 0; r2 < colU.length; r2++) {
     var line = r2 + 2;
     var res = String(colR[r2] === null || colR[r2] === undefined ? '' : colR[r2]).trim();
-    if (!res)            { st.noRes++;   continue; }
-    if (!susiPass_(res)) { st.notPass++; continue; }
+    if (!res)  { st.noRes++; continue; }
+    var kd2 = susiPassKind_(res);
+    if (!kd2)  { st.notPass++; continue; }
     var g = toNum_(colG[r2]);
     if (g === null) {
       st.noGrade++;
@@ -3318,12 +3346,14 @@ function check수시시트() {
       continue;
     }
     st.used++;
+    if (kd2 === 'add') st.add++; else st.first++;
     var yrHit = -1;
     for (yk = 0; yk < colY.length; yk++) { if (susiYear_(colY[yk][r2])) { yrHit = yk; break; } }
     if (yrHit >= 0) { st.withYear++; byCol[yrHit] = (byCol[yrHit] || 0) + 1; }
     else if (st.noYearEx.length < 5) st.noYearEx.push((r2 + 2) + '행 ' + String(colU[r2] || '') + ' ' + String(colD[r2] || ''));
   }
-  Logger.log('   ✅ 화면에 쓰는 줄          ' + st.used + '줄');
+  Logger.log('   ✅ 화면에 쓰는 줄          ' + st.used + '줄' +
+             '  (최초합격 ' + st.first + '줄 · 추합 ' + st.add + '줄)');
   Logger.log('   📅 그중 연도를 읽은 줄     ' + st.withYear + '줄' +
              (st.used ? '  (연도 없는 줄 ' + (st.used - st.withYear) + '줄)' : ''));
   for (yk = 0; yk < yCols.length; yk++) {

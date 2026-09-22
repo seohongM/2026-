@@ -24,7 +24,7 @@
 
     /* 이 index.html 의 버전. Apps Script 의 APP_VER 와 짝이 맞아야 합니다.
        다르면 [🔧 연결 상태 확인] 과 수시 패널이 알려 줍니다. */
-    const PAGE_VER = '2026-09-22';
+    const PAGE_VER = '2026-09-22b';
 
     </script>
 
@@ -2160,7 +2160,8 @@ const SUSI_JH_SHOW = 3;
 function susiOldServer() {
     if (!SUSI || !SUSI.r || !SUSI.r.length) return false;
     if (!SUSI.yearCols) return true;                       // 연도 기능이 아예 없음
-    return !Array.isArray(SUSI.r[0][4]);                   // 전형이 목록이 아님
+    if (!Array.isArray(SUSI.r[0][4])) return true;         // 전형이 목록이 아님
+    return SUSI.r[0][7] === undefined;                     // 최초/추합 나눔이 없음
 }
 
 function susiVerWarn() {
@@ -2188,6 +2189,22 @@ function susiJhText(x) {
     if (!names.length) return '전형 정보 없음';
     if (names.length <= SUSI_JH_SHOW) return names.join(' / ');
     return names.slice(0, SUSI_JH_SHOW).join(' / ') + ' 외 ' + (names.length - SUSI_JH_SHOW) + '개';
+}
+
+/**
+ * 합격 인원 표시 — 최초합격과 충원합격(추합)을 나눠 보여 줍니다.
+ *   둘 다 있으면  «최초 4 · 추합 2»
+ *   최초만        «합격 4명»
+ *   추합만        «추합 2명»
+ * 옛 서버는 나눔 값이 없으므로 예전처럼 «합격 N명».
+ */
+function susiPassText(x) {
+    const n = Number(x[3]) || 0;
+    if (x[7] === undefined || x[8] === undefined) return '합격 ' + n + '명';
+    const f = Number(x[7]) || 0, a = Number(x[8]) || 0;
+    if (f && a) return '최초 ' + f + ' · 추합 ' + a;
+    if (a)      return '추합 ' + a + '명';
+    return '합격 ' + (f || n) + '명';
 }
 
 /** 합격 연도 표시 — 한 해면 '2025', 여러 해면 '2023~2025'. 모르면 빈 글자 */
@@ -2235,7 +2252,8 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
             '<span class="shrink-0 text-right">' +
               '<span class="text-xs font-extrabold ' + (dim ? 'text-slate-400' : 'text-teal-700') + '">' +
                 Number(x[2]).toFixed(2) + '</span>' +
-              '<span class="block text-[9px] text-slate-400 leading-none">합격 ' + x[3] + '명</span>' +
+              '<span class="block text-[9px] text-slate-400 leading-none whitespace-nowrap">' +
+                escapeHtml(susiPassText(x)) + '</span>' +
             '</span>' +
           '</li>';
     }
@@ -2307,7 +2325,8 @@ function susiFilter() {
                             '</span>' +
                             '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
                             '<span class="shrink-0 text-[9px] text-slate-400 text-right leading-tight whitespace-nowrap">' +
-                              (susiYearText(o.x) ? escapeHtml(susiYearText(o.x)) + ' · ' : '') + o.x[3] + '명</span>' +
+                              (susiYearText(o.x) ? escapeHtml(susiYearText(o.x)) + ' · ' : '') +
+                              escapeHtml(susiPassText(o.x)) + '</span>' +
                           '</div>').join('') +
                       '</div>'
                     : '') +
@@ -2321,7 +2340,8 @@ function susiFilter() {
                       '</span>' +
                       '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(x[2]).toFixed(2) + '</span>' +
                       '<span class="shrink-0 text-[9px] text-slate-400 text-right leading-tight whitespace-nowrap">' +
-                        (susiYearText(x) ? escapeHtml(susiYearText(x)) + ' · ' : '') + '합격 ' + x[3] + '명</span>' +
+                        (susiYearText(x) ? escapeHtml(susiYearText(x)) + ' · ' : '') +
+                        escapeHtml(susiPassText(x)) + '</span>' +
                     '</div>').join('') +
                   '</div>';
         }
