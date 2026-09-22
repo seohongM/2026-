@@ -2132,6 +2132,26 @@ function my9Grade(s) {
     return isFinite(n) ? n : null;
 }
 
+/** 한 줄에 보여 줄 전형 이름 개수. 넘으면 「외 N개」 */
+const SUSI_JH_SHOW = 3;
+
+/** 그 대학·학과에 붙은 전형 이름들 (많이 붙은 순으로 서버가 보냅니다) */
+function susiJhList(x) {
+    const T = SUSI.t || [];
+    let ids = x[4];
+    if (typeof ids === 'number') ids = (ids >= 0 ? [ids] : []);   // 옛 서버 대비
+    if (!Array.isArray(ids)) return [];
+    return ids.map(i => T[i] || '').filter(Boolean);
+}
+
+/** 목록 줄에 적을 전형 글자 — 세 개까지 보이고 나머지는 「외 N개」 */
+function susiJhText(x) {
+    const names = susiJhList(x);
+    if (!names.length) return '전형 정보 없음';
+    if (names.length <= SUSI_JH_SHOW) return names.join(' / ');
+    return names.slice(0, SUSI_JH_SHOW).join(' / ') + ' 외 ' + (names.length - SUSI_JH_SHOW) + '개';
+}
+
 /** 합격 연도 표시 — 한 해면 '2025', 여러 해면 '2023~2025'. 모르면 빈 글자 */
 function susiYearText(x) {
     const y0 = Number(x[5] || 0), y1 = Number(x[6] || 0);
@@ -2169,9 +2189,10 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
               '<span class="text-xs font-bold ' + (dim ? 'text-slate-500' : 'text-slate-800') + '">' +
                 escapeHtml(U[x[0]] || '') + '</span> ' +
               '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
-              '<span class="block text-[9px] text-slate-400 leading-tight truncate">' +
+              '<span class="block text-[9px] text-slate-400 leading-tight truncate"' +
+                  ' title="' + escapeHtml(susiJhList(x).join('\n')) + '">' +
                 (susiYearText(x) ? escapeHtml(susiYearText(x)) + ' · ' : '') +
-                escapeHtml(x[4] >= 0 ? (T[x[4]] || '') : '전형 여러 가지') + '</span>' +
+                escapeHtml(susiJhText(x)) + '</span>' +
             '</span>' +
             '<span class="shrink-0 text-right">' +
               '<span class="text-xs font-extrabold ' + (dim ? 'text-slate-400' : 'text-teal-700') + '">' +

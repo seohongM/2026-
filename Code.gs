@@ -1601,6 +1601,9 @@ var SUSI_YEAR_MAX_COLS_ = 6;   // 너무 많이 읽으면 느려지므로 앞의
    이 칸에서 연도가 안 나오면 아래의 연도 칸·날짜 칸으로 넘어갑니다. */
 var SUSI_YEAR_COL_FIXED_ = 4;
 
+/* 한 대학·모집단위에 전형이 여러 가지면 몇 개까지 보낼지 */
+var SUSI_JH_MAX_ = 8;
+
 /**
  * 아무 칸에서나 4자리 연도를 뽑아냅니다.
  * 날짜 칸은 시트를 어떻게 읽었느냐에 따라 Date 로도, '2025-12-15' 같은 글자로도 옵니다.
@@ -1709,13 +1712,13 @@ function apiGetSusi_(req, user) {
 
     var label = txt(colJ[r]);
     var sub2  = txt(colS[r]);
-    if (sub2 && sub2 !== label) label = label ? (label + ' · ' + sub2) : sub2;
+    if (sub2 && sub2 !== label) label = label ? (label + '(' + sub2 + ')') : sub2;
     if (label && tIdx[label] === undefined) { tIdx[label] = tList.length; tList.push(label); }
     var ti = label ? tIdx[label] : -1;
 
     var key = uIdx[uName] + '|' + dIdx[dName];
-    if (!box[key]) box[key] = { u: uIdx[uName], d: dIdx[dName], sum: 0, n: 0, t: ti, many: false,
-                                y0: 0, y1: 0 };
+    if (!box[key]) box[key] = { u: uIdx[uName], d: dIdx[dName], sum: 0, n: 0,
+                                ts: {}, y0: 0, y1: 0 };
     var o = box[key];
     o.sum += g; o.n++;
     var yr = susiRowYear_(colY, r);
@@ -1724,15 +1727,15 @@ function apiGetSusi_(req, user) {
       if (yr > o.y1) o.y1 = yr;
       stat.withYear++;
     }
-    if (o.t === -1) o.t = ti;
-    else if (ti !== -1 && ti !== o.t) o.many = true;
+    // 전형은 **모두** 모읍니다 (몇 명이 그 전형으로 붙었는지도 같이 셉니다)
+    if (ti !== -1) o.ts[ti] = (o.ts[ti] || 0) + 1;
   }
 
   var rows = [];
   for (var key2 in box) {
     if (!box.hasOwnProperty(key2)) continue;
     var b = box[key2];
-    rows.push([b.u, b.d, round_(b.sum / b.n, 2), b.n, b.many ? -1 : b.t, b.y0, b.y1]);
+    rows.push([b.u, b.d, round_(b.sum / b.n, 2), b.n, tListOf_(b.ts), b.y0, b.y1]);
   }
   rows.sort(function (x, y) { return x[2] - y[2]; });    // 등급은 낮을수록 좋습니다
 
@@ -1794,6 +1797,22 @@ function susiRowYear_(colY, r) {
     if (y) return y;
   }
   return 0;
+}
+
+
+/**
+ * 그 대학·모집단위에 붙은 전형들을 **많이 붙은 순**으로 늘어놓습니다.
+ * 예전에는 여러 가지면 -1 을 보내 화면에 「전형 여러 가지」라고만 나왔는데,
+ * 2026.09 사용자 요청으로 **전형 이름을 그대로** 보냅니다.
+ * 너무 길어지지 않게 앞의 SUSI_JH_MAX_(8)개까지만.
+ */
+function tListOf_(ts) {
+  var arr = [], k;
+  for (k in ts) { if (ts.hasOwnProperty(k)) arr.push([parseInt(k, 10), ts[k]]); }
+  arr.sort(function (a, b) { return (b[1] - a[1]) || (a[0] - b[0]); });
+  var out = [];
+  for (var i = 0; i < arr.length && i < SUSI_JH_MAX_; i++) out.push(arr[i][0]);
+  return out;
 }
 
 
