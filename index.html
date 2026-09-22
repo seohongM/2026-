@@ -24,7 +24,7 @@
 
     /* 이 index.html 의 버전. Apps Script 의 APP_VER 와 짝이 맞아야 합니다.
        다르면 [🔧 연결 상태 확인] 과 수시 패널이 알려 줍니다. */
-    const PAGE_VER = '2026-09-22b';
+    const PAGE_VER = '2026-09-22c';
 
     </script>
 
@@ -1816,6 +1816,41 @@ function univHit(dataName, query) {
  *   같으면 1, 한쪽이 다른 쪽에 통째로 들어 있으면 0.9,
  *   아니면 두 글자씩 끊어 겹치는 정도로 셉니다 (화학공학 ↔ 화학생물공학 = 0.5).
  */
+/**
+ * 희망 대학·학과를 검색칸에 채울지 정합니다.
+ *
+ * 예전에는 **글자가 딱 걸리는 것만** 채웠습니다. 그래서
+ *   · 그 대학에 그 학과가 없을 때        (서울대 화학공학과)
+ *   · 학과 이름을 조금 다르게 적었을 때  (물리치료학과 ↔ 물리치료과)
+ * 검색칸이 비어 버려서 **비슷한 학과 찾기까지 같이 사라졌습니다.**
+ * (2026.09 사용자 신고 — 희망을 적었는데 패널에 안 나오는 학생들)
+ *
+ * 이제는 **비슷한 이름이 있으면 그대로 채웁니다.** 그러면 화면이
+ * 「그 학과는 없습니다 + 비슷한 학과」 를 보여 줍니다.
+ *
+ *   rows  : 대학자료 줄들 · nameOf : 그 줄에서 견줄 이름을 꺼내는 함수
+ *   want  : 선생님이 적어 두신 말
+ *   useSim: 비슷한 이름까지 봐 줄지 — **학과만 true**
+ *   → { fill: 채울 값(''이면 안 채움), miss: true 면 자료에 전혀 없음 }
+ *
+ * ⚠️ **대학 이름에는 `univSim` 을 쓰면 안 됩니다.** 끝의 `대학교` 두 글자가 같아서
+ *    「○○대학교」 처럼 아무 뜻 없는 말도 아무 대학과 0.5 로 비슷해집니다
+ *    (2026.09 작업 중 실제로 이 일이 있어 자리표시 값이 검색칸에 채워졌습니다).
+ *    `univSim` 은 끝의 과·부·군만 떼므로 **학과 이름에만** 맞습니다.
+ */
+function wishPick(rows, nameOf, want, useSim) {
+    if (!want) return { fill: '', miss: false };
+    for (let i = 0; i < rows.length; i++) {
+        if (univHit(nameOf(rows[i]), want)) return { fill: want, miss: false };
+    }
+    if (useSim) {
+        for (let i = 0; i < rows.length; i++) {
+            if (univSim(nameOf(rows[i]), want) >= UNIV_SIM_MIN) return { fill: want, miss: false };
+        }
+    }
+    return { fill: '', miss: true };
+}
+
 function univCore(name) {
     return univNorm(name).replace(/\([^)]*\)/g, '')
                          .replace(/(전공|계열|학군)$/, '')
@@ -1944,6 +1979,10 @@ function univMore() { univShown += 30; univFilter(); }
 function univFilter() {
     const body = document.getElementById('univ-body');
     if (!body) return;
+    // 수시 패널과 같은 이유로, 희망 진로 강조 칸은 스크롤되지 않는 위 칸에 그립니다.
+    const topBox = document.getElementById('univ-top');
+    const setTop = h => { if (topBox) topBox.innerHTML = h || ''; };
+    setTop('');
 
     if (!UNIV)        { body.innerHTML = univNote('대학 자료를 불러오는 중입니다…'); return; }
     if (UNIV.error)   { body.innerHTML = univNote('대학 자료를 불러오지 못했습니다. ' + UNIV.error); return; }
@@ -2008,7 +2047,8 @@ function univFilter() {
                     '</div>').join('') +
                   '</div>';
         }
-        body.innerHTML = top + univList(same, '같은 학과 · 평균70 높은 대학 순', mark,
+        setTop(top);
+        body.innerHTML = univList(same, '같은 학과 · 평균70 높은 대학 순', mark,
                                        pivotAt(same, reachable), myTxt);
         scrollToPivot('univ-body', 'univ-pivot');
         return;
@@ -2019,6 +2059,28 @@ function univFilter() {
         const hit = rows.filter(x =>
             (!qU || univHit(U[x[0]], qU)) && (!qD || univHit(D[x[1]], qD)));
         const what = qU ? '그 대학의 학과' : '그 학과가 있는 대학';
+        // 하나도 없으면 비슷한 학과를 찾아 위 칸에 보여 줍니다 (학과 이름을 조금 다르게 적으셨을 때)
+        if (!hit.length && qD) {
+            const near = rows.map(x => ({ x: x, s: univSim(D[x[1]], qD) }))
+                             .filter(o => o.s >= UNIV_SIM_MIN)
+                             .sort((a2, b2) => (b2.s - a2.s) || (b2.x[2] - a2.x[2]))
+                             .slice(0, 5);
+            setTop('<div class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 mb-2">' +
+                     '<div class="text-[11px] text-amber-800"><b>' + escapeHtml(qDraw) + '</b> 은(는) 대학자료에 없습니다.' +
+                       (near.length ? ' 비슷한 학과를 찾았습니다.' : '') + '</div>' +
+                     (near.length
+                       ? '<div class="mt-1.5 pt-1.5 border-t border-amber-200">' +
+                           near.map(o =>
+                             '<div class="flex items-center gap-2">' +
+                               '<span class="min-w-0 flex-1 text-xs truncate">' +
+                                 '<span class="font-bold text-slate-800">' + escapeHtml(U[o.x[0]]) + '</span> ' +
+                                 '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span></span>' +
+                               '<span class="shrink-0 text-sm font-extrabold text-indigo-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
+                               '<span class="shrink-0 text-[9px] text-slate-400">' + (o.x[3] ? o.x[3] + '년' : '') + '</span>' +
+                             '</div>').join('') + '</div>'
+                       : '') +
+                   '</div>');
+        }
         body.innerHTML = univList(hit, what + ' · 평균70 높은 순', null,
                                   pivotAt(hit, reachable), myTxt);
         scrollToPivot('univ-body', 'univ-pivot');
@@ -2058,12 +2120,13 @@ function renderUnivMatch() {
 
     if (UNIV && UNIV.r && UNIV.r.length) {
         const U = UNIV.u || [], D = UNIV.d || [];
-        if (wantU) {
-            if (UNIV.r.some(x => univHit(U[x[0]], wantU))) wishU = wantU; else wishMiss.push(wantU);
-        }
-        if (wantD) {
-            if (UNIV.r.some(x => univHit(D[x[1]], wantD))) wishD = wantD; else wishMiss.push(wantD);
-        }
+        const pu = wishPick(UNIV.r, x => U[x[0]], wantU, false);
+        const pd = wishPick(UNIV.r, x => D[x[1]], wantD, true);
+        wishU = pu.fill; wishD = pd.fill;
+        // 대학이 걸렸으면 학과 이름이 조금 달라도 같이 채웁니다 (비슷한 학과를 보여 주려고)
+        if (wishU && wantD && !wishD) { wishD = wantD; pd.miss = false; }
+        if (pu.miss) wishMiss.push(wantU);
+        if (pd.miss) wishMiss.push(wantD);
     }
 
     const scoreLine = pc
@@ -2074,7 +2137,7 @@ function renderUnivMatch() {
     box.innerHTML =
         '<div class="rounded-lg border border-slate-300 bg-white p-2.5">' +
           '<div class="flex items-baseline justify-between gap-2 mb-2">' +
-            '<h4 class="text-xs font-extrabold text-slate-800 whitespace-nowrap">🎓 갈 수 있는 대학</h4>' +
+            '<h4 class="text-xs font-extrabold text-slate-800 whitespace-nowrap">🎓 정시로 갈 수 있는 대학</h4>' +
             scoreLine +
           '</div>' +
           '<div class="flex gap-1.5 mb-2">' +
@@ -2094,6 +2157,7 @@ function renderUnivMatch() {
             ? '<div class="text-[10px] text-slate-400 -mt-1 mb-1.5">희망 진로 「' + escapeHtml(wishMiss.join(' · ')) +
               '」 은(는) 대학자료에서 찾지 못했습니다.</div>'
             : '') +
+          '<div id="univ-top"></div>' +
           '<div id="univ-body" class="max-h-96 overflow-y-auto"></div>' +
         '</div>';
 
@@ -2199,12 +2263,12 @@ function susiJhText(x) {
  * 옛 서버는 나눔 값이 없으므로 예전처럼 «합격 N명».
  */
 function susiPassText(x) {
-    const n = Number(x[3]) || 0;
-    if (x[7] === undefined || x[8] === undefined) return '합격 ' + n + '명';
+    if (x[7] === undefined || x[8] === undefined) return '합격';
     const f = Number(x[7]) || 0, a = Number(x[8]) || 0;
-    if (f && a) return '최초 ' + f + ' · 추합 ' + a;
-    if (a)      return '추합 ' + a + '명';
-    return '합격 ' + (f || n) + '명';
+    if (f && a) return '합격 · 추합';
+    if (a)      return '추합';
+    if (f)      return '합격';
+    return '';
 }
 
 /** 합격 연도 표시 — 한 해면 '2025', 여러 해면 '2023~2025'. 모르면 빈 글자 */
@@ -2280,6 +2344,11 @@ function susiReset() { susiShown = 30; susiFilter(); }
 function susiFilter() {
     const body = document.getElementById('susi-body');
     if (!body) return;
+    // 희망 진로 강조 칸은 **스크롤되지 않는 위 칸**에 따로 그립니다.
+    // (예전에는 목록 안에 넣어서, 내 자리로 스크롤하면 화면 밖으로 밀려 안 보였습니다)
+    const topBox = document.getElementById('susi-top');
+    const setTop = h => { if (topBox) topBox.innerHTML = h || ''; };
+    setTop(susiVerWarn());
 
     if (!SUSI)        { body.innerHTML = susiNote('수시 자료를 불러오는 중입니다…'); return; }
     if (SUSI.error)   { body.innerHTML = susiNote('수시 자료를 불러오지 못했습니다. ' + SUSI.error); return; }
@@ -2345,7 +2414,8 @@ function susiFilter() {
                     '</div>').join('') +
                   '</div>';
         }
-        body.innerHTML = susiVerWarn() + top + susiList(same, '같은 학과 · 전교과 좋은 대학 순', mark,
+        setTop(susiVerWarn() + top);
+        body.innerHTML = susiList(same, '같은 학과 · 전교과 좋은 대학 순', mark,
                                        pivotAt(same, reachable), myTxt);
         scrollToPivot('susi-body', 'susi-pivot');
         return;
@@ -2356,7 +2426,29 @@ function susiFilter() {
         const hit = rows.filter(x =>
             (!qU || univHit(U[x[0]], qU)) && (!qD || univHit(D[x[1]], qD)));
         const what = qU ? '그 대학의 학과' : '그 학과가 있는 대학';
-        body.innerHTML = susiVerWarn() + susiList(hit, what + ' · 전교과 좋은 순', null,
+        if (!hit.length && qD) {
+            const near = rows.map(x => ({ x: x, s: univSim(D[x[1]], qD) }))
+                             .filter(o => o.s >= UNIV_SIM_MIN)
+                             .sort((a2, b2) => (b2.s - a2.s) || (a2.x[2] - b2.x[2]))
+                             .slice(0, 5);
+            setTop(susiVerWarn() +
+                   '<div class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 mb-2">' +
+                     '<div class="text-[11px] text-amber-800"><b>' + escapeHtml(qDraw) + '</b> 로 붙은 선배 기록이 없습니다.' +
+                       (near.length ? ' 비슷한 학과를 찾았습니다.' : '') + '</div>' +
+                     (near.length
+                       ? '<div class="mt-1.5 pt-1.5 border-t border-amber-200">' +
+                           near.map(o =>
+                             '<div class="flex items-center gap-2">' +
+                               '<span class="min-w-0 flex-1 text-xs truncate">' +
+                                 '<span class="font-bold text-slate-800">' + escapeHtml(U[o.x[0]]) + '</span> ' +
+                                 '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span></span>' +
+                               '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
+                               '<span class="shrink-0 text-[9px] text-slate-400">' + escapeHtml(susiPassText(o.x)) + '</span>' +
+                             '</div>').join('') + '</div>'
+                       : '') +
+                   '</div>');
+        }
+        body.innerHTML = susiList(hit, what + ' · 전교과 좋은 순', null,
                                   pivotAt(hit, reachable), myTxt);
         scrollToPivot('susi-body', 'susi-pivot');
         return;
@@ -2368,7 +2460,7 @@ function susiFilter() {
         return;
     }
     const canGo = rows.filter(reachable).length;
-    body.innerHTML = susiVerWarn() + susiList(rows, '갈 수 있는 곳 ' + canGo.toLocaleString() + '곳', null,
+    body.innerHTML = susiList(rows, '갈 수 있는 곳 ' + canGo.toLocaleString() + '곳', null,
                               pivotAt(rows, reachable), myTxt);
     scrollToPivot('susi-body', 'susi-pivot');
 }
@@ -2387,8 +2479,12 @@ function renderSusiMatch() {
     let wishU = '', wishD = '', wishMiss = [];
     if (SUSI && SUSI.r && SUSI.r.length) {
         const U = SUSI.u || [], D = SUSI.d || [];
-        if (wantU) { if (SUSI.r.some(x => univHit(U[x[0]], wantU))) wishU = wantU; else wishMiss.push(wantU); }
-        if (wantD) { if (SUSI.r.some(x => univHit(D[x[1]], wantD))) wishD = wantD; else wishMiss.push(wantD); }
+        const pu = wishPick(SUSI.r, x => U[x[0]], wantU, false);
+        const pd = wishPick(SUSI.r, x => D[x[1]], wantD, true);
+        wishU = pu.fill; wishD = pd.fill;
+        if (wishU && wantD && !wishD) { wishD = wantD; pd.miss = false; }
+        if (pu.miss) wishMiss.push(wantU);
+        if (pd.miss) wishMiss.push(wantD);
     }
 
     const scoreLine = (g9 !== null)
@@ -2419,6 +2515,7 @@ function renderSusiMatch() {
             ? '<div class="text-[10px] text-slate-400 -mt-1 mb-1.5">희망 진로 「' + escapeHtml(wishMiss.join(' · ')) +
               '」 는 선배 합격 기록에 없습니다.</div>'
             : '') +
+          '<div id="susi-top"></div>' +
           '<div id="susi-body" class="max-h-96 overflow-y-auto"></div>' +
         '</div>';
 
@@ -2989,6 +3086,8 @@ async function saveTargetToSheet() {
         syncTargetPrint();
         updateTargetCount();
         renderStudentGrid();
+        renderUnivMatch();     // 적자마자 두 패널에 바로 반영 (2026.09 사용자 요청)
+        renderSusiMatch();
         showTargetStatus('✓ 목표 저장 완료!', true);
     } catch (e) {
         if (e.message !== 'needLogin') showTargetStatus(e.message || '저장하지 못했습니다.', false);
