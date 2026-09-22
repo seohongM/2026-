@@ -22,6 +22,10 @@
 
     const API_URL = 'https://script.google.com/macros/s/AKfycbwXlnQLRgvZ0dNtTbDJVB6-CTbB8OALAebMhAAvC26EYOlfPXjycjGqUxJxQTwbDMm1Kw/exec';
 
+    /* 이 index.html 의 버전. Apps Script 의 APP_VER 와 짝이 맞아야 합니다.
+       다르면 [🔧 연결 상태 확인] 과 수시 패널이 알려 줍니다. */
+    const PAGE_VER = '2026-09-22b';
+
     </script>
 
     <style>
@@ -879,7 +883,7 @@ async function runDiagnostics() {
     lines.push('✅ [1] 주소 형식 정상' + (chk.workspace ? ' (학교 계정 형식)' : ''));
 
     // 2. 기본 통로(POST)
-    let postOk = false, postMsg = '';
+    let postOk = false, postMsg = '', srvVer = '';
     try {
         const r = await fetch(API_URL, {
             method: 'POST',
@@ -892,7 +896,7 @@ async function runDiagnostics() {
             postMsg = '구글 로그인/오류 페이지가 돌아왔습니다 (HTTP ' + r.status + ')';
         } else {
             const j = JSON.parse(txt);
-            if (j.ok) { postOk = true; }
+            if (j.ok) { postOk = true; srvVer = (j.data && j.data.ver) || ''; }
             else { postMsg = '서버 응답: ' + (j.error || '알 수 없음'); }
         }
     } catch (e) {
@@ -904,7 +908,7 @@ async function runDiagnostics() {
     let jsonpOk = false, jsonpMsg = '';
     try {
         const res = await jsonpCall('ping', {}, 12000);
-        if (res && res.ok) jsonpOk = true;
+        if (res && res.ok) { jsonpOk = true; if (!srvVer) srvVer = (res.data && res.data.ver) || ''; }
         else jsonpMsg = (res && res.error) || '응답 형식 오류';
     } catch (e) {
         jsonpMsg = e.message || String(e);
@@ -916,6 +920,19 @@ async function runDiagnostics() {
     lines.push('──────── 진단 ────────');
     if (postOk || jsonpOk) {
         lines.push('✅ 서버와 정상적으로 연결됩니다.');
+        lines.push('');
+        lines.push('── 버전 ──');
+        lines.push('화면(index.html)        : ' + PAGE_VER);
+        lines.push('서버(Apps Script)       : ' + (srvVer || '(옛 버전 — 버전 표시 없음)'));
+        if (srvVer && srvVer === PAGE_VER) {
+            lines.push('✅ 둘이 같습니다. 정상입니다.');
+        } else {
+            lines.push('⚠️ 둘이 다릅니다. 새 기능이 제대로 안 나올 수 있습니다.');
+            lines.push('   Apps Script 에 새 Code.gs 를 붙여넣고 Ctrl+S 한 뒤');
+            lines.push('   [배포 → 배포 관리 → 연필 ✏️ → 버전: 새 버전 → 배포]');
+            lines.push('   GitHub 에는 새 index.html 을 올리고 Ctrl+F5 하세요.');
+        }
+        lines.push('');
         lines.push('로그인이 안 된다면 비밀번호 문제입니다.');
         lines.push('구글 시트 → 🔐 상담시스템 관리 →');
         lines.push('① 처음 설정하기 를 실행해 비밀번호를 받으세요.');
@@ -2132,6 +2149,64 @@ function my9Grade(s) {
     return isFinite(n) ? n : null;
 }
 
+/** 한 줄에 보여 줄 전형 이름 개수. 넘으면 「외 N개」 */
+const SUSI_JH_SHOW = 3;
+
+/**
+ * 서버(Code.gs)가 옛 버전이면 true.
+ * 새 서버는 전형을 「번호 목록」으로, 연도를 r[5]·r[6] 으로 보냅니다.
+ * 옛 서버는 전형을 번호 하나(-1 이면 여러 가지)로만 보내고 연도가 없습니다.
+ */
+function susiOldServer() {
+    if (!SUSI || !SUSI.r || !SUSI.r.length) return false;
+    if (!SUSI.yearCols) return true;                       // 연도 기능이 아예 없음
+    if (!Array.isArray(SUSI.r[0][4])) return true;         // 전형이 목록이 아님
+    return SUSI.r[0][7] === undefined;                     // 최초/추합 나눔이 없음
+}
+
+function susiVerWarn() {
+    if (!susiOldServer()) return '';
+    return '<div class="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 ' +
+             'rounded px-2 py-1.5 mb-2 leading-snug">' +
+             '⚠️ <b>Apps Script 를 새 버전으로 배포해 주세요.</b><br>' +
+             '배포 → 배포 관리 → 연필(✏️) → 버전: 새 버전 → 배포<br>' +
+             '그때까지 전형·합격 연도가 제대로 안 나옵니다.' +
+           '</div>';
+}
+
+/** 그 대학·학과에 붙은 전형 이름들 (많이 붙은 순으로 서버가 보냅니다) */
+function susiJhList(x) {
+    const T = SUSI.t || [];
+    let ids = x[4];
+    if (typeof ids === 'number') ids = (ids >= 0 ? [ids] : []);   // 옛 서버 대비
+    if (!Array.isArray(ids)) return [];
+    return ids.map(i => T[i] || '').filter(Boolean);
+}
+
+/** 목록 줄에 적을 전형 글자 — 세 개까지 보이고 나머지는 「외 N개」 */
+function susiJhText(x) {
+    const names = susiJhList(x);
+    if (!names.length) return '전형 정보 없음';
+    if (names.length <= SUSI_JH_SHOW) return names.join(' / ');
+    return names.slice(0, SUSI_JH_SHOW).join(' / ') + ' 외 ' + (names.length - SUSI_JH_SHOW) + '개';
+}
+
+/**
+ * 합격 인원 표시 — 최초합격과 충원합격(추합)을 나눠 보여 줍니다.
+ *   둘 다 있으면  «최초 4 · 추합 2»
+ *   최초만        «합격 4명»
+ *   추합만        «추합 2명»
+ * 옛 서버는 나눔 값이 없으므로 예전처럼 «합격 N명».
+ */
+function susiPassText(x) {
+    const n = Number(x[3]) || 0;
+    if (x[7] === undefined || x[8] === undefined) return '합격 ' + n + '명';
+    const f = Number(x[7]) || 0, a = Number(x[8]) || 0;
+    if (f && a) return '최초 ' + f + ' · 추합 ' + a;
+    if (a)      return '추합 ' + a + '명';
+    return '합격 ' + (f || n) + '명';
+}
+
 /** 합격 연도 표시 — 한 해면 '2025', 여러 해면 '2023~2025'. 모르면 빈 글자 */
 function susiYearText(x) {
     const y0 = Number(x[5] || 0), y1 = Number(x[6] || 0);
@@ -2169,14 +2244,16 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
               '<span class="text-xs font-bold ' + (dim ? 'text-slate-500' : 'text-slate-800') + '">' +
                 escapeHtml(U[x[0]] || '') + '</span> ' +
               '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
-              '<span class="block text-[9px] text-slate-400 leading-tight truncate">' +
+              '<span class="block text-[9px] text-slate-400 leading-tight truncate"' +
+                  ' title="' + escapeHtml(susiJhList(x).join('\n')) + '">' +
                 (susiYearText(x) ? escapeHtml(susiYearText(x)) + ' · ' : '') +
-                escapeHtml(x[4] >= 0 ? (T[x[4]] || '') : '전형 여러 가지') + '</span>' +
+                escapeHtml(susiJhText(x)) + '</span>' +
             '</span>' +
             '<span class="shrink-0 text-right">' +
               '<span class="text-xs font-extrabold ' + (dim ? 'text-slate-400' : 'text-teal-700') + '">' +
                 Number(x[2]).toFixed(2) + '</span>' +
-              '<span class="block text-[9px] text-slate-400 leading-none">합격 ' + x[3] + '명</span>' +
+              '<span class="block text-[9px] text-slate-400 leading-none whitespace-nowrap">' +
+                escapeHtml(susiPassText(x)) + '</span>' +
             '</span>' +
           '</li>';
     }
@@ -2248,7 +2325,8 @@ function susiFilter() {
                             '</span>' +
                             '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
                             '<span class="shrink-0 text-[9px] text-slate-400 text-right leading-tight whitespace-nowrap">' +
-                              (susiYearText(o.x) ? escapeHtml(susiYearText(o.x)) + ' · ' : '') + o.x[3] + '명</span>' +
+                              (susiYearText(o.x) ? escapeHtml(susiYearText(o.x)) + ' · ' : '') +
+                              escapeHtml(susiPassText(o.x)) + '</span>' +
                           '</div>').join('') +
                       '</div>'
                     : '') +
@@ -2262,11 +2340,12 @@ function susiFilter() {
                       '</span>' +
                       '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(x[2]).toFixed(2) + '</span>' +
                       '<span class="shrink-0 text-[9px] text-slate-400 text-right leading-tight whitespace-nowrap">' +
-                        (susiYearText(x) ? escapeHtml(susiYearText(x)) + ' · ' : '') + '합격 ' + x[3] + '명</span>' +
+                        (susiYearText(x) ? escapeHtml(susiYearText(x)) + ' · ' : '') +
+                        escapeHtml(susiPassText(x)) + '</span>' +
                     '</div>').join('') +
                   '</div>';
         }
-        body.innerHTML = top + susiList(same, '같은 학과 · 전교과 좋은 대학 순', mark,
+        body.innerHTML = susiVerWarn() + top + susiList(same, '같은 학과 · 전교과 좋은 대학 순', mark,
                                        pivotAt(same, reachable), myTxt);
         scrollToPivot('susi-body', 'susi-pivot');
         return;
@@ -2277,7 +2356,7 @@ function susiFilter() {
         const hit = rows.filter(x =>
             (!qU || univHit(U[x[0]], qU)) && (!qD || univHit(D[x[1]], qD)));
         const what = qU ? '그 대학의 학과' : '그 학과가 있는 대학';
-        body.innerHTML = susiList(hit, what + ' · 전교과 좋은 순', null,
+        body.innerHTML = susiVerWarn() + susiList(hit, what + ' · 전교과 좋은 순', null,
                                   pivotAt(hit, reachable), myTxt);
         scrollToPivot('susi-body', 'susi-pivot');
         return;
@@ -2289,7 +2368,7 @@ function susiFilter() {
         return;
     }
     const canGo = rows.filter(reachable).length;
-    body.innerHTML = susiList(rows, '갈 수 있는 곳 ' + canGo.toLocaleString() + '곳', null,
+    body.innerHTML = susiVerWarn() + susiList(rows, '갈 수 있는 곳 ' + canGo.toLocaleString() + '곳', null,
                               pivotAt(rows, reachable), myTxt);
     scrollToPivot('susi-body', 'susi-pivot');
 }
