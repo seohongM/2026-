@@ -24,7 +24,7 @@
 
     /* 이 index.html 의 버전. Apps Script 의 APP_VER 와 짝이 맞아야 합니다.
        다르면 [🔧 연결 상태 확인] 과 수시 패널이 알려 줍니다. */
-    const PAGE_VER = '2026-09-23e';
+    const PAGE_VER = '2026-09-23f';
 
     </script>
 
@@ -228,26 +228,38 @@
             }
             .print-table th, .print-table td {
                 border: 1px solid #94a3b8 !important;
-                padding: 1px !important;
+                padding: 1px 0 !important;
                 text-align: center !important;
-                font-size: 6pt !important;
+                font-size: 5.5pt !important;
                 line-height: 1.15 !important;
-                /* ⚠️ **줄바꿈을 막습니다.** 표 옆에 대학 패널이 붙으면서 표가 좁아졌는데,
-                   그대로 두면 「공통국어1」 이 한 글자씩 세로로 쌓여 표가 깨집니다
-                   (2026.09 사용자 신고). 글자를 줄이고 한 줄로 붙여 둡니다. */
-                white-space: nowrap !important;
+                letter-spacing: -0.2px;
+                /* ⚠️ **한 글자씩 세로로 쌓이지 않게** `keep-all` 을 겁니다.
+                   「공통국어1」 은 한 낱말이라 통째로 유지됩니다 (2026.09 사용자 신고).
+                   ⚠️ 예전에는 `nowrap` 까지 걸었는데, 그러면 표가 상자보다 넓어져
+                   **오른쪽 끝(성취도) 열이 잘려 나갔습니다** (2026.09 사용자 신고 —
+                   화면에는 있는데 인쇄물에는 「최종등…」 에서 끊김). 그래서 뺐습니다. */
                 word-break: keep-all !important;
+                overflow-wrap: normal !important;
             }
-            .print-table th div { font-size: 5pt !important; white-space: nowrap !important; }
+            .print-table th div { font-size: 4.5pt !important; }
             /* 모의고사 표는 과목마다 점수·표준·백분위·등급 칸이라 열이 19개입니다.
                A4 한 장에 들어가도록 조금 더 작게 찍습니다. */
             .mock-table th, .mock-table td {
-                font-size: 5.5pt !important;
-                padding: 1px 0 !important;
+                font-size: 5pt !important;
                 letter-spacing: -0.3px;
             }
-            /* 표는 남는 자리를 다 쓰되, 글자가 넘치면 표가 줄어들도록 */
-            .print-table { table-layout: auto !important; width: 100% !important; }
+            /* ⚠️ **내신 표는 `table-layout: fixed` 로 찍습니다.**
+               고정 배치는 칸 너비를 **상자 안에서 나누므로**, 글꼴이 무엇이든
+               표가 상자보다 넓어질 수 없습니다 = **열이 잘릴 수 없습니다.**
+               (2026.09 사용자 요청 「있는 그대로 다 들어가게 하라」)
+               모의고사 표는 머리글이 두 줄(병합)이라 고정 배치가 어울리지 않아 그대로 둡니다. */
+            .print-table { width: 100% !important; max-width: 100% !important; }
+            .print-table:not(.mock-table) { table-layout: fixed !important; }
+            /* 과목 이름 칸만 조금 넓게 (「공통국어1」 이 들어가야 합니다) */
+            .print-table:not(.mock-table) th:first-child,
+            .print-table:not(.mock-table) td:first-child { width: 13% !important; }
+            /* 맨 아래 평균 줄의 긴 설명은 여러 줄로 접히게 둡니다 */
+            .print-table tfoot td { white-space: normal !important; }
             .print-text {
                 font-size: 7.5pt !important;
                 line-height: 1.25 !important;
