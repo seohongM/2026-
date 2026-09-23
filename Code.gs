@@ -31,12 +31,14 @@ var SHEET_TARGET  = '학생 목표';                 // 희망 대학 · 희망 
 var SHEET_TRANSFER = '전입생_성적';              // 전입생이 이전 학교에서 받아 온 성적
 var SHEET_ACCOUNT = '계정';                      // 로그인 계정 시트 (자동 생성됩니다)
 var SHEET_TGRADE  = '목표등급';                   // 선생님이 적어 두는 목표 등급 (자동 생성됩니다)
+var SHEET_TUNIV   = '목표대학';                   // 상담하며 골라 둔 목표 대학 (자동 생성됩니다)
 var SHEET_UNIV    = '정시_대학자료';              // 정시 결과 (선생님이 붙여넣은 표)
 var SHEET_SUSI    = '수시_대학자료';              // 수시 지원 이력 (선배들의 합격·불합격)
 
 var TARGET_KEYWORDS = ['학생', '목표'];          // '학생목표', '1학년 학생 목표' 등도 인식
 var TRANSFER_KEYWORDS = ['전입생'];              // '전입생성적', '전입생 성적' 등도 인식
 var TGRADE_KEYWORDS = ['목표등급'];              // '목표등급표' 등도 인식 ('학생 목표'와 안 겹칩니다)
+var TUNIV_KEYWORDS  = ['목표대학'];              // '정시_대학자료'·'수시_대학자료' 와 안 겹칩니다
 var UNIV_KEYWORDS = ['정시', '대학자료'];        // '정시 대학자료' 등도 인식
 var SUSI_KEYWORDS = ['수시', '대학자료'];
 
@@ -333,6 +335,7 @@ function handle_(req) {
       case 'deleteCounseling':
       case 'saveTarget':
       case 'saveTargetGrade':
+      case 'saveTargetUniv':
       case 'getUniv':
       case 'getSusi':
       case 'logout':
@@ -349,6 +352,7 @@ function handle_(req) {
         if (action === 'deleteCounseling') return apiDeleteCounseling_(req, user);
         if (action === 'saveTarget')    return apiSaveTarget_(req, user);
         if (action === 'saveTargetGrade') return apiSaveTargetGrade_(req, user);
+        if (action === 'saveTargetUniv')  return apiSaveTargetUniv_(req, user);
         if (action === 'getUniv')       return apiGetUniv_(req, user);
         if (action === 'getSusi')       return apiGetSusi_(req, user);
         if (action === 'logout')        { dropToken_(req.token); return ok_({ message: '로그아웃되었습니다.' }); }
@@ -821,6 +825,7 @@ function CARD_SHEETS_() {
 function ALL_SHEETS_() {
   var list = CARD_SHEETS_();
   list.push({ key: 'tgrade', name: SHEET_TGRADE, keywords: TGRADE_KEYWORDS });
+  list.push({ key: 'tuniv',  name: SHEET_TUNIV,  keywords: TUNIV_KEYWORDS });
   MOCK_SHEETS.forEach(function (cfg) {
     list.push({ key: cfg.key, name: cfg.name, keywords: cfg.keywords });
   });
@@ -857,6 +862,141 @@ function tgradeSheet_(ss, create) {
   sh.getRange(1, 1, 1, head.length).setValues([head]);
   sh.setFrozenRows(1);
   return sh;
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   목표대학 시트  (자동 생성)
+
+   상담하면서 **수시·정시 목록에서 눌러 담아 둔 목표 대학**입니다.
+   (2026.09 사용자 요청 — 「목록에서 대학을 클릭하면 아래 여백에 목표 대학으로」)
+
+     반 | 번호 | 이름 | 수시 목표 | 정시 목표
+
+   한 칸 안에 **한 줄에 한 곳씩** 적습니다. 대학과 학과는 ` || ` 로 나눕니다.
+
+     제주대학교(제주) || 컴퓨터공학과
+     동국대학교(WISE) || 컴퓨터공학과
+
+   ⚠️ **성적이 아니라 메모입니다.** 석차·등급·평균 어디에도 안 들어갑니다.
+   ⚠️ 점수·연도·전형은 **적어 두지 않습니다.** 화면이 대학자료에서 그때그때 찾아
+      붙이므로, 자료가 새로 들어오면 목표 대학의 점수도 저절로 최신이 됩니다.
+   ══════════════════════════════════════════════════════════ */
+
+var TUNIV_KINDS_ = ['susi', 'univ'];             // 수시 · 정시
+var TUNIV_SEP_   = ' || ';                       // 대학 ↔ 학과
+var TUNIV_MAX_   = 20;                           // 한 학생이 담을 수 있는 최대 곳 수
+
+/** 목표대학 시트를 찾습니다. create 가 참이면 없을 때 만들어 줍니다. */
+function tunivSheet_(ss, create) {
+  var sh = findSheet_(ss, SHEET_TUNIV, TUNIV_KEYWORDS);
+  if (sh) return sh;
+  if (!create) return null;
+
+  sh = ss.insertSheet(SHEET_TUNIV);
+  sh.getRange(1, 1, 1, 5).setValues([['반', '번호', '이름', '수시 목표', '정시 목표']]);
+  sh.setFrozenRows(1);
+  return sh;
+}
+
+/** 칸에 적힌 글을 [[대학, 학과], …] 로 풀어 냅니다. */
+function tunivParse_(v) {
+  var out = [];
+  var text = String((v === null || v === undefined) ? '' : v);
+  var lines = text.split(/[\r\n]+/);
+  for (var i = 0; i < lines.length; i++) {
+    var line = String(lines[i]).trim();
+    if (!line) continue;
+    var cut = line.indexOf('||');
+    var u = (cut === -1) ? line : line.substring(0, cut);
+    var d = (cut === -1) ? ''   : line.substring(cut + 2);
+    u = String(u).trim();
+    d = String(d).trim();
+    if (!u && !d) continue;
+    out.push([u, d]);
+    if (out.length >= TUNIV_MAX_) break;
+  }
+  return out;
+}
+
+/** [[대학, 학과], …] 를 칸에 적을 글로 만듭니다. */
+function tunivText_(list) {
+  var lines = [];
+  for (var i = 0; i < list.length && i < TUNIV_MAX_; i++) {
+    var u = String(list[i][0] || '').trim();
+    var d = String(list[i][1] || '').trim();
+    if (!u && !d) continue;
+    lines.push(u + TUNIV_SEP_ + d);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * 목표 대학 목록을 통째로 저장합니다 (한 학생 · 한 종류).
+ *   kind = 'susi'(수시) 또는 'univ'(정시)
+ *   list = [[대학, 학과], …]   빈 배열이면 지웁니다.
+ */
+function saveTargetUniv(classNum, studentNum, studentName, kind, list) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (e) {
+    return { success: false, error: '다른 저장이 진행 중입니다. 잠시 후 다시 시도해 주세요.' };
+  }
+
+  try {
+    var classInt = toInt_(classNum);
+    var numInt   = toInt_(studentNum);
+    if (isNaN(classInt) || isNaN(numInt)) return { success: false, error: '반과 번호를 확인해 주세요.' };
+
+    var k = String(kind || '').trim();
+    if (TUNIV_KINDS_.indexOf(k) === -1) return { success: false, error: '수시·정시를 확인해 주세요.' };
+
+    var clean = [];
+    var arr = (list && list.length) ? list : [];
+    for (var i = 0; i < arr.length && clean.length < TUNIV_MAX_; i++) {
+      var item = arr[i] || [];
+      var u = String(item[0] || '').trim();
+      var d = String(item[1] || '').trim();
+      if (!u && !d) continue;
+      clean.push([u, d]);
+    }
+
+    var ss = getSpreadsheet_();
+    if (!ss) return { success: false, error: '스프레드시트를 열 수 없습니다.' };
+
+    var sheet = tunivSheet_(ss, true);
+    var col   = (k === 'susi') ? 4 : 5;            // 1부터 셈 (D열 · E열)
+    var value = tunivText_(clean);
+
+    var last = sheet.getLastRow();
+    var rowIndex = -1;
+    if (last >= 2) {
+      var keys = sheet.getRange(2, 1, last - 1, 2).getValues();
+      for (var j = 0; j < keys.length; j++) {
+        if (toInt_(keys[j][0]) === classInt && toInt_(keys[j][1]) === numInt) {
+          rowIndex = j + 2;
+          break;
+        }
+      }
+    }
+
+    if (rowIndex === -1) {
+      var fresh = [classInt, numInt, String(studentName || ''), '', ''];
+      fresh[col - 1] = value;
+      sheet.appendRow(fresh);
+      rowIndex = sheet.getLastRow();
+    } else {
+      sheet.getRange(rowIndex, col).setValue(value);
+    }
+
+    return { success: true, row: rowIndex, kind: k, count: clean.length };
+
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
 }
 
 
@@ -1181,7 +1321,8 @@ function apiGetAll_(req, user) {
     var key = c + '-' + n;
     if (!index[key]) {
       var st = { c: c, n: n, nm: nm || '', u: '', mj: '', cd: '', h: [], hc: [],
-                 g: [], d: [], s: ['', '', '', '', ''], tg: [], m: {} };
+                 g: [], d: [], s: ['', '', '', '', ''], tg: [],
+                 tu: [], tj: [], m: {} };
       var i;
       for (i = 0; i < G_LEN; i++) st.g.push('');
       for (i = 0; i < D_LEN; i++) st.d.push('');
@@ -1303,6 +1444,19 @@ function apiGetAll_(req, user) {
       if (isNaN(gc2) || isNaN(gn2) || !gn2) continue;
       var st5 = ensure_(gc2, gn2, String(tgRow[2] || '').trim());
       for (var q = 0; q < TG_LEN; q++) st5.tg[q] = E_(cellVal_(tgRow[3 + q]));
+    }
+  }
+
+  // 4-2. 목표대학 (상담하며 눌러 담아 둔 곳 — 역시 메모입니다)
+  var tuData = data.tuniv;
+  if (tuData) {
+    for (var i6 = 1; i6 < tuData.length; i6++) {
+      var tuRow = tuData[i6];
+      var uc = toInt_(tuRow[0]), un = toInt_(tuRow[1]);
+      if (isNaN(uc) || isNaN(un) || !un) continue;
+      var st6 = ensure_(uc, un, String(tuRow[2] || '').trim());
+      st6.tu = tunivParse_(tuRow[3]);
+      st6.tj = tunivParse_(tuRow[4]);
     }
   }
 
@@ -1607,7 +1761,7 @@ var SUSI_JH_MAX_ = 8;
 /* 이 Code.gs 의 버전. 화면(index.html)의 PAGE_VER 와 짝이 맞아야 합니다.
    「고쳤는데 화면이 그대로다」 의 원인은 거의 늘 새 버전 배포를 안 한 것이라,
    ping 응답에 실어 보내 화면이 스스로 알아채게 합니다. */
-var APP_VER = '2026-09-23c';
+var APP_VER = '2026-09-23d';
 
 /**
  * 아무 칸에서나 4자리 연도를 뽑아냅니다.
@@ -1865,6 +2019,14 @@ function noteRes_(bag, text) {
 function apiSaveTargetGrade_(req, user) {
   var res = saveTargetGrade(req.classNum, req.studentNum, req.studentName,
                             req.subjectIndex, req.phase, req.grade);
+  if (!res.success) return err_(res.error || '저장하지 못했습니다.');
+  return ok_(res);
+}
+
+
+function apiSaveTargetUniv_(req, user) {
+  var res = saveTargetUniv(req.classNum, req.studentNum, req.studentName,
+                           req.kind, req.list);
   if (!res.success) return err_(res.error || '저장하지 못했습니다.');
   return ok_(res);
 }
@@ -3587,6 +3749,7 @@ function 수식점검() {
   used[SHEET_COUNSEL] = '상담 기록';
   used[SHEET_ACCOUNT] = '로그인 계정';
   used[SHEET_TGRADE] = '목표 등급 (선생님 메모)';
+  used[SHEET_TUNIV]  = '목표 대학 (상담 중 고른 곳)';
   used[SHEET_UNIV] = '정시 결과 (대학·학과·연도·평균70 네 칸만)';
   used[SHEET_SUSI] = '수시 지원 이력 (대학명·모집단위·전교과 등 일곱 칸만)';
   used[SHEET_TRANSFER] = '전입생 이전 학교 성적';
