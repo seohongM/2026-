@@ -24,7 +24,7 @@
 
     /* 이 index.html 의 버전. Apps Script 의 APP_VER 와 짝이 맞아야 합니다.
        다르면 [🔧 연결 상태 확인] 과 수시 패널이 알려 줍니다. */
-    const PAGE_VER = '2026-09-23c';
+    const PAGE_VER = '2026-09-23d';
 
     </script>
 
@@ -45,13 +45,15 @@
              오른쪽 희망 너비 700px  (패널 3칸 — 오름·내림·변화 적음)
            둘을 합친 1624px 가 안 나오면 오른쪽 블록이 아래 줄로 내려갑니다. */
         /* 내신 표 오른쪽에 「수시로 갈 수 있는 대학」. 좁으면 아래로 내려갑니다. */
+        /* 왼쪽 칸 = 표 + 그 아래 「🎯 목표 대학」 (2026.09 사용자 요청).
+           표 아래 여백에 상담하며 눌러 담은 대학이 쌓입니다. */
         #naesin-wrap { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
-        #naesin-table-box { flex: 1 1 760px; min-width: 0; }
+        #naesin-left { flex: 1 1 760px; min-width: 0; }
         #susi-panel { flex: 1 1 340px; min-width: 0; }
 
         /* 모의고사 표 오른쪽에 「갈 수 있는 대학」. 좁으면 아래로 내려갑니다. */
         #mock-wrap { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
-        #mock-exams-container { flex: 1 1 780px; min-width: 0; }
+        #mock-left { flex: 1 1 780px; min-width: 0; }
         #univ-panel { flex: 1 1 340px; min-width: 0; }
 
         #home-wrap  { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; }
@@ -226,18 +228,26 @@
             }
             .print-table th, .print-table td {
                 border: 1px solid #94a3b8 !important;
-                padding: 2px 1px !important;
+                padding: 1px !important;
                 text-align: center !important;
-                font-size: 7pt !important;
+                font-size: 6pt !important;
                 line-height: 1.15 !important;
+                /* ⚠️ **줄바꿈을 막습니다.** 표 옆에 대학 패널이 붙으면서 표가 좁아졌는데,
+                   그대로 두면 「공통국어1」 이 한 글자씩 세로로 쌓여 표가 깨집니다
+                   (2026.09 사용자 신고). 글자를 줄이고 한 줄로 붙여 둡니다. */
+                white-space: nowrap !important;
+                word-break: keep-all !important;
             }
-            /* 모의고사 표는 과목마다 점수·백분위·등급 3칸이라 열이 많습니다.
+            .print-table th div { font-size: 5pt !important; white-space: nowrap !important; }
+            /* 모의고사 표는 과목마다 점수·표준·백분위·등급 칸이라 열이 19개입니다.
                A4 한 장에 들어가도록 조금 더 작게 찍습니다. */
             .mock-table th, .mock-table td {
-                font-size: 6pt !important;
-                padding: 2px 0 !important;
-                letter-spacing: -0.2px;
+                font-size: 5.5pt !important;
+                padding: 1px 0 !important;
+                letter-spacing: -0.3px;
             }
+            /* 표는 남는 자리를 다 쓰되, 글자가 넘치면 표가 줄어들도록 */
+            .print-table { table-layout: auto !important; width: 100% !important; }
             .print-text {
                 font-size: 7.5pt !important;
                 line-height: 1.25 !important;
@@ -283,13 +293,13 @@
                 align-items: flex-start !important;
                 gap: 5px !important;
             }
-            #naesin-wrap:has(#susi-body li.print-keep) #naesin-table-box,
-            #mock-wrap:has(#univ-body li.print-keep)   #mock-exams-container {
-                flex: 1 1 58% !important; min-width: 0 !important;
+            #naesin-wrap:has(#susi-body li.print-keep) #naesin-left,
+            #mock-wrap:has(#univ-body li.print-keep)   #mock-left {
+                flex: 1 1 64% !important; min-width: 0 !important;
             }
             #naesin-wrap:has(#susi-body li.print-keep) #susi-panel,
             #mock-wrap:has(#univ-body li.print-keep)   #univ-panel {
-                display: block !important; flex: 0 0 40% !important; min-width: 0 !important;
+                display: block !important; flex: 0 0 34% !important; min-width: 0 !important;
             }
 
             /* 패널 안에서 종이에 뜻이 없는 것들은 뺍니다 (검색칸 · 안내 글 · [더 보기]) */
@@ -598,6 +608,7 @@
                         <span id="grade-summary" class="ml-auto flex items-center gap-1.5 flex-wrap"></span>
                     </h3>
                     <div id="naesin-wrap">
+                    <div id="naesin-left">
                     <div class="overflow-hidden rounded-lg border border-slate-300" id="naesin-table-box">
                         <table class="print-table w-full text-xs text-center">
                             <thead class="bg-slate-100 text-slate-700 font-bold">
@@ -620,7 +631,10 @@
                             </tfoot>
                         </table>
                     </div>
-                        <!-- 수시로 갈 수 있는 대학 (화면 전용 — 인쇄에는 안 나옵니다) -->
+                        <!-- 🎒 수시 목록에서 눌러 담은 목표 대학 (인쇄에도 나옵니다) -->
+                        <div id="susi-goal"></div>
+                    </div>
+                        <!-- 수시로 갈 수 있는 대학 -->
                         <div id="susi-panel"></div>
                     </div>
                 </div>
@@ -630,9 +644,13 @@
                         📈 전국 연합 학력평가(모의고사) 성적 추이
                     </h3>
                     <div id="mock-wrap">
+                        <div id="mock-left">
                         <div id="mock-exams-container" class="overflow-x-auto rounded-lg border border-slate-300 bg-white">
                         </div>
-                        <!-- 백분위로 갈 수 있는 대학 (화면 전용 — 인쇄에는 안 나옵니다) -->
+                        <!-- 🎓 정시 목록에서 눌러 담은 목표 대학 (인쇄에도 나옵니다) -->
+                        <div id="univ-goal"></div>
+                        </div>
+                        <!-- 백분위로 갈 수 있는 대학 -->
                         <div id="univ-panel"></div>
                     </div>
                 </div>
@@ -1316,6 +1334,10 @@ function hydrate(row) {
         //    `getClassCards` 로 들어온 학생은 새 배열이라 안 겹쳤기 때문에 「가끔」 이었습니다.
         counselingHistory: (row.h || []).slice(),
         counselingCols: (row.hc || []).slice(),
+        // 상담하며 눌러 담아 둔 목표 대학 (수시 · 정시). 역시 **복사해서** 넘깁니다 —
+        // `ALL` 안의 배열과 같은 것을 넘기면 한쪽만 고쳤는데 양쪽이 바뀝니다.
+        goalSusi: (row.tu || []).map(x => [x[0] || '', x[1] || '']),
+        goalUniv: (row.tj || []).map(x => [x[0] || '', x[1] || '']),
         schoolGrades: schoolGrades,
         mockExams: mockExams,
         summary: {
@@ -1811,7 +1833,7 @@ function loadUniv(force) {
     univPromise = api('getUniv', {}).then(d => {
         UNIV = d;
         univPromise = null;
-        if (selectedStudent) renderUnivMatch();
+        if (selectedStudent) { renderUnivMatch(); renderGoalUniv('univ'); }
         return d;
     }).catch(e => {
         univPromise = null;
@@ -1961,16 +1983,22 @@ function wishTop(picks, note, U, D, score, tail, tone) {
     const c = (tone === 'susi')
         ? { box: 'border-teal-300 bg-teal-50', num: 'text-teal-700', note: 'text-teal-800' }
         : { box: 'border-indigo-300 bg-indigo-50', num: 'text-indigo-700', note: 'text-indigo-800' };
+    const kind = (tone === 'susi') ? 'susi' : 'univ';
     return '<div class="rounded-lg border ' + c.box + ' px-2.5 py-2 mb-2">' +
              (note ? '<div class="text-[10px] ' + c.note + ' mb-1">' + escapeHtml(note) + '</div>' : '') +
              picks.map(x =>
-               '<div class="flex items-center gap-2">' +
-                 '<span class="min-w-0 flex-1 text-xs font-bold text-slate-800 truncate">' +
+               // 이 칸의 줄도 **누르면 목표 대학에 담깁니다** (목록 줄과 같습니다)
+               '<div onclick="goalToggle(\'' + kind + '\',' + x[0] + ',' + x[1] + ')"' +
+                   ' title="누르면 아래 목표 대학에 담깁니다"' +
+                   ' class="cursor-pointer flex items-center gap-2">' +
+                 '<span class="w-3 shrink-0 text-[10px] font-black ' + c.num + '">' +
+                   (goalHas(kind, x[0], x[1]) ? '✓' : '') + '</span>' +
+                 '<span class="min-w-0 flex-1 text-xs font-bold text-slate-900 truncate">' +
                    escapeHtml(U[x[0]] || '') +
-                   ' <span class="font-medium text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
+                   ' <span class="font-medium text-slate-700">' + escapeHtml(D[x[1]] || '') + '</span>' +
                  '</span>' +
                  '<span class="shrink-0 text-sm font-extrabold ' + c.num + '">' + score(x) + '</span>' +
-                 '<span class="shrink-0 text-[9px] text-slate-400 text-right whitespace-nowrap">' +
+                 '<span class="shrink-0 text-[10px] text-slate-600 text-right whitespace-nowrap">' +
                    escapeHtml(tail(x)) + '</span>' +
                '</div>').join('') +
            '</div>';
@@ -2139,14 +2167,175 @@ function scrollToPivot(bodyId, markId) {
 function pivotRow(id, text) {
     return '<li id="' + id + '" class="flex items-center gap-2 py-1 px-1 bg-slate-100 rounded sticky-none print-keep">' +
              '<span class="flex-1 h-px bg-slate-300"></span>' +
-             '<span class="text-[9px] font-extrabold text-slate-500 whitespace-nowrap">' + escapeHtml(text) + '</span>' +
+             '<span class="text-[10px] font-extrabold text-slate-700 whitespace-nowrap">' + escapeHtml(text) + '</span>' +
              '<span class="flex-1 h-px bg-slate-300"></span>' +
            '</li>';
 }
 
 function univNote(text) {
-    return '<div class="text-[11px] text-slate-400 text-center py-6 px-2">' + escapeHtml(text) + '</div>';
+    return '<div class="text-[11px] text-slate-500 text-center py-6 px-2">' + escapeHtml(text) + '</div>';
 }
+
+/* ══════════════════════════════════════════════════════════
+   🎯 목표 대학  (2026.09 사용자 요청)
+
+   수시·정시 목록에서 **대학을 누르면** 표 아래 여백에 담깁니다.
+     · 수시 목록 → 내신 표 아래 (`#susi-goal`)
+     · 정시 목록 → 모의고사 표 아래 (`#univ-goal`)
+   여러 곳을 담을 수 있고, 한 번 더 누르면 빠집니다.
+   구글 시트 `목표대학` 에 저장되어 **다음에 열어도 그대로** 있습니다.
+   **인쇄에도 같이 나옵니다.**
+
+   ⚠️ 점수·연도·전형은 **저장하지 않습니다.** 대학·학과 이름만 적어 두고
+      화면이 그때그때 대학자료에서 찾아 붙입니다 (자료가 바뀌면 값도 최신이 됩니다).
+   ⚠️ `Code.gs` 를 새 버전으로 배포하지 않으면 서버가 `saveTargetUniv` 를 모릅니다.
+      그때는 화면에만 담기고 안내를 띄웁니다.
+   ══════════════════════════════════════════════════════════ */
+
+const GOAL_KEYS = { susi: 'goalSusi', univ: 'goalUniv' };
+
+/** 그 학생의 목표 대학 목록 (없으면 만들어 줍니다) */
+function goalList(kind) {
+    if (!selectedStudent) return [];
+    const key = GOAL_KEYS[kind];
+    if (!Array.isArray(selectedStudent[key])) selectedStudent[key] = [];
+    return selectedStudent[key];
+}
+
+/** 이름표(대학·학과) — 목록 번호로 찾습니다 */
+function goalNames(kind, ui, di) {
+    const SRC = (kind === 'susi') ? SUSI : UNIV;
+    if (!SRC) return null;
+    const u = (SRC.u || [])[ui], d = (SRC.d || [])[di];
+    if (u === undefined && d === undefined) return null;
+    return [String(u || ''), String(d || '')];
+}
+
+function goalHas(kind, ui, di) {
+    const nm = goalNames(kind, ui, di);
+    if (!nm) return false;
+    return goalList(kind).some(x => x[0] === nm[0] && x[1] === nm[1]);
+}
+
+/** 목록에서 한 줄을 눌렀을 때 — 담겨 있으면 빼고, 없으면 담습니다 */
+function goalToggle(kind, ui, di) {
+    if (!selectedStudent) return;
+    const nm = goalNames(kind, ui, di);
+    if (!nm) return;
+    const list = goalList(kind);
+    const at = list.findIndex(x => x[0] === nm[0] && x[1] === nm[1]);
+    if (at >= 0) list.splice(at, 1);
+    else         list.push([nm[0], nm[1]]);
+    goalApply(kind);
+}
+
+/** 목표 대학 하나를 뺍니다 (칩의 × 단추) */
+function goalRemove(kind, at) {
+    const list = goalList(kind);
+    if (at < 0 || at >= list.length) return;
+    list.splice(at, 1);
+    goalApply(kind);
+}
+
+/* 저장이 잘 됐는지 칸 안에 한 줄로 알려 줍니다 (인쇄에는 안 나옵니다) */
+const goalMsg = { susi: '', univ: '' };
+
+/** 바뀐 목록을 화면·`ALL`·시트에 모두 반영합니다 */
+function goalApply(kind) {
+    const list = goalList(kind).map(x => [x[0], x[1]]);
+    const field = (kind === 'susi') ? 'tu' : 'tj';
+    updateAllRow(selectedStudent.classNum, selectedStudent.number, r => {
+        r[field] = list.map(x => [x[0], x[1]]);
+    });
+    goalMsg[kind] = '저장 중…';
+    renderGoalUniv(kind);
+    if (kind === 'susi') susiFilter(); else univFilter();   // 담긴 줄에 ✓ 를 다시 그립니다
+
+    const cls = selectedStudent.classNum, num = selectedStudent.number;
+    api('saveTargetUniv', {
+        classNum: cls,
+        studentNum: num,
+        studentName: selectedStudent.name,
+        kind: kind,
+        list: list
+    }).then(() => {
+        goalMsg[kind] = '';
+        if (selectedStudent && selectedStudent.number === num) renderGoalUniv(kind);
+    }).catch(e => {
+        const msg = String((e && e.message) || '');
+        if (msg === 'needLogin') return;
+        // `Code.gs` 를 새 버전으로 배포하지 않으면 서버가 이 요청을 모릅니다
+        goalMsg[kind] = /알 수 없는 요청/.test(msg)
+            ? '⚠️ 화면에만 담겼습니다 — Apps Script 를 [배포 → 배포 관리 → 연필 → 새 버전 → 배포] 해 주세요.'
+            : ('⚠️ 저장하지 못했습니다. ' + msg);
+        if (selectedStudent && selectedStudent.number === num) renderGoalUniv(kind);
+    });
+}
+
+/** 대학·학과 이름으로 대학자료에서 그 줄을 찾습니다 (점수·연도를 붙이려고) */
+function goalFind(kind, u, d) {
+    const SRC = (kind === 'susi') ? SUSI : UNIV;
+    if (!SRC || !SRC.r) return null;
+    const U = SRC.u || [], D = SRC.d || [];
+    return SRC.r.find(x => U[x[0]] === u && D[x[1]] === d) || null;
+}
+
+/** 표 아래 「🎯 목표 대학」 칸을 그립니다 */
+function renderGoalUniv(kind) {
+    const box = document.getElementById(kind === 'susi' ? 'susi-goal' : 'univ-goal');
+    if (!box) return;
+    const list = goalList(kind);
+    const label = (kind === 'susi') ? '🎒 수시 목표 대학' : '🎓 정시 목표 대학';
+    const from  = (kind === 'susi') ? '수시로 갈 수 있는 대학' : '정시로 갈 수 있는 대학';
+    const tone  = (kind === 'susi')
+        ? { box: 'border-teal-300 bg-teal-50', num: 'text-teal-800', head: 'text-teal-900' }
+        : { box: 'border-indigo-300 bg-indigo-50', num: 'text-indigo-800', head: 'text-indigo-900' };
+
+    const note = goalMsg[kind]
+        ? '<div class="no-print mt-1 text-[10px] font-bold text-rose-600">' + escapeHtml(goalMsg[kind]) + '</div>'
+        : '';
+
+    if (!list.length) {
+        // 담은 곳이 없으면 화면에만 안내를 두고, 인쇄에는 아무것도 안 나옵니다
+        box.innerHTML = '<div class="no-print mt-2 text-[10px] text-slate-500">' +
+            '🎯 오른쪽 「' + from + '」 목록에서 대학을 누르면 여기에 <b>목표 대학</b>으로 담깁니다.</div>' + note;
+        return;
+    }
+
+    box.innerHTML =
+      '<div class="goal-card mt-2 rounded-lg border ' + tone.box + ' px-2.5 py-2">' +
+        '<div class="flex items-baseline gap-2 mb-1">' +
+          '<span class="text-xs font-extrabold ' + tone.head + '">' + label + '</span>' +
+          '<span class="text-[10px] text-slate-500">모두 ' + list.length + '곳' +
+            '<span class="no-print"> · 목록에서 한 번 더 누르면 빠집니다</span></span>' +
+        '</div>' +
+        '<ol class="grid grid-cols-1 md:grid-cols-2 gap-x-3">' +
+        list.map((g, i) => {
+            const x = goalFind(kind, g[0], g[1]);
+            const score = x ? Number(x[2]).toFixed(2) : '';
+            const tail  = !x ? ''
+                : (kind === 'susi'
+                    ? ((susiYearText(x) ? susiYearText(x) + ' · ' : '') + susiPassText(x))
+                    : (x[3] ? x[3] + '년' : ''));
+            return '<li class="goal-item flex items-baseline gap-1.5 py-0.5">' +
+                     '<span class="w-4 shrink-0 text-[10px] font-black text-slate-400 text-right">' + (i + 1) + '</span>' +
+                     '<span class="min-w-0 flex-1 text-xs">' +
+                       '<b class="text-slate-900">' + escapeHtml(g[0]) + '</b> ' +
+                       '<span class="text-slate-700">' + escapeHtml(g[1]) + '</span>' +
+                       (tail ? ' <span class="text-[10px] text-slate-600">' + escapeHtml(tail) + '</span>' : '') +
+                     '</span>' +
+                     (score ? '<span class="shrink-0 text-xs font-extrabold ' + tone.num + '">' + score + '</span>' : '') +
+                     '<button onclick="goalRemove(\'' + kind + '\',' + i + ')" title="빼기" ' +
+                       'class="no-print shrink-0 text-[11px] leading-none text-slate-400 hover:text-rose-600 px-1">×</button>' +
+                   '</li>';
+        }).join('') +
+        '</ol>' + note +
+      '</div>';
+}
+
+/** 학생을 열 때 두 칸을 모두 그립니다 */
+function renderGoalUnivAll() { renderGoalUniv('susi'); renderGoalUniv('univ'); }
+
 
 /** 목록 한 덩어리 */
 function univList(rows, headNote, markSet, pivot, myScore) {
@@ -2167,20 +2356,28 @@ function univList(rows, headNote, markSet, pivot, myScore) {
         if (i === pivot) html += pivotRow('univ-pivot', '▼ 여기부터 갈 수 있는 곳 · 내 백분위 ' + myScore);
         const x = rows[i];
         const marked = !!(markSet && markSet[x[0] + '|' + x[1]]);
+        // 누르면 모의고사 표 아래 「🎓 정시 목표 대학」 에 담깁니다 (2026.09 사용자 요청)
+        const picked = goalHas('univ', x[0], x[1]);
         html +=
-          '<li class="flex items-center gap-2 py-1.5 px-1' + (marked ? ' bg-amber-100 rounded' : '') +
+          '<li onclick="goalToggle(\'univ\',' + x[0] + ',' + x[1] + ')"' +
+              ' title="누르면 아래 목표 대학에 담깁니다"' +
+              ' class="cursor-pointer flex items-center gap-2 py-1.5 px-1' +
+              (marked ? ' bg-amber-100 rounded' : '') +
+              (picked ? ' ring-1 ring-indigo-400 rounded' : '') +
               (printKeep(i, pivot, start) ? ' print-keep' : '') + '"' +
               (marked ? '' : ' style="' + rowTint(i, pivot) + '"') + '>' +
-            '<span class="w-6 shrink-0 text-[10px] font-black text-slate-300 text-right">' + (i + 1) + '</span>' +
+            '<span class="w-6 shrink-0 text-[10px] font-black text-right ' +
+              (picked ? 'text-indigo-600' : 'text-slate-500') + '">' +
+              (picked ? '✓' : (i + 1)) + '</span>' +
             '<span class="min-w-0 flex-1">' +
-              '<span class="text-xs font-bold text-slate-800">' +
+              '<span class="text-xs font-bold text-slate-900">' +
                 escapeHtml(U[x[0]] || '') + '</span> ' +
-              '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
+              '<span class="text-[11px] text-slate-700">' + escapeHtml(D[x[1]] || '') + '</span>' +
             '</span>' +
             '<span class="shrink-0 text-right">' +
-              '<span class="text-xs font-extrabold text-indigo-700">' +
+              '<span class="text-xs font-extrabold text-indigo-800">' +
                 Number(x[2]).toFixed(2) + '</span>' +
-              '<span class="block text-[9px] text-slate-400 leading-none">' + (x[3] ? x[3] + '년' : '') + '</span>' +
+              '<span class="block text-[10px] text-slate-600 leading-none">' + (x[3] ? x[3] + '년' : '') + '</span>' +
             '</span>' +
           '</li>';
     }
@@ -2190,7 +2387,7 @@ function univList(rows, headNote, markSet, pivot, myScore) {
     html += '</ol>';
 
     html += '<div class="pt-2 mt-1 border-t border-slate-100 flex items-center justify-between gap-2">' +
-              '<span class="text-[10px] text-slate-400">' + escapeHtml(headNote) +
+              '<span class="text-[10px] text-slate-600">' + escapeHtml(headNote) +
                 ' · 모두 ' + rows.length.toLocaleString() + '곳 중 ' +
                 (start + 1) + '~' + end + '번째</span>' +
               (end - start < rows.length
@@ -2258,7 +2455,7 @@ function univFilter() {
                               '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span>' +
                             '</span>' +
                             '<span class="shrink-0 text-sm font-extrabold text-indigo-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
-                            '<span class="shrink-0 text-[9px] text-slate-400">' + (o.x[3] ? o.x[3] + '년' : '') + '</span>' +
+                            '<span class="shrink-0 text-[10px] text-slate-600">' + (o.x[3] ? o.x[3] + '년' : '') + '</span>' +
                           '</div>').join('') +
                       '</div>'
                     : '') +
@@ -2271,7 +2468,7 @@ function univFilter() {
                         escapeHtml(U[x[0]]) + ' <span class="font-medium text-slate-600">' + escapeHtml(D[x[1]]) + '</span>' +
                       '</span>' +
                       '<span class="shrink-0 text-sm font-extrabold text-indigo-700">' + Number(x[2]).toFixed(2) + '</span>' +
-                      '<span class="shrink-0 text-[9px] text-slate-400">' + (x[3] ? x[3] + '년' : '') + '</span>' +
+                      '<span class="shrink-0 text-[10px] text-slate-600">' + (x[3] ? x[3] + '년' : '') + '</span>' +
                     '</div>').join('') +
                   '</div>';
         }
@@ -2322,7 +2519,7 @@ function univFilter() {
                                  '<span class="font-bold text-slate-800">' + escapeHtml(U[o.x[0]]) + '</span> ' +
                                  '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span></span>' +
                                '<span class="shrink-0 text-sm font-extrabold text-indigo-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
-                               '<span class="shrink-0 text-[9px] text-slate-400">' + (o.x[3] ? o.x[3] + '년' : '') + '</span>' +
+                               '<span class="shrink-0 text-[10px] text-slate-600">' + (o.x[3] ? o.x[3] + '년' : '') + '</span>' +
                              '</div>').join('') + '</div>'
                        : '') +
                    '</div>');
@@ -2378,7 +2575,7 @@ function renderUnivMatch() {
     const scoreLine = pc
         ? '<span class="text-[10px] text-slate-500">' + escapeHtml(pc.label) +
           ' 국·수·사·과 백분위 평균 <b class="text-sm text-indigo-700">' + pc.avg.toFixed(2) + '</b></span>'
-        : '<span class="text-[10px] text-slate-400">백분위 평균 없음</span>';
+        : '<span class="text-[10px] text-slate-500">백분위 평균 없음</span>';
 
     box.innerHTML =
         '<div class="rounded-lg border border-slate-300 bg-white p-2.5">' +
@@ -2436,7 +2633,7 @@ function loadSusi(force) {
     susiPromise = api('getSusi', {}).then(d => {
         SUSI = d;
         susiPromise = null;
-        if (selectedStudent) renderSusiMatch();
+        if (selectedStudent) { renderSusiMatch(); renderGoalUniv('susi'); }
         return d;
     }).catch(e => {
         susiPromise = null;
@@ -2514,6 +2711,17 @@ function susiPassText(x) {
     return '';
 }
 
+/**
+ * 강조 칸·목표 대학 칸에 적을 「연도 · 합격」 글자.
+ * ⚠️ 2026.09 에 **강조 칸에서만 연도가 빠져** 있었습니다 (사용자 신고 「또 사라졌다」).
+ *    목록 줄은 연도를 붙이고 있었는데, 이 칸만 `susiPassText` 만 쓰고 있었습니다.
+ *    두 곳이 어긋나지 않도록 **여기 한 곳에서** 만듭니다.
+ */
+function susiTailText(x) {
+    const y = susiYearText(x), p = susiPassText(x);
+    return (y && p) ? (y + ' · ' + p) : (y || p);
+}
+
 /** 합격 연도 표시 — 한 해면 '2025', 여러 해면 '2023~2025'. 모르면 빈 글자 */
 function susiYearText(x) {
     const y0 = Number(x[5] || 0), y1 = Number(x[6] || 0);
@@ -2522,7 +2730,7 @@ function susiYearText(x) {
 }
 
 function susiNote(text) {
-    return '<div class="text-[11px] text-slate-400 text-center py-6 px-2">' + escapeHtml(text) + '</div>';
+    return '<div class="text-[11px] text-slate-500 text-center py-6 px-2">' + escapeHtml(text) + '</div>';
 }
 
 /** 목록 한 덩어리 */
@@ -2543,24 +2751,33 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
         if (i === pivot) html += pivotRow('susi-pivot', '▼ 여기부터 갈 수 있는 곳 · 내 등급 ' + myScore);
         const x = rows[i];
         const marked = !!(markSet && markSet[x[0] + '|' + x[1]]);
+        // 누르면 내신 표 아래 「🎒 수시 목표 대학」 에 담깁니다 (2026.09 사용자 요청)
+        const picked = goalHas('susi', x[0], x[1]);
         html +=
-          '<li class="flex items-center gap-2 py-1.5 px-1' + (marked ? ' bg-amber-100 rounded' : '') +
+          '<li onclick="goalToggle(\'susi\',' + x[0] + ',' + x[1] + ')"' +
+              ' title="누르면 아래 목표 대학에 담깁니다"' +
+              ' class="cursor-pointer flex items-center gap-2 py-1.5 px-1' +
+              (marked ? ' bg-amber-100 rounded' : '') +
+              (picked ? ' ring-1 ring-teal-500 rounded' : '') +
               (printKeep(i, pivot, start) ? ' print-keep' : '') + '"' +
               (marked ? '' : ' style="' + rowTint(i, pivot) + '"') + '>' +
-            '<span class="w-6 shrink-0 text-[10px] font-black text-slate-300 text-right">' + (i + 1) + '</span>' +
+            '<span class="w-6 shrink-0 text-[10px] font-black text-right ' +
+              (picked ? 'text-teal-700' : 'text-slate-500') + '">' +
+              (picked ? '✓' : (i + 1)) + '</span>' +
             '<span class="min-w-0 flex-1">' +
-              '<span class="text-xs font-bold text-slate-800">' +
+              '<span class="text-xs font-bold text-slate-900">' +
                 escapeHtml(U[x[0]] || '') + '</span> ' +
-              '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
-              '<span class="block text-[9px] text-slate-400 leading-tight truncate"' +
+              '<span class="text-[11px] text-slate-700">' + escapeHtml(D[x[1]] || '') + '</span>' +
+              // 전형이 여럿이면 세 개까지만 보이므로, 마우스를 올리면 전부 보이게 해 둡니다
+              '<span class="block text-[10px] text-slate-600 leading-tight truncate"' +
                   ' title="' + escapeHtml(susiJhList(x).join('\n')) + '">' +
                 (susiYearText(x) ? escapeHtml(susiYearText(x)) + ' · ' : '') +
                 escapeHtml(susiJhText(x)) + '</span>' +
             '</span>' +
             '<span class="shrink-0 text-right">' +
-              '<span class="text-xs font-extrabold text-teal-700">' +
+              '<span class="text-xs font-extrabold text-teal-800">' +
                 Number(x[2]).toFixed(2) + '</span>' +
-              '<span class="block text-[9px] text-slate-400 leading-none whitespace-nowrap">' +
+              '<span class="block text-[10px] text-slate-600 leading-none whitespace-nowrap">' +
                 escapeHtml(susiPassText(x)) + '</span>' +
             '</span>' +
           '</li>';
@@ -2571,7 +2788,7 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
     html += '</ol>';
 
     html += '<div class="pt-2 mt-1 border-t border-slate-100 flex items-center justify-between gap-2">' +
-              '<span class="text-[10px] text-slate-400">' + escapeHtml(headNote) +
+              '<span class="text-[10px] text-slate-600">' + escapeHtml(headNote) +
                 ' · 모두 ' + rows.length.toLocaleString() + '곳 중 ' +
                 (start + 1) + '~' + end + '번째</span>' +
               (end - start < rows.length
@@ -2637,9 +2854,8 @@ function susiFilter() {
                               '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span>' +
                             '</span>' +
                             '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
-                            '<span class="shrink-0 text-[9px] text-slate-400 text-right leading-tight whitespace-nowrap">' +
-                              (susiYearText(o.x) ? escapeHtml(susiYearText(o.x)) + ' · ' : '') +
-                              escapeHtml(susiPassText(o.x)) + '</span>' +
+                            '<span class="shrink-0 text-[10px] text-slate-600 text-right leading-tight whitespace-nowrap">' +
+                              escapeHtml(susiTailText(o.x)) + '</span>' +
                           '</div>').join('') +
                       '</div>'
                     : '') +
@@ -2652,9 +2868,8 @@ function susiFilter() {
                         escapeHtml(U[x[0]]) + ' <span class="font-medium text-slate-600">' + escapeHtml(D[x[1]]) + '</span>' +
                       '</span>' +
                       '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(x[2]).toFixed(2) + '</span>' +
-                      '<span class="shrink-0 text-[9px] text-slate-400 text-right leading-tight whitespace-nowrap">' +
-                        (susiYearText(x) ? escapeHtml(susiYearText(x)) + ' · ' : '') +
-                        escapeHtml(susiPassText(x)) + '</span>' +
+                      '<span class="shrink-0 text-[10px] text-slate-600 text-right leading-tight whitespace-nowrap">' +
+                        escapeHtml(susiTailText(x)) + '</span>' +
                     '</div>').join('') +
                   '</div>';
         }
@@ -2688,7 +2903,7 @@ function susiFilter() {
                    wishTop(bp.picks,
                            (byWord ? '「' + qDraw + '」 관련 학과 · ' : '') +
                            (bp.reach ? '갈 수 있는 곳 중 내신이 좋은 순' : '내 등급에 가까운 곳'),
-                           U, D, x => Number(x[2]).toFixed(2), susiPassText, 'susi'));
+                           U, D, x => Number(x[2]).toFixed(2), susiTailText, 'susi'));
         }
         if (!hit.length && qD) {
             const near = rows.map(x => ({ x: x, s: univSim(D[x[1]], qD) }))
@@ -2707,7 +2922,7 @@ function susiFilter() {
                                  '<span class="font-bold text-slate-800">' + escapeHtml(U[o.x[0]]) + '</span> ' +
                                  '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span></span>' +
                                '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
-                               '<span class="shrink-0 text-[9px] text-slate-400">' + escapeHtml(susiPassText(o.x)) + '</span>' +
+                               '<span class="shrink-0 text-[10px] text-slate-600">' + escapeHtml(susiTailText(o.x)) + '</span>' +
                              '</div>').join('') + '</div>'
                        : '') +
                    '</div>');
@@ -2754,7 +2969,7 @@ function renderSusiMatch() {
     const scoreLine = (g9 !== null)
         ? '<span class="text-[10px] text-slate-500">9등급제 평균 ' +
           '<b class="text-sm text-teal-700">' + g9.toFixed(2) + '</b></span>'
-        : '<span class="text-[10px] text-slate-400">9등급제 평균 없음</span>';
+        : '<span class="text-[10px] text-slate-500">9등급제 평균 없음</span>';
 
     box.innerHTML =
         '<div class="rounded-lg border border-slate-300 bg-white p-2.5">' +
@@ -2805,6 +3020,7 @@ function showStudent(s) {
     renderMockExams(selectedStudent.mockExams);
     renderUnivMatch();
     renderSusiMatch();
+    renderGoalUnivAll();
     renderMockCharts(selectedStudent.mockExams);
     renderHistory(selectedStudent);
 
