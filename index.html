@@ -24,7 +24,7 @@
 
     /* 이 index.html 의 버전. Apps Script 의 APP_VER 와 짝이 맞아야 합니다.
        다르면 [🔧 연결 상태 확인] 과 수시 패널이 알려 줍니다. */
-    const PAGE_VER = '2026-09-23';
+    const PAGE_VER = '2026-09-23b';
 
     </script>
 
@@ -256,6 +256,39 @@
                 max-height: none !important;
                 overflow: visible !important;
             }
+            /* 수시·정시 인쇄칸은 **나란히** 놓아 세로를 아낍니다 (안 그러면 한 장을 넘깁니다) */
+            #uni-print-wrap {
+                display: flex !important;
+                gap: 5px;
+                align-items: flex-start;
+            }
+            #uni-print-wrap > div { flex: 1 1 50%; min-width: 0; margin-bottom: 0 !important; }
+            #uni-print-wrap .print-table th,
+            #uni-print-wrap .print-table td {
+                font-size: 6pt !important;
+                padding: 1px 0 !important;
+                letter-spacing: -0.2px;
+            }
+            /* 대학·학과 이름은 왼쪽으로, 너무 길면 줄여서 */
+            #uni-print-wrap .print-table td:nth-child(2),
+            #uni-print-wrap .print-table td:nth-child(3) {
+                text-align: left !important;
+                max-width: 0;
+                overflow: hidden;
+                white-space: nowrap;
+                text-overflow: ellipsis;
+            }
+
+            /* 이전 상담 누적 기록은 **늘 다음 장부터** 찍습니다 (2026.09 사용자 요청).
+               종합 코멘트와 같은 장에 섞이지 않도록. */
+            #history-card {
+                page-break-before: always !important;
+                break-before: page !important;
+                page-break-inside: auto !important;
+                border-top: none !important;
+            }
+            /* 기록이 길면 여러 장에 걸쳐도 되지만, 한 건이 장을 넘어 잘리지는 않게 */
+            #counseling-history-list > * { page-break-inside: avoid; }
             /* 인쇄에서는 옆칸(대학 패널)이 사라지므로 표가 가로를 다 쓰게 둡니다 */
             #naesin-wrap, #mock-wrap { display: block !important; }
 
@@ -494,7 +527,7 @@
             <div class="flex justify-end mb-3 no-print">
                 <button onclick="triggerPrint()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-md transition flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
-                    A4 1장 인쇄하기
+                    🖨️ 인쇄하기
                 </button>
             </div>
 
@@ -607,6 +640,13 @@
                     </div>
                 </div>
 
+                <!-- 인쇄 전용 : 화면 패널은 검색칸·스크롤이 있어 그대로 찍을 수 없으므로
+                     같은 내용을 종이에 맞게 따로 그립니다 (susiFilter·univFilter 가 채웁니다) -->
+                <div id="uni-print-wrap" class="hidden print-only mb-2">
+                    <div id="susi-print" class="print-card"></div>
+                    <div id="univ-print" class="print-card"></div>
+                </div>
+
                 <div class="print-card mb-2">
                     <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 border-b border-slate-200 pb-1 print-section-title">
                         💬 개별 상담 종합 코멘트
@@ -633,7 +673,7 @@
                     </div>
                 </div>
 
-                <div class="print-card border-t border-slate-300 pt-1.5">
+                <div id="history-card" class="print-card border-t border-slate-300 pt-1.5">
                     <h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 print-section-title">
                         📚 이전 상담 누적 기록 (총 <span id="history-count" class="text-blue-600">0</span>건)
                     </h3>
@@ -1259,8 +1299,12 @@ function hydrate(row) {
         targetUni: row.u || '',
         targetMajor: row.mj || '',
         lastCounselingDate: row.cd || '상담 기록 없음',
-        counselingHistory: row.h || [],
-        counselingCols: row.hc || [],
+        // ⚠️ **꼭 복사해서** 넘깁니다. 그대로 넘기면 `ALL` 안의 그 줄과 **같은 배열**이 되어,
+        //    상담을 저장할 때 `applySaveResult` 가 두 곳에 각각 넣으면서
+        //    **같은 기록이 두 번** 쌓였습니다 (2026.09 사용자 신고 — 인쇄물에 같은 글이 두 번).
+        //    `getClassCards` 로 들어온 학생은 새 배열이라 안 겹쳤기 때문에 「가끔」 이었습니다.
+        counselingHistory: (row.h || []).slice(),
+        counselingCols: (row.hc || []).slice(),
         schoolGrades: schoolGrades,
         mockExams: mockExams,
         summary: {
@@ -2144,6 +2188,18 @@ function univFilter() {
     const topBox = document.getElementById('univ-top');
     const setTop = h => { if (topBox) topBox.innerHTML = h || ''; };
     setTop('');
+    const UNIV_COLS = [
+        (x, i) => i + 1,
+        x => (UNIV.u || [])[x[0]] || '',
+        x => (UNIV.d || [])[x[1]] || '',
+        x => Number(x[2]).toFixed(2),
+        x => (x[3] ? x[3] + '년' : '')
+    ];
+    const setPrint = (rows, pivot, my) =>
+        printList('univ-print', '🎓 정시로 갈 수 있는 대학',
+                  (my === '' ? '' : '국·수·사·과 백분위 평균 ' + my), rows, pivot,
+                  '▼ 여기부터 갈 수 있는 곳 · 내 백분위 ' + my, UNIV_COLS);
+    setPrint([], -1, '');
 
     if (!UNIV)        { body.innerHTML = univNote('대학 자료를 불러오는 중입니다…'); return; }
     if (UNIV.error)   { body.innerHTML = univNote('대학 자료를 불러오지 못했습니다. ' + UNIV.error); return; }
@@ -2211,6 +2267,7 @@ function univFilter() {
         setTop(top);
         body.innerHTML = univList(same, '같은 학과 · 평균70 높은 대학 순', mark,
                                        pivotAt(same, reachable), myTxt);
+        setPrint(same, pivotAt(same, reachable), myTxt);
         scrollToPivot('univ-body', 'univ-pivot');
         return;
     }
@@ -2262,6 +2319,7 @@ function univFilter() {
         }
         body.innerHTML = univList(hit, what + ' · 평균70 높은 순', null,
                                   pivotAt(hit, reachable), myTxt);
+        setPrint(hit, pivotAt(hit, reachable), myTxt);
         scrollToPivot('univ-body', 'univ-pivot');
         return;
     }
@@ -2276,6 +2334,7 @@ function univFilter() {
     const canGo = rows.filter(reachable).length;
     body.innerHTML = univList(rows, '갈 수 있는 곳 ' + canGo.toLocaleString() + '곳', null,
                               pivotAt(rows, reachable), myTxt);
+    setPrint(rows, pivotAt(rows, reachable), myTxt);
     scrollToPivot('univ-body', 'univ-pivot');
 }
 
@@ -2454,6 +2513,50 @@ function susiYearText(x) {
     return (y0 && y0 !== y1) ? (y0 + '~' + y1) : String(y1);
 }
 
+/* 인쇄에 넣을 줄 수 — 내 자리 위아래로 이만큼씩 */
+const PRINT_HALF = 4;
+
+/**
+ * 화면 패널을 **종이에 맞게** 다시 그립니다 (2026.09 사용자 요청).
+ * 검색칸·스크롤·[더 보기] 는 종이에 뜻이 없으므로 빼고,
+ * **내 자리 앞뒤 PRINT_HALF 줄**만 표로 찍습니다.
+ *   rows : 화면이 보여 주고 있는 그 목록 (검색 결과면 검색 결과)
+ */
+function printList(boxId, title, scoreLine, rows, pivot, pivotText, cols) {
+    const box = document.getElementById(boxId);
+    if (!box) return;
+    if (!rows || !rows.length) { box.innerHTML = ''; return; }
+
+    let start = 0, end = rows.length;
+    if (pivot >= 0) {
+        start = Math.max(0, pivot - PRINT_HALF);
+        end   = Math.min(rows.length, pivot + PRINT_HALF);
+    } else {
+        end = Math.min(rows.length, PRINT_HALF * 2);
+    }
+
+    let html = '<h3 class="text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-2 ' +
+                 'border-b border-slate-200 pb-1 print-section-title">' + escapeHtml(title) +
+                 '<span class="ml-auto font-medium text-[10px] text-slate-500">' +
+                   escapeHtml(scoreLine) + '</span></h3>' +
+               '<table class="print-table"><tbody>';
+    for (let i = start; i < end; i++) {
+        if (i === pivot) {
+            html += '<tr><td colspan="' + cols.length + '" style="background:#e0e7ff;font-weight:700">' +
+                      escapeHtml(pivotText) + '</td></tr>';
+        }
+        html += '<tr>' + cols.map(c => '<td>' + escapeHtml(String(c(rows[i], i))) + '</td>').join('') + '</tr>';
+    }
+    if (pivot === rows.length && end === rows.length) {
+        html += '<tr><td colspan="' + cols.length + '" style="background:#e0e7ff;font-weight:700">' +
+                  escapeHtml(pivotText) + '</td></tr>';
+    }
+    html += '</tbody></table>' +
+            '<div class="text-[9px] text-slate-500 mt-0.5">모두 ' + rows.length.toLocaleString() +
+              '곳 중 ' + (start + 1) + '~' + end + '번째</div>';
+    box.innerHTML = html;
+}
+
 function susiNote(text) {
     return '<div class="text-[11px] text-slate-400 text-center py-6 px-2">' + escapeHtml(text) + '</div>';
 }
@@ -2525,6 +2628,21 @@ function susiFilter() {
     const topBox = document.getElementById('susi-top');
     const setTop = h => { if (topBox) topBox.innerHTML = h || ''; };
     setTop(susiVerWarn());
+    // 인쇄칸도 화면과 **같은 목록**으로 함께 그립니다
+    const SUSI_COLS = [
+        (x, i) => i + 1,
+        x => (SUSI.u || [])[x[0]] || '',
+        x => (SUSI.d || [])[x[1]] || '',
+        x => Number(x[2]).toFixed(2),
+        x => susiPassText(x),
+        x => susiYearText(x),
+        x => susiJhText(x)
+    ];
+    const setPrint = (rows, pivot, my) =>
+        printList('susi-print', '🎒 수시로 갈 수 있는 대학',
+                  (my === '' ? '' : '9등급제 평균 ' + my), rows, pivot,
+                  '▼ 여기부터 갈 수 있는 곳 · 내 등급 ' + my, SUSI_COLS);
+    setPrint([], -1, '');
 
     if (!SUSI)        { body.innerHTML = susiNote('수시 자료를 불러오는 중입니다…'); return; }
     if (SUSI.error)   { body.innerHTML = susiNote('수시 자료를 불러오지 못했습니다. ' + SUSI.error); return; }
@@ -2593,6 +2711,7 @@ function susiFilter() {
         setTop(susiVerWarn() + top);
         body.innerHTML = susiList(same, '같은 학과 · 전교과 좋은 대학 순', mark,
                                        pivotAt(same, reachable), myTxt);
+        setPrint(same, pivotAt(same, reachable), myTxt);
         scrollToPivot('susi-body', 'susi-pivot');
         return;
     }
@@ -2646,6 +2765,7 @@ function susiFilter() {
         }
         body.innerHTML = susiList(hit, what + ' · 전교과 좋은 순', null,
                                   pivotAt(hit, reachable), myTxt);
+        setPrint(hit, pivotAt(hit, reachable), myTxt);
         scrollToPivot('susi-body', 'susi-pivot');
         return;
     }
@@ -2658,6 +2778,7 @@ function susiFilter() {
     const canGo = rows.filter(reachable).length;
     body.innerHTML = susiList(rows, '갈 수 있는 곳 ' + canGo.toLocaleString() + '곳', null,
                               pivotAt(rows, reachable), myTxt);
+    setPrint(rows, pivotAt(rows, reachable), myTxt);
     scrollToPivot('susi-body', 'susi-pivot');
 }
 
@@ -2741,7 +2862,7 @@ function showStudent(s) {
     renderHistory(selectedStudent);
 
     document.getElementById('counsel-text').value = '';
-    document.getElementById('print-counsel-display').textContent = '(상담 작성 내용 없음)';
+    document.getElementById('print-counsel-display').textContent = COUNSEL_EMPTY;
 
     switchView('counseling');
 }
@@ -3153,11 +3274,12 @@ async function removeRecord(i) {
             col: selectedStudent.counselingCols[i]
         });
         // 지운 뒤 열 번호가 밀리므로 서버가 준 목록으로 통째로 바꿉니다
-        selectedStudent.counselingHistory = d.h || [];
-        selectedStudent.counselingCols    = d.hc || [];
+        // 여기서도 `ALL` 과 같은 배열을 쓰지 않도록 따로따로 복사합니다
+        selectedStudent.counselingHistory = (d.h || []).slice();
+        selectedStudent.counselingCols    = (d.hc || []).slice();
         selectedStudent.lastCounselingDate = d.cd || '상담 기록 없음';
         updateAllRow(selectedStudent.classNum, selectedStudent.number, r => {
-            r.h = d.h || []; r.hc = d.hc || []; r.cd = d.cd || '';
+            r.h = (d.h || []).slice(); r.hc = (d.hc || []).slice(); r.cd = d.cd || '';
         });
         renderHistory(selectedStudent);
         renderStudentGrid();                 // 카드의 '상담 N회' 도 맞춥니다
@@ -3372,8 +3494,11 @@ function applySaveResult(record, timeStr, rawText, column) {
     renderHistory(selectedStudent);
     renderStudentGrid();
 
-    document.getElementById('print-counsel-display').textContent = rawText;
+    // ⚠️ 저장한 글은 이제 **이전 상담 누적 기록**에 들어갑니다.
+    //    인쇄칸에도 남겨 두면 같은 글이 인쇄물에 **두 번** 찍힙니다 (2026.09 사용자 신고).
+    //    그래서 입력칸과 인쇄칸을 **같이** 비웁니다.
     document.getElementById('counsel-text').value = '';
+    document.getElementById('print-counsel-display').textContent = COUNSEL_EMPTY;
 
     showSaveStatus('✓ 저장 완료!', true);
 }
@@ -4397,10 +4522,13 @@ function renderMockCharts(mockExams) {
 }
 
 
+const COUNSEL_EMPTY = '(상담 작성 내용 없음)';
+
 function triggerPrint() {
+    // 인쇄칸은 **늘 입력칸과 똑같이** 맞춥니다.
+    // (예전에는 값이 있을 때만 덮어써서, 저장 뒤 남아 있던 글이 기록과 겹쳐 찍혔습니다)
     const counselVal = document.getElementById('counsel-text').value.trim();
-    const displayEl = document.getElementById('print-counsel-display');
-    if (counselVal) displayEl.textContent = counselVal;
+    document.getElementById('print-counsel-display').textContent = counselVal || COUNSEL_EMPTY;
     window.print();
 }
 
@@ -4432,7 +4560,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (textarea) {
         textarea.addEventListener('input', (e) => {
             document.getElementById('print-counsel-display').textContent =
-                e.target.value || '(상담 작성 내용 없음)';
+                e.target.value || COUNSEL_EMPTY;
         });
     }
     ['input-target-uni', 'input-target-major'].forEach(id => {
