@@ -873,10 +873,15 @@ function tgradeSheet_(ss, create) {
 
      반 | 번호 | 이름 | 수시 목표 | 정시 목표
 
-   한 칸 안에 **한 줄에 한 곳씩** 적습니다. 대학과 학과는 ` || ` 로 나눕니다.
+   한 칸 안에 **한 줄에 한 곳씩** 적습니다. 칸은 ` || ` 로 나눕니다.
 
      제주대학교(제주) || 컴퓨터공학과
-     동국대학교(WISE) || 컴퓨터공학과
+     동국대학교(WISE) || 호텔관광경영학전공 || 2024
+     동국대학교(WISE) || 호텔관광경영학전공 || 2026
+
+   ⚠️ 수시는 2026.09 부터 **합격 연도마다 줄이 따로**입니다. 그래서 세 번째 칸에
+      **어느 해를 고른 것인지** 같이 적습니다. 연도가 없는 줄(시트에서 못 읽은 경우)은
+      두 칸만 적습니다. 정시는 대학·학과당 한 줄뿐이라 연도를 안 적습니다.
 
    ⚠️ **성적이 아니라 메모입니다.** 석차·등급·평균 어디에도 안 들어갑니다.
    ⚠️ 점수·연도·전형은 **적어 두지 않습니다.** 화면이 대학자료에서 그때그때 찾아
@@ -899,7 +904,11 @@ function tunivSheet_(ss, create) {
   return sh;
 }
 
-/** 칸에 적힌 글을 [[대학, 학과], …] 로 풀어 냅니다. */
+/**
+ * 칸에 적힌 글을 [[대학, 학과, 연도], …] 로 풀어 냅니다.
+ * `대학 || 학과` (연도 없음) 와 `대학 || 학과 || 2024` 를 둘 다 받습니다 —
+ * 수시는 2026.09 부터 **연도마다 줄이 따로**라 어느 해를 고른 것인지 같이 적어 둡니다.
+ */
 function tunivParse_(v) {
   var out = [];
   var text = String((v === null || v === undefined) ? '' : v);
@@ -907,26 +916,27 @@ function tunivParse_(v) {
   for (var i = 0; i < lines.length; i++) {
     var line = String(lines[i]).trim();
     if (!line) continue;
-    var cut = line.indexOf('||');
-    var u = (cut === -1) ? line : line.substring(0, cut);
-    var d = (cut === -1) ? ''   : line.substring(cut + 2);
-    u = String(u).trim();
-    d = String(d).trim();
+    var parts = line.split('||');
+    var u = String(parts[0] || '').trim();
+    var d = String(parts[1] || '').trim();
+    var y = toInt_(String(parts[2] || '').trim());
+    if (isNaN(y) || y < 1900 || y > 2200) y = 0;
     if (!u && !d) continue;
-    out.push([u, d]);
+    out.push([u, d, y]);
     if (out.length >= TUNIV_MAX_) break;
   }
   return out;
 }
 
-/** [[대학, 학과], …] 를 칸에 적을 글로 만듭니다. */
+/** [[대학, 학과, 연도], …] 를 칸에 적을 글로 만듭니다. 연도가 0이면 안 적습니다. */
 function tunivText_(list) {
   var lines = [];
   for (var i = 0; i < list.length && i < TUNIV_MAX_; i++) {
     var u = String(list[i][0] || '').trim();
     var d = String(list[i][1] || '').trim();
+    var y = toInt_(list[i][2]);
     if (!u && !d) continue;
-    lines.push(u + TUNIV_SEP_ + d);
+    lines.push(u + TUNIV_SEP_ + d + ((!isNaN(y) && y > 0) ? (TUNIV_SEP_ + y) : ''));
   }
   return lines.join('\n');
 }
@@ -958,8 +968,10 @@ function saveTargetUniv(classNum, studentNum, studentName, kind, list) {
       var item = arr[i] || [];
       var u = String(item[0] || '').trim();
       var d = String(item[1] || '').trim();
+      var y = toInt_(item[2]);
+      if (isNaN(y) || y < 1900 || y > 2200) y = 0;
       if (!u && !d) continue;
-      clean.push([u, d]);
+      clean.push([u, d, y]);
     }
 
     var ss = getSpreadsheet_();
@@ -1761,7 +1773,7 @@ var SUSI_JH_MAX_ = 8;
 /* 이 Code.gs 의 버전. 화면(index.html)의 PAGE_VER 와 짝이 맞아야 합니다.
    「고쳤는데 화면이 그대로다」 의 원인은 거의 늘 새 버전 배포를 안 한 것이라,
    ping 응답에 실어 보내 화면이 스스로 알아채게 합니다. */
-var APP_VER = '2026-09-23d';
+var APP_VER = '2026-09-23e';
 
 /**
  * 아무 칸에서나 4자리 연도를 뽑아냅니다.
@@ -1897,18 +1909,21 @@ function apiGetSusi_(req, user) {
     if (label && tIdx[label] === undefined) { tIdx[label] = tList.length; tList.push(label); }
     var ti = label ? tIdx[label] : -1;
 
-    var key = uIdx[uName] + '|' + dIdx[dName];
+    // ⚠️ **연도마다 따로 묶습니다** (2026.09 사용자 요청).
+    //    예전에는 대학·모집단위만으로 묶어서 「2024~2026 · 합격 · 추합」 처럼
+    //    여러 해가 한 줄에 뭉개졌습니다. 선생님 말씀 —
+    //    「같은 대학이라도 해마다 따로 보여야 뜻이 있다」.
+    //      2024 합격 / 2026 추합  ← 이렇게 두 줄로 나옵니다.
+    //    연도를 못 읽은 줄은 `0` 끼리 한 덩어리로 모입니다 (화면에 연도 없이 나옴).
+    var yr = susiRowYear_(colY, r);
+    if (yr) stat.withYear++;
+
+    var key = uIdx[uName] + '|' + dIdx[dName] + '|' + yr;
     if (!box[key]) box[key] = { u: uIdx[uName], d: dIdx[dName], sum: 0, n: 0,
-                                nf: 0, na: 0, ts: {}, y0: 0, y1: 0 };
+                                nf: 0, na: 0, ts: {}, y: yr };
     var o = box[key];
     o.sum += g; o.n++;
     if (kind === 'add') { o.na++; stat.add++; } else { o.nf++; stat.first++; }
-    var yr = susiRowYear_(colY, r);
-    if (yr) {
-      if (!o.y0 || yr < o.y0) o.y0 = yr;
-      if (yr > o.y1) o.y1 = yr;
-      stat.withYear++;
-    }
     // 전형은 **모두** 모읍니다 (몇 명이 그 전형으로 붙었는지도 같이 셉니다)
     if (ti !== -1) o.ts[ti] = (o.ts[ti] || 0) + 1;
   }
@@ -1917,9 +1932,12 @@ function apiGetSusi_(req, user) {
   for (var key2 in box) {
     if (!box.hasOwnProperty(key2)) continue;
     var b = box[key2];
-    rows.push([b.u, b.d, round_(b.sum / b.n, 2), b.n, tListOf_(b.ts), b.y0, b.y1, b.nf, b.na]);
+    // r[5]·r[6] 은 예전처럼 「연도 시작·끝」 자리지만, 이제 **늘 같은 해**입니다
+    // (화면의 `susiYearText` 가 그대로 `2024` 한 해로 보여 줍니다)
+    rows.push([b.u, b.d, round_(b.sum / b.n, 2), b.n, tListOf_(b.ts), b.y, b.y, b.nf, b.na]);
   }
-  rows.sort(function (x, y) { return x[2] - y[2]; });    // 등급은 낮을수록 좋습니다
+  // 등급은 낮을수록 좋습니다. 같은 등급이면 **최근 해**가 먼저 나오게 합니다.
+  rows.sort(function (x, y) { return (x[2] - y[2]) || (y[6] - x[6]); });
 
   return ok_({
     u: uList, d: dList, t: tList, r: rows,
