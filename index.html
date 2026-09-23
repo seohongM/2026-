@@ -24,7 +24,7 @@
 
     /* 이 index.html 의 버전. Apps Script 의 APP_VER 와 짝이 맞아야 합니다.
        다르면 [🔧 연결 상태 확인] 과 수시 패널이 알려 줍니다. */
-    const PAGE_VER = '2026-09-22c';
+    const PAGE_VER = '2026-09-23';
 
     </script>
 
@@ -1817,6 +1817,139 @@ function univHit(dataName, query) {
  *   아니면 두 글자씩 끊어 겹치는 정도로 셉니다 (화학공학 ↔ 화학생물공학 = 0.5).
  */
 /**
+ * 학과 이름이 아닌 말로 적어 두신 희망 진로를 **관련 학과 이름**으로 바꿔 줍니다.
+ * (2026.09 사용자 요청 — 「코딩」·「요리」 처럼 적은 학생이 있습니다)
+ *
+ * 왼쪽에 적힌 말이 희망 진로에 들어 있으면, 오른쪽 낱말이 들어간 학과를 찾습니다.
+ * **여기에 한 줄만 더하면 새 낱말을 알아봅니다.**
+ */
+const WISH_WORDS = [
+    ['코딩',       ['컴퓨터', '소프트웨어', '정보통신', '인공지능', 'ai', '게임']],
+    ['프로그래밍', ['컴퓨터', '소프트웨어', '정보통신', '인공지능']],
+    ['컴퓨터',     ['컴퓨터', '소프트웨어', '정보통신', '인공지능']],
+    ['요리',       ['조리', '외식', 'food', '제과', '제빵', '식품']],
+    ['제빵',       ['제과', '제빵', '조리', '식품']],
+    ['그림',       ['미술', '회화', '디자인', '만화', '애니']],
+    ['미술',       ['미술', '회화', '디자인']],
+    ['웹툰',       ['만화', '애니', '웹툰', '디자인']],
+    ['운동',       ['체육', '스포츠', '사회체육']],
+    ['헬스',       ['체육', '스포츠', '건강']],
+    ['간호',       ['간호']],
+    ['의사',       ['의예', '의학']],
+    ['한의사',     ['한의예', '한의학']],
+    ['약사',       ['약학', '제약']],
+    ['수의사',     ['수의']],
+    ['교사',       ['교육']],
+    ['선생님',     ['교육']],
+    ['경찰',       ['경찰', '경호', '범죄']],
+    ['소방',       ['소방', '응급']],
+    ['군인',       ['군사', '국방']],
+    ['비행기',     ['항공']],
+    ['승무원',     ['항공', '관광']],
+    ['호텔',       ['호텔', '관광']],
+    ['여행',       ['관광', '항공']],
+    ['음악',       ['음악', '실용음악', '작곡', '성악']],
+    ['노래',       ['음악', '실용음악', '성악']],
+    ['춤',         ['무용', '실용무용']],
+    ['연기',       ['연극', '영화', '연기']],
+    ['영화',       ['영화', '영상', '미디어']],
+    ['방송',       ['미디어', '신문방송', '영상']],
+    ['기자',       ['미디어', '신문방송', '언론']],
+    ['패션',       ['패션', '의류', '의상']],
+    ['화장품',     ['화장품', '뷰티', '미용']],
+    ['미용',       ['미용', '뷰티', '화장품']],
+    ['건축',       ['건축']],
+    ['자동차',     ['자동차', '기계']],
+    ['로봇',       ['로봇', '기계', '전자']],
+    ['반도체',     ['반도체', '전자', '신소재']],
+    ['화학',       ['화학', '화공']],
+    ['동물',       ['동물', '수의', '축산', '생명']],
+    ['식물',       ['원예', '산림', '농업', '생명']],
+    ['바다',       ['해양', '수산']],
+    ['우주',       ['우주', '항공', '천문']],
+    ['심리',       ['심리']],
+    ['상담',       ['상담', '심리', '사회복지']],
+    ['복지',       ['사회복지', '복지']],
+    ['아이',       ['유아교육', '아동', '보육']],
+    ['유치원',     ['유아교육', '아동']],
+    ['변호사',     ['법학', '법']],
+    ['공무원',     ['행정', '법']],
+    ['회계',       ['회계', '세무', '경영']],
+    ['사업',       ['경영', '경제', '창업']],
+    ['돈',         ['경제', '경영', '금융']],
+    ['부동산',     ['부동산', '도시']],
+    ['통역',       ['통번역', '어문', '영어']],
+    ['외국어',     ['어문', '영어', '중국어', '일본어']]
+];
+
+/** 그 말로 찾을 낱말들 — 못 알아보면 빈 목록 */
+function wishTerms(want) {
+    const t = univNorm(want);
+    if (!t) return [];
+    const out = [];
+    for (let i = 0; i < WISH_WORDS.length; i++) {
+        if (t.indexOf(univNorm(WISH_WORDS[i][0])) >= 0) {
+            WISH_WORDS[i][1].forEach(w => { if (out.indexOf(w) < 0) out.push(w); });
+        }
+    }
+    return out;
+}
+
+/**
+ * 희망 진로로 고른 몇 곳을 **색칠한 위 칸**에 보여 줍니다 (2026.09 사용자 요청).
+ * 학과만 적었거나 대학만 적은 학생에게도 나옵니다.
+ *   picks : [줄, …]   · note : 위에 적을 한 줄 설명
+ *   score : 그 줄의 숫자를 글자로 만드는 함수 · tail : 오른쪽 끝에 붙일 글자
+ */
+function wishTop(picks, note, U, D, score, tail, tone) {
+    if (!picks.length) return '';
+    const c = (tone === 'susi')
+        ? { box: 'border-teal-300 bg-teal-50', num: 'text-teal-700', note: 'text-teal-800' }
+        : { box: 'border-indigo-300 bg-indigo-50', num: 'text-indigo-700', note: 'text-indigo-800' };
+    return '<div class="rounded-lg border ' + c.box + ' px-2.5 py-2 mb-2">' +
+             (note ? '<div class="text-[10px] ' + c.note + ' mb-1">' + escapeHtml(note) + '</div>' : '') +
+             picks.map(x =>
+               '<div class="flex items-center gap-2">' +
+                 '<span class="min-w-0 flex-1 text-xs font-bold text-slate-800 truncate">' +
+                   escapeHtml(U[x[0]] || '') +
+                   ' <span class="font-medium text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
+                 '</span>' +
+                 '<span class="shrink-0 text-sm font-extrabold ' + c.num + '">' + score(x) + '</span>' +
+                 '<span class="shrink-0 text-[9px] text-slate-400 text-right whitespace-nowrap">' +
+                   escapeHtml(tail(x)) + '</span>' +
+               '</div>').join('') +
+           '</div>';
+}
+
+/**
+ * 「갈 수 있는 곳 중 가장 좋은 N곳」 을 고릅니다.
+ * 갈 수 있는 곳이 하나도 없으면 **내 점수에 가장 가까운 N곳**을 대신 보여 줍니다
+ * (빈 칸을 보여 주느니 목표가 될 만한 곳을 보여 주는 편이 낫습니다).
+ */
+function bestPicks(rows, reachable, better, near, limit) {
+    const n = limit || 5;
+    if (reachable) {
+        const ok = rows.filter(reachable);
+        if (ok.length) { ok.sort(better); return { picks: ok.slice(0, n), reach: true }; }
+    }
+    const all = rows.slice();
+    if (near) all.sort(near);
+    return { picks: all.slice(0, n), reach: false };
+}
+
+/** 그 낱말들이 들어간 학과를 좋은 순으로 골라 냅니다 */
+function wishRelated(rows, nameOf, want, better, limit) {
+    const terms = wishTerms(want);
+    if (!terms.length) return [];
+    const hit = rows.filter(x => {
+        const nm = univNorm(nameOf(x));
+        return terms.some(w => nm.indexOf(univNorm(w)) >= 0);
+    });
+    hit.sort(better);
+    return hit.slice(0, limit || 5);
+}
+
+/**
  * 희망 대학·학과를 검색칸에 채울지 정합니다.
  *
  * 예전에는 **글자가 딱 걸리는 것만** 채웠습니다. 그래서
@@ -1847,6 +1980,8 @@ function wishPick(rows, nameOf, want, useSim) {
         for (let i = 0; i < rows.length; i++) {
             if (univSim(nameOf(rows[i]), want) >= UNIV_SIM_MIN) return { fill: want, miss: false };
         }
+        // 「코딩」·「요리」 처럼 학과 이름이 아니어도, 이어 줄 학과가 있으면 채웁니다
+        if (wishRelated(rows, nameOf, want, () => 0, 1).length) return { fill: want, miss: false };
     }
     return { fill: '', miss: true };
 }
@@ -1888,6 +2023,31 @@ function univWish(v) {
  * 그 자리부터 아래가 「갈 수 있는 곳」이고, 위는 「더 어려운 곳」입니다.
  * 못 구하면 -1.
  */
+/**
+ * 「내 자리」에서 얼마나 떨어져 있는지에 따라 줄 바탕색을 정합니다 (2026.09 사용자 요청).
+ *
+ *   내 자리 바로 위아래 두 줄  → 옅은 파랑
+ *   그보다 위(더 어려운 곳)    → 멀어질수록 빨강이 짙어짐
+ *   그보다 아래(더 수월한 곳)  → 멀어질수록 파랑이 짙어짐
+ *
+ * 내 자리를 못 구했으면(`pivot < 0`) 색을 안 칠합니다.
+ * 글씨가 안 보이면 안 되므로 진하기는 GRAD_MAX 까지만 올립니다.
+ */
+const GRAD_NEAR = 2;      // 위아래 몇 줄까지 「가까운 곳」으로 볼지
+const GRAD_SPAN = 12;     // 몇 줄에 걸쳐 가장 짙은 색이 되는지
+const GRAD_MIN  = 0.06;
+const GRAD_MAX  = 0.34;
+
+function rowTint(i, pivot) {
+    if (pivot < 0) return '';
+    const d = i - pivot;                       // 음수 = 내 자리보다 위
+    if (Math.abs(d) <= GRAD_NEAR) return 'background-color:rgba(59,130,246,0.10);';
+    const far = Math.abs(d) - GRAD_NEAR;
+    const a   = (GRAD_MIN + Math.min(1, far / GRAD_SPAN) * (GRAD_MAX - GRAD_MIN)).toFixed(3);
+    return d < 0 ? ('background-color:rgba(239,68,68,' + a + ');')      // 위 = 빨강
+                 : ('background-color:rgba(59,130,246,' + a + ');');    // 아래 = 파랑
+}
+
 function pivotAt(rows, isReachable) {
     if (!rows || !rows.length || !isReachable) return -1;
     for (let i = 0; i < rows.length; i++) if (isReachable(rows[i])) return i;
@@ -1940,17 +2100,18 @@ function univList(rows, headNote, markSet, pivot, myScore) {
     for (let i = start; i < end; i++) {
         if (i === pivot) html += pivotRow('univ-pivot', '▼ 여기부터 갈 수 있는 곳 · 내 백분위 ' + myScore);
         const x = rows[i];
+        const marked = !!(markSet && markSet[x[0] + '|' + x[1]]);
         html +=
-          '<li class="flex items-center gap-2 py-1.5 px-1' +
-              ((markSet && markSet[x[0] + '|' + x[1]]) ? ' bg-amber-50 rounded' : '') + '">' +
+          '<li class="flex items-center gap-2 py-1.5 px-1' + (marked ? ' bg-amber-100 rounded' : '') + '"' +
+              (marked ? '' : ' style="' + rowTint(i, pivot) + '"') + '>' +
             '<span class="w-6 shrink-0 text-[10px] font-black text-slate-300 text-right">' + (i + 1) + '</span>' +
             '<span class="min-w-0 flex-1">' +
-              '<span class="text-xs font-bold ' + (pivot >= 0 && i < pivot ? 'text-slate-500' : 'text-slate-800') + '">' +
+              '<span class="text-xs font-bold text-slate-800">' +
                 escapeHtml(U[x[0]] || '') + '</span> ' +
               '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
             '</span>' +
             '<span class="shrink-0 text-right">' +
-              '<span class="text-xs font-extrabold ' + (pivot >= 0 && i < pivot ? 'text-slate-400' : 'text-indigo-700') + '">' +
+              '<span class="text-xs font-extrabold text-indigo-700">' +
                 Number(x[2]).toFixed(2) + '</span>' +
               '<span class="block text-[9px] text-slate-400 leading-none">' + (x[3] ? x[3] + '년' : '') + '</span>' +
             '</span>' +
@@ -2056,9 +2217,27 @@ function univFilter() {
 
     // ② 한 칸만 적었을 때 (평균70 높은 순은 서버가 이미 맞춰 보냈습니다)
     if (qU || qD) {
-        const hit = rows.filter(x =>
+        let hit = rows.filter(x =>
             (!qU || univHit(U[x[0]], qU)) && (!qD || univHit(D[x[1]], qD)));
         const what = qU ? '그 대학의 학과' : '그 학과가 있는 대학';
+
+        let byWord = false;
+        if (!hit.length && qD) {
+            const rel = wishRelated(rows, x => D[x[1]], qDraw, (a2, b2) => b2[2] - a2[2], 9999);
+            if (rel.length) { hit = rel; byWord = true; }
+        }
+
+        if (hit.length) {
+            const bp = bestPicks(hit, reachable,
+                                 (a2, b2) => b2[2] - a2[2],                    // 백분위는 클수록 좋음
+                                 (a2, b2) => Math.abs(a2[2] - (myAvg === null ? a2[2] : myAvg)) -
+                                             Math.abs(b2[2] - (myAvg === null ? b2[2] : myAvg)), 5);
+            setTop(wishTop(bp.picks,
+                           (byWord ? '「' + qDraw + '」 관련 학과 · ' : '') +
+                           (bp.reach ? '갈 수 있는 곳 중 점수가 높은 순' : '내 백분위에 가까운 곳'),
+                           U, D, x => Number(x[2]).toFixed(2),
+                           x => (x[3] ? x[3] + '년' : ''), 'univ'));
+        }
         // 하나도 없으면 비슷한 학과를 찾아 위 칸에 보여 줍니다 (학과 이름을 조금 다르게 적으셨을 때)
         if (!hit.length && qD) {
             const near = rows.map(x => ({ x: x, s: univSim(D[x[1]], qD) }))
@@ -2153,10 +2332,7 @@ function renderUnivMatch() {
           ((wishU || wishD)
             ? '<div class="text-[10px] text-amber-700 -mt-1 mb-1.5">🎯 희망 진로로 채워 두었습니다. 지우시면 내 점수로 갈 수 있는 곳이 나옵니다.</div>'
             : '') +
-          (wishMiss.length
-            ? '<div class="text-[10px] text-slate-400 -mt-1 mb-1.5">희망 진로 「' + escapeHtml(wishMiss.join(' · ')) +
-              '」 은(는) 대학자료에서 찾지 못했습니다.</div>'
-            : '') +
+
           '<div id="univ-top"></div>' +
           '<div id="univ-body" class="max-h-96 overflow-y-auto"></div>' +
         '</div>';
@@ -2171,7 +2347,7 @@ function univReset() { univShown = 30; univFilter(); }
 /* ══════════════════════════════════════════════════════════
    🎒 수시로 갈 수 있는 대학  (개별 상담 화면 · 내신 표 오른쪽)
 
-   시트 `수시_대학자료` 의 **전교과**(선배 합격자들의 내신 등급 평균)와
+   시트 `수시_대학자료` 의 **전교과**(합격자들의 내신 등급 평균)와
    학생의 **9등급제 평균**을 견줍니다.
 
    ⚠️ 내신 등급은 **숫자가 작을수록 좋습니다** (정시 백분위와 반대).
@@ -2299,13 +2475,13 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
     for (let i = start; i < end; i++) {
         if (i === pivot) html += pivotRow('susi-pivot', '▼ 여기부터 갈 수 있는 곳 · 내 등급 ' + myScore);
         const x = rows[i];
-        const dim = (pivot >= 0 && i < pivot);
+        const marked = !!(markSet && markSet[x[0] + '|' + x[1]]);
         html +=
-          '<li class="flex items-center gap-2 py-1.5 px-1' +
-              ((markSet && markSet[x[0] + '|' + x[1]]) ? ' bg-amber-50 rounded' : '') + '">' +
+          '<li class="flex items-center gap-2 py-1.5 px-1' + (marked ? ' bg-amber-100 rounded' : '') + '"' +
+              (marked ? '' : ' style="' + rowTint(i, pivot) + '"') + '>' +
             '<span class="w-6 shrink-0 text-[10px] font-black text-slate-300 text-right">' + (i + 1) + '</span>' +
             '<span class="min-w-0 flex-1">' +
-              '<span class="text-xs font-bold ' + (dim ? 'text-slate-500' : 'text-slate-800') + '">' +
+              '<span class="text-xs font-bold text-slate-800">' +
                 escapeHtml(U[x[0]] || '') + '</span> ' +
               '<span class="text-[11px] text-slate-600">' + escapeHtml(D[x[1]] || '') + '</span>' +
               '<span class="block text-[9px] text-slate-400 leading-tight truncate"' +
@@ -2314,7 +2490,7 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
                 escapeHtml(susiJhText(x)) + '</span>' +
             '</span>' +
             '<span class="shrink-0 text-right">' +
-              '<span class="text-xs font-extrabold ' + (dim ? 'text-slate-400' : 'text-teal-700') + '">' +
+              '<span class="text-xs font-extrabold text-teal-700">' +
                 Number(x[2]).toFixed(2) + '</span>' +
               '<span class="block text-[9px] text-slate-400 leading-none whitespace-nowrap">' +
                 escapeHtml(susiPassText(x)) + '</span>' +
@@ -2381,7 +2557,7 @@ function susiFilter() {
 
             top = '<div class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 mb-2">' +
                   '<div class="text-[11px] text-amber-800">' +
-                    '<b>' + escapeHtml(qUraw) + ' ' + escapeHtml(qDraw) + '</b> 로 붙은 선배 기록이 없습니다.' +
+                    '<b>' + escapeHtml(qUraw) + ' ' + escapeHtml(qDraw) + '</b> 는 합격 기록에 없습니다.' +
                     (near.length ? ' 비슷한 학과를 찾았습니다.' : '') +
                   '</div>' +
                   (near.length
@@ -2423,9 +2599,29 @@ function susiFilter() {
 
     // ② 한 칸만 적었을 때
     if (qU || qD) {
-        const hit = rows.filter(x =>
+        let hit = rows.filter(x =>
             (!qU || univHit(U[x[0]], qU)) && (!qD || univHit(D[x[1]], qD)));
         const what = qU ? '그 대학의 학과' : '그 학과가 있는 대학';
+
+        // 「코딩」·「요리」 처럼 학과 이름이 아닌 말이면 **관련 학과**를 대신 찾습니다
+        let byWord = false;
+        if (!hit.length && qD) {
+            const rel = wishRelated(rows, x => D[x[1]], qDraw, (a2, b2) => a2[2] - b2[2], 9999);
+            if (rel.length) { hit = rel; byWord = true; }
+        }
+
+        // 한 칸만 적은 학생에게도 **갈 수 있는 곳 중 좋은 5곳**을 색칠해 위에 보여 줍니다
+        if (hit.length) {
+            const bp = bestPicks(hit, reachable,
+                                 (a2, b2) => a2[2] - b2[2],                    // 등급은 작을수록 좋음
+                                 (a2, b2) => Math.abs(a2[2] - (myG === null ? a2[2] : myG)) -
+                                             Math.abs(b2[2] - (myG === null ? b2[2] : myG)), 5);
+            setTop(susiVerWarn() +
+                   wishTop(bp.picks,
+                           (byWord ? '「' + qDraw + '」 관련 학과 · ' : '') +
+                           (bp.reach ? '갈 수 있는 곳 중 내신이 좋은 순' : '내 등급에 가까운 곳'),
+                           U, D, x => Number(x[2]).toFixed(2), susiPassText, 'susi'));
+        }
         if (!hit.length && qD) {
             const near = rows.map(x => ({ x: x, s: univSim(D[x[1]], qD) }))
                              .filter(o => o.s >= UNIV_SIM_MIN)
@@ -2433,7 +2629,7 @@ function susiFilter() {
                              .slice(0, 5);
             setTop(susiVerWarn() +
                    '<div class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 mb-2">' +
-                     '<div class="text-[11px] text-amber-800"><b>' + escapeHtml(qDraw) + '</b> 로 붙은 선배 기록이 없습니다.' +
+                     '<div class="text-[11px] text-amber-800"><b>' + escapeHtml(qDraw) + '</b> 는 합격 기록에 없습니다.' +
                        (near.length ? ' 비슷한 학과를 찾았습니다.' : '') + '</div>' +
                      (near.length
                        ? '<div class="mt-1.5 pt-1.5 border-t border-amber-200">' +
@@ -2511,10 +2707,7 @@ function renderSusiMatch() {
           ((wishU || wishD)
             ? '<div class="text-[10px] text-amber-700 -mt-1 mb-1.5">🎯 희망 진로로 채워 두었습니다. 지우시면 내 등급으로 갈 수 있는 곳이 나옵니다.</div>'
             : '') +
-          (wishMiss.length
-            ? '<div class="text-[10px] text-slate-400 -mt-1 mb-1.5">희망 진로 「' + escapeHtml(wishMiss.join(' · ')) +
-              '」 는 선배 합격 기록에 없습니다.</div>'
-            : '') +
+
           '<div id="susi-top"></div>' +
           '<div id="susi-body" class="max-h-96 overflow-y-auto"></div>' +
         '</div>';
