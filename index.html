@@ -24,7 +24,7 @@
 
     /* 이 index.html 의 버전. Apps Script 의 APP_VER 와 짝이 맞아야 합니다.
        다르면 [🔧 연결 상태 확인] 과 수시 패널이 알려 줍니다. */
-    const PAGE_VER = '2026-09-23d';
+    const PAGE_VER = '2026-09-23e';
 
     </script>
 
@@ -1336,8 +1336,8 @@ function hydrate(row) {
         counselingCols: (row.hc || []).slice(),
         // 상담하며 눌러 담아 둔 목표 대학 (수시 · 정시). 역시 **복사해서** 넘깁니다 —
         // `ALL` 안의 배열과 같은 것을 넘기면 한쪽만 고쳤는데 양쪽이 바뀝니다.
-        goalSusi: (row.tu || []).map(x => [x[0] || '', x[1] || '']),
-        goalUniv: (row.tj || []).map(x => [x[0] || '', x[1] || '']),
+        goalSusi: (row.tu || []).map(x => [x[0] || '', x[1] || '', Number(x[2]) || 0]),
+        goalUniv: (row.tj || []).map(x => [x[0] || '', x[1] || '', Number(x[2]) || 0]),
         schoolGrades: schoolGrades,
         mockExams: mockExams,
         summary: {
@@ -1988,11 +1988,12 @@ function wishTop(picks, note, U, D, score, tail, tone) {
              (note ? '<div class="text-[10px] ' + c.note + ' mb-1">' + escapeHtml(note) + '</div>' : '') +
              picks.map(x =>
                // 이 칸의 줄도 **누르면 목표 대학에 담깁니다** (목록 줄과 같습니다)
-               '<div onclick="goalToggle(\'' + kind + '\',' + x[0] + ',' + x[1] + ')"' +
+               '<div onclick="goalToggle(\'' + kind + '\',' + x[0] + ',' + x[1] +
+                   (kind === 'susi' ? (',' + (Number(x[6]) || 0)) : '') + ')"' +
                    ' title="누르면 아래 목표 대학에 담깁니다"' +
                    ' class="cursor-pointer flex items-center gap-2">' +
                  '<span class="w-3 shrink-0 text-[10px] font-black ' + c.num + '">' +
-                   (goalHas(kind, x[0], x[1]) ? '✓' : '') + '</span>' +
+                   (goalHas(kind, x[0], x[1], x[6]) ? '✓' : '') + '</span>' +
                  '<span class="min-w-0 flex-1 text-xs font-bold text-slate-900 truncate">' +
                    escapeHtml(U[x[0]] || '') +
                    ' <span class="font-medium text-slate-700">' + escapeHtml(D[x[1]] || '') + '</span>' +
@@ -2202,30 +2203,45 @@ function goalList(kind) {
     return selectedStudent[key];
 }
 
-/** 이름표(대학·학과) — 목록 번호로 찾습니다 */
-function goalNames(kind, ui, di) {
+/**
+ * 이름표(대학·학과·연도) — 목록 번호로 찾습니다.
+ * ⚠️ 수시는 2026.09 부터 **합격 연도마다 줄이 따로**입니다
+ *    (「2024 합격」 과 「2026 추합」 은 서로 다른 줄).
+ *    그래서 어느 해를 고른 것인지도 같이 기억해 둡니다.
+ *    정시는 대학·학과당 줄이 하나뿐이라 연도를 기억하지 않습니다
+ *    (자료가 새 해로 바뀌어도 그대로 이어지게).
+ */
+function goalNames(kind, ui, di, yr) {
     const SRC = (kind === 'susi') ? SUSI : UNIV;
     if (!SRC) return null;
     const u = (SRC.u || [])[ui], d = (SRC.d || [])[di];
     if (u === undefined && d === undefined) return null;
-    return [String(u || ''), String(d || '')];
+    const y = (kind === 'susi') ? (Number(yr) || 0) : 0;
+    return [String(u || ''), String(d || ''), y];
 }
 
-function goalHas(kind, ui, di) {
-    const nm = goalNames(kind, ui, di);
+/** 담아 둔 곳과 같은 곳인가 — 수시는 연도까지 봅니다 */
+function goalSame(kind, a, b) {
+    if (a[0] !== b[0] || a[1] !== b[1]) return false;
+    if (kind !== 'susi') return true;
+    return (Number(a[2]) || 0) === (Number(b[2]) || 0);
+}
+
+function goalHas(kind, ui, di, yr) {
+    const nm = goalNames(kind, ui, di, yr);
     if (!nm) return false;
-    return goalList(kind).some(x => x[0] === nm[0] && x[1] === nm[1]);
+    return goalList(kind).some(x => goalSame(kind, x, nm));
 }
 
 /** 목록에서 한 줄을 눌렀을 때 — 담겨 있으면 빼고, 없으면 담습니다 */
-function goalToggle(kind, ui, di) {
+function goalToggle(kind, ui, di, yr) {
     if (!selectedStudent) return;
-    const nm = goalNames(kind, ui, di);
+    const nm = goalNames(kind, ui, di, yr);
     if (!nm) return;
     const list = goalList(kind);
-    const at = list.findIndex(x => x[0] === nm[0] && x[1] === nm[1]);
+    const at = list.findIndex(x => goalSame(kind, x, nm));
     if (at >= 0) list.splice(at, 1);
-    else         list.push([nm[0], nm[1]]);
+    else         list.push(nm);
     goalApply(kind);
 }
 
@@ -2242,10 +2258,10 @@ const goalMsg = { susi: '', univ: '' };
 
 /** 바뀐 목록을 화면·`ALL`·시트에 모두 반영합니다 */
 function goalApply(kind) {
-    const list = goalList(kind).map(x => [x[0], x[1]]);
+    const list = goalList(kind).map(x => [x[0], x[1], Number(x[2]) || 0]);
     const field = (kind === 'susi') ? 'tu' : 'tj';
     updateAllRow(selectedStudent.classNum, selectedStudent.number, r => {
-        r[field] = list.map(x => [x[0], x[1]]);
+        r[field] = list.map(x => [x[0], x[1], x[2]]);
     });
     goalMsg[kind] = '저장 중…';
     renderGoalUniv(kind);
@@ -2272,12 +2288,21 @@ function goalApply(kind) {
     });
 }
 
-/** 대학·학과 이름으로 대학자료에서 그 줄을 찾습니다 (점수·연도를 붙이려고) */
-function goalFind(kind, u, d) {
+/**
+ * 대학·학과 이름으로 대학자료에서 그 줄을 찾습니다 (점수·연도를 붙이려고).
+ * 수시는 **고른 해의 줄**을 먼저 찾고, 그 해가 자료에서 사라졌으면 이름만으로 찾습니다.
+ */
+function goalFind(kind, u, d, yr) {
     const SRC = (kind === 'susi') ? SUSI : UNIV;
     if (!SRC || !SRC.r) return null;
     const U = SRC.u || [], D = SRC.d || [];
-    return SRC.r.find(x => U[x[0]] === u && D[x[1]] === d) || null;
+    const same = x => U[x[0]] === u && D[x[1]] === d;
+    const y = Number(yr) || 0;
+    if (kind === 'susi' && y) {
+        const hit = SRC.r.find(x => same(x) && Number(x[6]) === y);
+        if (hit) return hit;
+    }
+    return SRC.r.find(same) || null;
 }
 
 /** 표 아래 「🎯 목표 대학」 칸을 그립니다 */
@@ -2311,7 +2336,7 @@ function renderGoalUniv(kind) {
         '</div>' +
         '<ol class="grid grid-cols-1 md:grid-cols-2 gap-x-3">' +
         list.map((g, i) => {
-            const x = goalFind(kind, g[0], g[1]);
+            const x = goalFind(kind, g[0], g[1], g[2]);
             const score = x ? Number(x[2]).toFixed(2) : '';
             const tail  = !x ? ''
                 : (kind === 'susi'
@@ -2752,9 +2777,9 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
         const x = rows[i];
         const marked = !!(markSet && markSet[x[0] + '|' + x[1]]);
         // 누르면 내신 표 아래 「🎒 수시 목표 대학」 에 담깁니다 (2026.09 사용자 요청)
-        const picked = goalHas('susi', x[0], x[1]);
+        const picked = goalHas('susi', x[0], x[1], x[6]);
         html +=
-          '<li onclick="goalToggle(\'susi\',' + x[0] + ',' + x[1] + ')"' +
+          '<li onclick="goalToggle(\'susi\',' + x[0] + ',' + x[1] + ',' + (Number(x[6]) || 0) + ')"' +
               ' title="누르면 아래 목표 대학에 담깁니다"' +
               ' class="cursor-pointer flex items-center gap-2 py-1.5 px-1' +
               (marked ? ' bg-amber-100 rounded' : '') +
