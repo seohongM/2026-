@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>학생 상담 관리 시스템 — 설치 요약</title>
+<style>
+  :root { --line:#94a3b8; --ink:#0f172a; --dim:#475569; --box:#f1f5f9; --warn:#b91c1c; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:18px; background:#fff; color:var(--ink);
+         font-family:"맑은 고딕","Malgun Gothic",-apple-system,sans-serif;
+         font-size:11px; line-height:1.45; }
+  .sheet { max-width:820px; margin:0 auto; }
+  h1 { font-size:19px; margin:0 0 2px; letter-spacing:-.4px; }
+  .sub { color:var(--dim); font-size:11px; margin-bottom:10px; }
+  .warn { border:1.5px solid var(--warn); background:#fef2f2; color:var(--warn);
+          border-radius:6px; padding:7px 10px; margin-bottom:10px; font-weight:700; }
+  .warn span { font-weight:400; color:#7f1d1d; display:block; margin-top:2px; }
+  .cols { display:flex; gap:12px; align-items:flex-start; }
+  .col { flex:1 1 0; min-width:0; }
+  h2 { font-size:13px; margin:0 0 5px; padding:3px 7px; background:var(--ink); color:#fff;
+       border-radius:4px; }
+  ol { margin:0 0 9px; padding-left:17px; }
+  li { margin-bottom:3px; }
+  code { background:var(--box); border:1px solid #cbd5e1; border-radius:3px;
+         padding:0 3px; font-family:Consolas,monospace; font-size:10px; word-break:break-all; }
+  .k { font-weight:700; }
+  .note { background:var(--box); border-left:3px solid var(--line); padding:5px 8px;
+          margin:0 0 9px; color:var(--dim); }
+  table { width:100%; border-collapse:collapse; margin:0 0 9px; }
+  th,td { border:1px solid var(--line); padding:3px 5px; text-align:left; vertical-align:top; }
+  th { background:var(--box); font-size:10px; }
+  td { font-size:10px; }
+  .flow { display:flex; gap:6px; align-items:center; justify-content:center;
+          background:var(--box); border:1px solid var(--line); border-radius:6px;
+          padding:7px; margin-bottom:10px; font-size:10px; }
+  .flow b { display:block; font-size:11px; }
+  .flow .step { flex:1; text-align:center; }
+  .flow .ar { color:var(--dim); font-size:14px; }
+  .foot { margin-top:10px; padding-top:6px; border-top:1px solid var(--line);
+          color:var(--dim); font-size:10px; }
+  @media print {
+    body { padding:0; font-size:9.5px; }
+    .sheet { max-width:none; }
+    @page { size:A4 portrait; margin:10mm 9mm; }
+    h1 { font-size:17px; } h2 { font-size:11.5px; }
+    td, th, code { font-size:8.5px; }
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <h1>학생 상담 관리 시스템 — 설치 요약 한 장</h1>
+  <div class="sub">받으실 파일은 <b>Code.gs</b> 와 <b>index.html</b> 둘뿐입니다 ·
+    자세한 내용은 <code>새학교_설치안내서.md</code></div>
+
+  <div class="warn">
+    🚫 이미 이 시스템을 쓰고 계신 선생님은 이 종이를 따라 하지 마세요.
+    <span>여기에는 <b>[새 배포]</b> 와 <b>새 저장소 만들기</b> 가 들어 있습니다.
+      이미 쓰고 계신 분이 그대로 하시면 <b>사이트 주소가 바뀌어 끊깁니다.</b></span>
+  </div>
+
+  <div class="flow">
+    <div class="step"><b>① 구글 시트</b>명렬표·성적<br>(비공개)</div>
+    <div class="ar">→</div>
+    <div class="step"><b>② Apps Script</b>Code.gs<br>계산해 주는 서버</div>
+    <div class="ar">→</div>
+    <div class="step"><b>③ GitHub Pages</b>index.html<br>보는 화면</div>
+  </div>
+
+  <div class="cols">
+    <div class="col">
+
+      <h2>1부 · 구글 시트와 서버 (약 30분)</h2>
+      <ol>
+        <li>구글 드라이브 → <span class="k">새로 만들기 → 스프레드시트</span>.
+            주소창의 긴 글자(<span class="k">시트 ID</span>)를 복사해 둡니다.</li>
+        <li>그 시트에서 <span class="k">확장 프로그램 → Apps Script</span>.
+            <br>왼쪽 <code>Code.gs</code> 클릭 → <code>Ctrl+A</code> → <code>Delete</code>
+            → 받으신 <b>Code.gs</b> 를 전부 붙여넣기 → <code>Ctrl+S</code></li>
+        <li><code>Ctrl+F</code> 로 <code>SPREADSHEET_ID</code> 를 찾아
+            작은따옴표 안을 <b>내 시트 ID</b> 로 바꾸고 <code>Ctrl+S</code></li>
+        <li>위쪽 함수 칸에서 <code>새시트만들기</code> 를 골라 <span class="k">▶ 실행</span>
+            <br>→ 권한 창이 뜨면 <span class="k">고급 → 이동 → 허용</span>
+            <br>(「확인되지 않은 앱」 은 <b>정상</b>입니다)</li>
+        <li>생긴 <b>학교설정</b> 탭에서 <b>학년 · 반 수 · 한 반 학생 수 · 과목 이름</b>
+            을 우리 학교에 맞게 고칩니다.
+            <br>과목은 <b>1학기·2학기를 따로 한 줄씩</b>.</li>
+        <li><code>새시트만들기</code> 를 <b>한 번 더 실행</b> → 나머지 탭이 전부 생깁니다.
+            <br>(있는 탭은 절대 안 건드립니다)</li>
+        <li><b>내신성적</b> 탭에 <b>이름</b>과 <b>1차시험·2차시험·1차수행·2차수행</b> 을 넣습니다.
+            <br>등급·환산총점·성취도는 <b>수식이라 저절로</b> 나옵니다.</li>
+        <li><span class="k">배포 → 새 배포</span> → ⚙ → <span class="k">웹 앱</span>
+            <br>실행 대상 <b>나</b> / 액세스 권한 <b>모든 사용자</b> → <span class="k">배포</span>
+            <br>→ 나오는 <b>웹 앱 URL</b>(<code>.../exec</code>)을 <b>적어 둡니다</b></li>
+        <li>시트로 돌아가 F5 → 상단 <span class="k">🔐 상담시스템 관리</span> 에서
+            계정을 만들고 승인하면 <b>비밀번호</b>가 나옵니다.</li>
+      </ol>
+
+      <div class="note">
+        <b>액세스 권한이 「모든 사용자」라서 불안하신가요?</b><br>
+        비밀번호 화면이 앞을 막고 있어 안전합니다. 로그인하지 않으면 아무 자료도 나가지 않습니다.
+      </div>
+
+    </div>
+    <div class="col">
+
+      <h2>2부 · 화면 만들기 (약 15분)</h2>
+      <ol>
+        <li><b>github.com</b> → <span class="k">Sign up</span> (무료)</li>
+        <li>오른쪽 위 <span class="k">+ → New repository</span>
+            <br>이름은 영어로 아무거나(예: <code>sangdam</code>), <b>Public</b> →
+            <span class="k">Create repository</span>
+            <br><b>Public 이어도 성적은 안 올라갑니다</b> (화면 뼈대만).</li>
+        <li>받으신 <b>index.html</b> 을 <b>메모장</b>으로 열고
+            <b>23번째 줄</b>을 찾습니다.
+            <br><code>const API_URL = '여기에_붙여넣으세요';</code>
+            <br>작은따옴표 안을 <b>1부 8번의 웹 앱 주소</b> 로 바꾸고 저장.</li>
+        <li>저장소에서 <span class="k">Add file → Upload files</span> →
+            고친 <code>index.html</code> 을 끌어다 놓고 <span class="k">Commit changes</span></li>
+        <li><span class="k">Settings → Pages</span> →
+            Source <code>Deploy from a branch</code> ·
+            Branch <code>main</code> / <code>/(root)</code> → <span class="k">Save</span></li>
+        <li>1~2분 뒤 나오는 주소가 <b>내 사이트</b>입니다.
+            <br><code>https://내아이디.github.io/sangdam/</code></li>
+        <li>사이트에서 <span class="k">🔧 연결 상태 확인</span> 을 눌러 초록색이면 끝.
+            1부 9번의 비밀번호로 로그인합니다.</li>
+      </ol>
+
+      <h2>나중에 고칠 때</h2>
+      <table>
+        <tr><th style="width:32%">고친 파일</th><th>해야 할 일</th></tr>
+        <tr><td><b>Code.gs</b></td>
+            <td>붙여넣기 → <code>Ctrl+S</code> →
+              <b>배포 → 배포 관리 → 연필(✏️) → 버전: 새 버전 → 배포</b><br>
+              <b style="color:#b91c1c">🚫 [새 배포] 를 누르면 주소가 바뀝니다</b></td></tr>
+        <tr><td><b>index.html</b></td>
+            <td>저장소에 올리고 <b>Commit changes</b> (배포 불필요)<br>
+              <b style="color:#b91c1c">🚫 올리기 전 23번째 줄 <code>API_URL</code> 을 다시 채우세요</b>
+              — 저장소에 지금 올라가 있는 파일에서 그 줄을 복사해 옮겨 적습니다</td></tr>
+      </table>
+
+      <h2>안 될 때 — Apps Script 에서 ▶ 실행</h2>
+      <table>
+        <tr><th style="width:38%">함수</th><th>무엇을 보나</th></tr>
+        <tr><td><b>연결테스트</b></td><td>⭐ 제일 먼저 — 시트·계정·반별 학생 수</td></tr>
+        <tr><td>새시트만들기</td><td>빠진 탭을 다시 만듦 (있는 탭은 안 건드림)</td></tr>
+        <tr><td>check내신시트</td><td>과목이 어느 열로 읽히는지</td></tr>
+        <tr><td>checkMockSheets</td><td>모의고사 열 인식 결과</td></tr>
+      </table>
+
+      <div class="note">
+        <b>등급이 전부 1등급</b> → <code>내신_등급계산</code> 에 수식이 빠진 줄.
+        빈 칸은 0으로 읽혀 1등급이 됩니다.<br>
+        <b>성취도가 전부 A</b> → <code>내신_성취도분할점수</code> 의 그 과목 줄이 비었습니다.<br>
+        <b>고쳤는데 그대로</b> → 두 파일의 짝이 안 맞는 것.
+        <b>🔧 연결 상태 확인</b> 이 화면·서버 버전을 나란히 보여 줍니다.
+      </div>
+
+    </div>
+  </div>
+
+  <div class="foot">
+    성적은 공개되지 않습니다 — 구글 시트는 비공개이고, 화면 파일에는 시트 주소도 비밀번호도
+    들어 있지 않습니다. 로그인한 선생님에게만 서버가 자료를 보냅니다. ·
+    전부 무료입니다 (구글 시트 · Apps Script · GitHub Pages).
+  </div>
+
+</div>
+</body>
+</html>

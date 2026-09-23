@@ -57,8 +57,16 @@ var UNIV_MAX = 100;
 var TOKEN_HOURS = 12;
 
 // 학년 표기와 사용할 반 목록
+// ⚠️ 이 값들은 **`학교설정` 탭이 있으면 그 값으로 바뀝니다** (`applyConfig_`).
+//    탭이 없으면 여기 적힌 값을 그대로 씁니다 = 예전 시트는 하나도 안 달라집니다.
 var GRADE_LABEL = '1학년';
 var CLASS_LIST  = [1, 2, 3, 4, 5, 6, 7];
+
+// `새시트만들기` 가 명렬표를 몇 줄 만들지 (학교설정 탭에서 읽습니다)
+var STUDENTS_PER_CLASS = 30;
+
+// 이번 실행에서 `학교설정` 을 이미 읽었는지 (한 번만 읽으려고)
+var CFG_DONE = false;
 
 // 자동 인식이 실패했을 때 사용할 기본 열 위치 (0부터 셈)
 // A=반, B=번호, C=이름, D=희망 대학, E=희망 학과
@@ -307,15 +315,158 @@ function err_(msg)    { return { ok: false, error: msg }; }
 function needLogin_() { return { ok: false, error: '로그인이 필요합니다.', needLogin: true }; }
 
 
+/* ══════════════════════════════════════════════════════════
+   학교설정 탭  (다른 학교에서 그대로 쓰려고 2026.09 에 넣었습니다)
+
+   **첫 번째 탭**에 학년·반 수·한 반 학생 수·과목 이름을 적어 두면
+   코드가 그대로 읽습니다. 그래서 **Code.gs 를 손대지 않고도** 다른 학교에서
+   똑같이 동작합니다.
+
+     A              B
+     ───────────────────────────
+     학교설정
+     학년            1학년
+     반 수           7
+     한 반 학생 수    30
+
+     과목 이름       학기
+     공통국어        1
+     공통국어        2
+     …
+     정보            2
+
+   ⚠️ **탭이 없으면 위에 적힌 기본값을 그대로 씁니다.**
+      선생님 시트에는 이 탭이 없으므로 **지금과 똑같이 동작합니다.**
+   ⚠️ 탭 이름을 `설정` 이 아니라 **`학교설정`** 으로 한 것은,
+      선생님 시트의 첫 탭 이름이 `설명` 이라 헷갈리지 않게 하려는 것입니다.
+   ══════════════════════════════════════════════════════════ */
+
+var SHEET_CONFIG   = '학교설정';
+var CONFIG_KEYWORDS = ['학교설정'];
+
+/* 맨 처음 값(= 선생님 학교 값)을 따로 보관합니다.
+   설정을 적용할 때마다 **여기서 다시 시작**하므로, 탭을 지우면 곧바로 원래대로 돌아옵니다.
+   (Apps Script 는 요청마다 새로 시작하지만, 그것에만 기대지 않습니다) */
+var CFG_BASE = {
+  grade:    GRADE_LABEL,
+  classes:  CLASS_LIST.slice(),
+  perClass: STUDENTS_PER_CLASS,
+  subjects: SUBJECTS
+};
+
+/** 학교설정을 적용하기 전에 늘 기본값으로 되돌립니다. */
+function resetConfig_() {
+  GRADE_LABEL        = CFG_BASE.grade;
+  CLASS_LIST         = CFG_BASE.classes.slice();
+  STUDENTS_PER_CLASS = CFG_BASE.perClass;
+  SUBJECTS           = CFG_BASE.subjects;
+  SUBJ_START         = null;               // 과목이 바뀌면 열 위치도 다시 찾아야 합니다
+}
+
+/** 한 줄이 「이름 : 값」 짝인지 보고, 이름이 맞으면 값을 돌려줍니다. */
+function cfgPick_(rows, names) {
+  for (var i = 0; i < rows.length; i++) {
+    var label = normalize_(rows[i][0]);
+    if (!label) continue;
+    for (var k = 0; k < names.length; k++) {
+      if (label === normalize_(names[k])) return rows[i][1];
+    }
+  }
+  return null;
+}
+
+/**
+ * `학교설정` 탭의 값을 읽어 GRADE_LABEL · CLASS_LIST · SUBJECTS 를 바꿉니다.
+ * 값이 비어 있거나 말이 안 되면 **그 항목만** 기본값을 그대로 둡니다.
+ */
+function applyConfig_(rows) {
+  CFG_DONE = true;
+  resetConfig_();
+  if (!rows || !rows.length) return false;
+
+  var changed = false;
+
+  // ── 학년 ──
+  var g = String(cfgPick_(rows, ['학년', '학년 표기']) || '').trim();
+  if (g) { GRADE_LABEL = g; changed = true; }
+
+  // ── 반 수 ──
+  var n = toInt_(cfgPick_(rows, ['반 수', '반수', '학급 수', '학급수']));
+  if (!isNaN(n) && n >= 1 && n <= 30) {
+    var list = [];
+    for (var c = 1; c <= n; c++) list.push(c);
+    CLASS_LIST = list;
+    changed = true;
+  }
+
+  // ── 한 반 학생 수 (명렬표를 몇 줄 만들지에만 씁니다) ──
+  var sp = toInt_(cfgPick_(rows, ['한 반 학생 수', '한반 학생 수', '학생 수', '학생수']));
+  if (!isNaN(sp) && sp >= 1 && sp <= 100) { STUDENTS_PER_CLASS = sp; changed = true; }
+
+  // ── 과목 이름 ──
+  // 「과목 이름」 이라고 적힌 줄을 찾아 그 아래를 차례로 읽습니다.
+  var head = -1;
+  for (var r = 0; r < rows.length; r++) {
+    var t = normalize_(rows[r][0]);
+    if (t === normalize_('과목 이름') || t === '과목명' || t === '과목') { head = r; break; }
+  }
+  if (head === -1) return changed;
+
+  var subs = [], seen = {};
+  for (var r2 = head + 1; r2 < rows.length; r2++) {
+    var base = String(rows[r2][0] === null || rows[r2][0] === undefined ? '' : rows[r2][0]).trim();
+    if (!base) continue;                                   // 빈 줄은 건너뜁니다
+    var sem = toInt_(rows[r2][1]);
+    if (isNaN(sem) || (sem !== 1 && sem !== 2)) sem = 1;    // 안 적었으면 1학기로 봅니다
+    var key = base + '|' + sem;
+    if (seen[key]) continue;                               // 같은 과목·학기는 한 번만
+    seen[key] = true;
+    subs.push({ name: base + sem, base: base, sem: sem, start: 0 });
+    if (subs.length >= 40) break;                          // 지나치게 많으면 끊습니다
+  }
+  if (!subs.length) return changed;
+
+  // 시작 열은 D열(3)부터 11칸씩. 머리글이 다르면 `detectSubjectCols_` 가 다시 맞춥니다.
+  for (var i2 = 0; i2 < subs.length; i2++) subs[i2].start = 3 + i2 * SUBJ_WIDTH;
+  SUBJECTS = subs;
+  return true;
+}
+
+/**
+ * 아직 안 읽었으면 `학교설정` 탭을 읽어 적용합니다.
+ * (한 번에 읽기 묶음에 들어 있는 길에서는 `applyConfig_` 가 이미 불려 이 함수는 그냥 넘어갑니다)
+ */
+function ensureConfig_(ss) {
+  if (CFG_DONE) return;
+  CFG_DONE = true;
+  try {
+    if (!ss) ss = getSpreadsheet_();
+    if (!ss) return;
+    var sh = findSheet_(ss, SHEET_CONFIG, CONFIG_KEYWORDS);
+    if (!sh) return;
+    CFG_DONE = false;                       // applyConfig_ 가 다시 true 로 만듭니다
+    applyConfig_(sh.getDataRange().getValues());
+  } catch (e) {
+    Logger.log('학교설정을 읽지 못했습니다: ' + e);
+  }
+}
+
+
 /** 요청 종류에 따라 알맞은 처리를 연결합니다. */
 function handle_(req) {
   var action = String((req && req.action) || '');
+
+  // ⚠️ **요청마다 학교설정을 다시 읽습니다.** 시트에서 값을 고치면 곧바로 반영되고,
+  //    탭을 지우면 곧바로 원래 값으로 돌아옵니다.
+  CFG_DONE = false;
+  resetConfig_();
 
   try {
     switch (action) {
 
       /* 로그인 없이 가능한 요청 */
       case 'ping':
+        ensureConfig_(null);
         return ok_({ message: 'ok', classList: CLASS_LIST, gradeLabel: GRADE_LABEL, ver: APP_VER });
 
       case 'login':
@@ -341,6 +492,7 @@ function handle_(req) {
       case 'logout':
         var user = verifyToken_(req.token);
         if (!user) return needLogin_();
+        ensureConfig_(null);        // 묶음으로 읽는 길에서는 그냥 넘어갑니다
 
         if (action === 'me')            return ok_(publicUser_(user));
         if (action === 'getStudents')   return apiGetStudents_(req, user);
@@ -490,6 +642,9 @@ function apiLogin_(req) {
   if (!pw) return err_('비밀번호를 입력해 주세요.');
 
   var ss = getSpreadsheet_();
+  // ⚠️ 학년·반을 응답에 담기 **전에** 학교설정을 읽어 둡니다.
+  //    (카드용 묶음 읽기는 이 뒤에 오므로 그때는 이미 읽혀 있습니다)
+  ensureConfig_(ss);
   var sheet = ensureAccountSheet_(ss);
   var data = sheet.getDataRange().getValues();
   var target = hashPw_(pw);
@@ -815,6 +970,8 @@ function squareUp_(rows) {
 /** 카드·전교 데이터가 함께 쓰는 시트 목록 */
 function CARD_SHEETS_() {
   return [
+    // ⚠️ 학교설정을 **같은 묶음**에 넣어 둡니다. 따로 읽으면 왕복이 한 번 더 늡니다.
+    { key: 'config',  name: SHEET_CONFIG,  keywords: CONFIG_KEYWORDS },
     { key: 'grade',   name: SHEET_GRADE,   keywords: ['내신'] },
     { key: 'target',  name: SHEET_TARGET,  keywords: TARGET_KEYWORDS },
     { key: 'counsel', name: SHEET_COUNSEL, keywords: ['상담'] },
@@ -1232,7 +1389,8 @@ function apiGetClassCards_(req, user) {
 
 /** 한 반의 카드 자료를 만듭니다. 로그인 응답에도 같이 실어 보냅니다. */
 function buildClassCards_(ss, cls) {
-  var data = readSheets_(ss, CARD_SHEETS_());      // 시트 3개를 한 번에
+  var data = readSheets_(ss, CARD_SHEETS_());      // 시트 여러 개를 한 번에
+  applyConfig_(data.config);                       // ⚠️ SUBJECTS 를 쓰기 **전에** 적용
   var map = {}, order = [];
   function pick_(n, nm) {
     if (!map[n]) { map[n] = { n: n, nm: nm || (n + '번 학생'), u: '', mj: '', cd: '', cn: 0, a5: null, a9: null }; order.push(n); }
@@ -1321,7 +1479,8 @@ function apiGetAll_(req, user) {
   var TG_LEN = TG_LEN_();             // 목표 등급 (과목당 1차·2차 2칸)
   var M_LEN = MOCK_SUBJECTS.length * 4;
 
-  var data = readSheets_(ss, ALL_SHEETS_());        // 시트 7개를 한 번에
+  var data = readSheets_(ss, ALL_SHEETS_());        // 시트 여러 개를 한 번에
+  applyConfig_(data.config);                        // ⚠️ SUBJECTS 를 쓰기 **전에** 적용
 
   var index = {}, list = [];
 
@@ -1773,7 +1932,7 @@ var SUSI_JH_MAX_ = 8;
 /* 이 Code.gs 의 버전. 화면(index.html)의 PAGE_VER 와 짝이 맞아야 합니다.
    「고쳤는데 화면이 그대로다」 의 원인은 거의 늘 새 버전 배포를 안 한 것이라,
    ping 응답에 실어 보내 화면이 스스로 알아채게 합니다. */
-var APP_VER = '2026-09-23g';
+var APP_VER = '2026-09-23h';
 
 /**
  * 아무 칸에서나 4자리 연도를 뽑아냅니다.
@@ -4030,4 +4189,424 @@ function apiDeleteCounseling_(req, user) {
                              user.name, nowStr_());
   if (!res.success) return err_(res.error || '지우지 못했습니다.');
   return ok_(res);
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   새시트만들기 — 다른 학교 선생님이 쓸 시트를 통째로 만들어 줍니다
+   (2026.09 사용자 요청 「다른 선생님도 같은 사이트를 만들 수 있게」)
+
+   쓰는 법 (안내서에도 같은 내용이 있습니다)
+     1) 빈 스프레드시트를 하나 만들고 Apps Script 에 이 Code.gs 를 붙여넣습니다.
+     2) `새시트만들기` 를 실행합니다 → **`학교설정` 탭만** 만들어집니다.
+     3) 학년·반 수·한 반 학생 수·과목 이름을 우리 학교에 맞게 고칩니다.
+     4) `새시트만들기` 를 **다시** 실행합니다 → 나머지 탭이 전부 만들어집니다.
+
+   ⚠️ **이미 있는 탭은 절대 건드리지 않습니다.** 한 번 더 실행해도 안전합니다.
+   ⚠️ 선생님(원래 사용자) 시트에서 실행하면 탭이 전부 이미 있으므로
+      **아무것도 바뀌지 않고** 「이미 있어 건너뜀」 만 나옵니다.
+   ══════════════════════════════════════════════════════════ */
+
+/**
+ * 1 → 'A' · 2 → 'B' … **1부터 세는** 열 번호를 글자로 바꿉니다.
+ * ⚠️ `colName_` 은 주석에 「0 → A」 라고 적혀 있지만 **실제로는 1 → A** 입니다.
+ *    2026.09 에 이것을 0부터라고 믿고 짰다가 **수식이 한 열씩 왼쪽을** 가리켰습니다.
+ *    그래서 여기서는 「1부터」 라는 것을 이름과 주석에 못 박아 둡니다.
+ */
+function GEN_col_(oneBased) { return colName_(oneBased); }
+
+/** 시트를 만들되, 이미 있으면 그대로 두고 null 을 돌려줍니다. */
+function GEN_sheet_(ss, name) {
+  if (ss.getSheetByName(name)) return null;
+  return ss.insertSheet(name);
+}
+
+/** 머리글 한 줄을 적고 굵게 + 고정합니다. */
+function GEN_head_(sh, row, values, freeze) {
+  sh.getRange(row, 1, 1, values.length).setValues([values]).setFontWeight('bold');
+  if (freeze) sh.setFrozenRows(freeze);
+}
+
+/** 학교설정 탭 — 여기부터 시작합니다 */
+function GEN_config_(ss) {
+  var sh = GEN_sheet_(ss, SHEET_CONFIG);
+  if (!sh) return false;
+
+  var rows = [
+    ['학교설정', '', '← 이 탭의 값을 고치면 사이트에 그대로 반영됩니다'],
+    ['학년', '1학년', '화면에 「1학년 3반 담임」 처럼 나옵니다'],
+    ['반 수', 7, '1부터 이 숫자까지 반을 만듭니다'],
+    ['한 반 학생 수', 30, '명렬표를 몇 줄 만들지에만 씁니다 (나중에 늘리셔도 됩니다)'],
+    ['', '', ''],
+    ['과목 이름', '학기', '한 줄에 한 과목씩. 1학기·2학기를 따로 적습니다'],
+    ['공통국어', 1, ''],
+    ['공통국어', 2, ''],
+    ['공통수학', 1, ''],
+    ['공통수학', 2, ''],
+    ['공통영어', 1, ''],
+    ['공통영어', 2, ''],
+    ['통합사회', 1, ''],
+    ['통합사회', 2, ''],
+    ['통합과학', 1, ''],
+    ['통합과학', 2, ''],
+    ['한국사', 1, ''],
+    ['한국사', 2, ''],
+    ['정보', 2, '← 2학기에만 보는 과목은 이렇게 한 줄만 적습니다']
+  ];
+  sh.getRange(1, 1, rows.length, 3).setValues(rows);
+  sh.getRange(1, 1, 1, 3).setFontWeight('bold');
+  sh.getRange(6, 1, 1, 3).setFontWeight('bold');
+  sh.getRange(1, 3, rows.length, 1).setFontColor('#888888');
+  sh.setColumnWidth(1, 130);
+  sh.setColumnWidth(2, 110);
+  sh.setColumnWidth(3, 420);
+  return true;
+}
+
+/** 반·번호·이름 세 칸짜리 명렬표를 만들어 돌려줍니다 (머리글 제외) */
+function GEN_roster_() {
+  var out = [];
+  for (var i = 0; i < CLASS_LIST.length; i++) {
+    for (var n = 1; n <= STUDENTS_PER_CLASS; n++) out.push([CLASS_LIST[i], n, '']);
+  }
+  return out;
+}
+
+/**
+ * 내신성적 탭.
+ *   1행 = 과목 이름(블록 맨 앞 칸) / 2행 = 11개 항목 이름 / 3행부터 학생
+ *   선생님이 적는 칸 : 1차시험 · 2차시험 · 1차수행 · 2차수행
+ *   수식으로 나오는 칸 : 1차등급 · 2차등급 · 환산총점 · 최종등급 · 성취도 3칸
+ */
+function GEN_grade_(ss) {
+  var sh = GEN_sheet_(ss, SHEET_GRADE);
+  if (!sh) return false;
+
+  var ITEMS = ['1차시험', '1차등급', '2차시험', '2차등급', '1차수행', '2차수행',
+               '환산총점', '최종등급', '1차성취도', '2차성취도', '최종성취도'];
+  var width = 3 + SUBJECTS.length * SUBJ_WIDTH;
+  var head1 = ['반', '번호', '이름'], head2 = ['반', '번호', '이름'];
+  for (var i = 0; i < SUBJECTS.length; i++) {
+    for (var k = 0; k < SUBJ_WIDTH; k++) {
+      head1.push(k === 0 ? SUBJECTS[i].name : '');
+      head2.push(ITEMS[k]);
+    }
+  }
+  sh.getRange(1, 1, 1, width).setValues([head1]).setFontWeight('bold');
+  sh.getRange(2, 1, 1, width).setValues([head2]).setFontWeight('bold');
+  sh.setFrozenRows(2);
+  sh.setFrozenColumns(3);
+
+  var roster = GEN_roster_();
+  if (roster.length) sh.getRange(3, 1, roster.length, 3).setValues(roster);
+
+  var last = 2 + roster.length;
+  if (!roster.length) return true;
+
+  // 과목마다 수식을 넣습니다 (선생님이 규정에 맞게 고칠 수 있게 단순한 모양으로)
+  //
+  // ⚠️ **열 번호는 전부 「1부터」** 입니다. 과목 블록의 11칸은
+  //    c0+0 1차시험 · +1 1차등급 · +2 2차시험 · +3 2차등급 · +4 1차수행 · +5 2차수행
+  //    · +6 환산총점 · +7 최종등급 · +8 1차성취도 · +9 2차성취도 · +10 최종성취도
+  // ⚠️ **줄도 하나 어긋납니다.** 내신성적은 3행부터, 내신_등급계산은 2행부터라
+  //    내신성적 r행 학생은 내신_등급계산 (r-1)행에 있습니다.
+  for (var si = 0; si < SUBJECTS.length; si++) {
+    var c0 = 4 + si * SUBJ_WIDTH;                 // 1차시험 열 (1부터 셈, 첫 과목 = D)
+    var A = GEN_col_(c0);                         // 1차시험
+    var B = GEN_col_(c0 + 2);                     // 2차시험
+    var C = GEN_col_(c0 + 4);                     // 1차수행
+    var D = GEN_col_(c0 + 5);                     // 2차수행
+    var T = GEN_col_(c0 + 6);                     // 환산총점
+    var rRatio = si + 2;                          // 내신_반영비율 줄 번호 (머리글 1줄)
+    var rCut   = si + 3;                          // 내신_성취도분할점수 줄 번호 (머리글 2줄)
+    var p1 = GEN_col_(4 + si * 3);                // 내신_등급계산 1차%
+    var p2 = GEN_col_(4 + si * 3 + 1);            // 내신_등급계산 2차%
+    var pT = GEN_col_(4 + si * 3 + 2);            // 내신_등급계산 환산%
+
+    var f1 = [], f2 = [], f3 = [], f4 = [], f5 = [], f6 = [], f7 = [];
+    for (var r = 3; r <= last; r++) {
+      var rr = r - 1;                             // 내신_등급계산에서 같은 학생의 줄
+      // 환산총점 = 1차시험·2차시험·1차수행·2차수행 × 반영비율 ÷ 100
+      f1.push(["=IF(COUNT(" + A + r + "," + B + r + "," + C + r + "," + D + r + ")=0,\"\"," +
+               "ROUND((" + A + r + "*'내신_반영비율'!$B$" + rRatio + "+" + B + r + "*'내신_반영비율'!$C$" + rRatio +
+               "+" + C + r + "*'내신_반영비율'!$D$" + rRatio + "+" + D + r + "*'내신_반영비율'!$E$" + rRatio + ")/100,2))"]);
+      // 1차등급 · 2차등급 · 최종등급 (5등급제 · 석차백분율 10/34/66/90)
+      f2.push([GEN_grade5_("'내신_등급계산'!" + p1 + rr, A + r)]);
+      f3.push([GEN_grade5_("'내신_등급계산'!" + p2 + rr, B + r)]);
+      f4.push([GEN_grade5_("'내신_등급계산'!" + pT + rr, T + r)]);
+      // 성취도 (1차 · 2차 · 최종)
+      f5.push([GEN_achieve_(A + r, rCut, 'B', 'C', 'D', 'E', 'F')]);
+      f6.push([GEN_achieve_(B + r, rCut, 'G', 'H', 'I', 'J', 'K')]);
+      f7.push([GEN_achieve_(T + r, rCut, 'L', 'M', 'N', 'O', 'P')]);
+    }
+    // ⚠️ `GEN_col_` 은 **0부터** 세고 `getRange` 는 **1부터** 셉니다.
+    //    c0 = 1차시험의 1부터 센 열 번호이므로, 칸 번호를 그대로 더하면 됩니다.
+    //      +1 1차등급 · +3 2차등급 · +6 환산총점 · +7 최종등급 · +8~+10 성취도
+    //    (2026.09 : 여기를 하나씩 적게 잡아 **선생님이 적는 1차시험 칸에 수식을 덮어쓸 뻔**했습니다)
+    var n = last - 2;
+    sh.getRange(3, c0 + 1,  n, 1).setFormulas(f2);   // 1차등급
+    sh.getRange(3, c0 + 3,  n, 1).setFormulas(f3);   // 2차등급
+    sh.getRange(3, c0 + 6,  n, 1).setFormulas(f1);   // 환산총점
+    sh.getRange(3, c0 + 7,  n, 1).setFormulas(f4);   // 최종등급
+    sh.getRange(3, c0 + 8,  n, 1).setFormulas(f5);   // 1차성취도
+    sh.getRange(3, c0 + 9,  n, 1).setFormulas(f6);   // 2차성취도
+    sh.getRange(3, c0 + 10, n, 1).setFormulas(f7);   // 최종성취도
+  }
+  return true;
+}
+
+/** 석차백분율 칸을 보고 5등급을 매기는 수식 (점수가 없으면 빈칸) */
+function GEN_grade5_(pctCell, scoreCell) {
+  return "=IF(" + scoreCell + "=\"\",\"\",IF(" + pctCell + "<=10,1,IF(" + pctCell + "<=34,2,IF(" +
+         pctCell + "<=66,3,IF(" + pctCell + "<=90,4,5)))))";
+}
+
+/** 분할점수와 견주어 A~E·I 를 매기는 수식 (점수가 없으면 빈칸) */
+function GEN_achieve_(scoreCell, row, cA, cB, cC, cD, cE) {
+  return "=IF(" + scoreCell + "=\"\",\"\"," +
+         "IF(" + scoreCell + ">='내신_성취도분할점수'!$" + cA + "$" + row + ",\"A\"," +
+         "IF(" + scoreCell + ">='내신_성취도분할점수'!$" + cB + "$" + row + ",\"B\"," +
+         "IF(" + scoreCell + ">='내신_성취도분할점수'!$" + cC + "$" + row + ",\"C\"," +
+         "IF(" + scoreCell + ">='내신_성취도분할점수'!$" + cD + "$" + row + ",\"D\"," +
+         "IF(" + scoreCell + ">='내신_성취도분할점수'!$" + cE + "$" + row + ",\"E\",\"I\"))))))";
+}
+
+/**
+ * 내신_등급계산 — 과목당 3칸(1차% · 2차% · 환산%) 석차백분율.
+ * ⚠️ 나누는 수를 숫자로 박지 않고 **`COUNT(범위)`** 로 둡니다.
+ *    그 과목 시험을 본 사람 수가 저절로 반영되므로, 전학생이 와도 고칠 것이 없습니다.
+ *    (선생님 시트는 숫자로 박혀 있지만 **그건 건드리지 않습니다** — 절대 규칙 3)
+ */
+function GEN_rank_(ss, lastRow) {
+  var sh = GEN_sheet_(ss, '내신_등급계산');
+  if (!sh) return false;
+
+  var head = ['반', '번호', '이름'];
+  for (var i = 0; i < SUBJECTS.length; i++) {
+    head.push(SUBJECTS[i].name + ' 1차%', SUBJECTS[i].name + ' 2차%', SUBJECTS[i].name + ' 환산%');
+  }
+  GEN_head_(sh, 1, head, 1);
+
+  var roster = GEN_roster_();
+  if (!roster.length) return true;
+  sh.getRange(2, 1, roster.length, 3).setValues(roster);
+
+  // 내신성적은 3행부터, 여기는 2행부터라 줄이 하나 어긋납니다 → +1 로 맞춥니다
+  for (var si = 0; si < SUBJECTS.length; si++) {
+    var c0 = 4 + si * SUBJ_WIDTH;                                        // 1차시험 열 (1부터 셈)
+    var cols = [GEN_col_(c0), GEN_col_(c0 + 2), GEN_col_(c0 + 6)];       // 1차시험·2차시험·환산총점
+    for (var k = 0; k < 3; k++) {
+      var X = cols[k], f = [];
+      for (var r = 2; r <= roster.length + 1; r++) {
+        var gr = r + 1;                                                   // 내신성적의 같은 학생 줄
+        var rng = "'내신성적'!$" + X + "$3:$" + X + "$" + (lastRow + 200);
+        f.push(["=IF('내신성적'!" + X + gr + "=\"\",\"\"," +
+                "ROUND((COUNTIF(" + rng + ",\">\"&'내신성적'!" + X + gr + ")+1+" +
+                "(COUNTIF(" + rng + ",\"=\"&'내신성적'!" + X + gr + ")-1)/2)/COUNT(" + rng + ")*100,2))"]);
+      }
+      sh.getRange(2, 4 + si * 3 + k, f.length, 1).setFormulas(f);
+    }
+  }
+  return true;
+}
+
+/** 내신_반영비율 — 과목마다 1차시험·2차시험·1차수행·2차수행 비율 (합이 100) */
+function GEN_ratio_(ss) {
+  var sh = GEN_sheet_(ss, '내신_반영비율');
+  if (!sh) return false;
+  GEN_head_(sh, 1, ['과목', '1차시험', '2차시험', '1차수행', '2차수행', '← 네 값을 더해 100이 되게'], 1);
+  var rows = [];
+  for (var i = 0; i < SUBJECTS.length; i++) rows.push([SUBJECTS[i].name, 30, 30, 20, 20]);
+  if (rows.length) sh.getRange(2, 1, rows.length, 5).setValues(rows);
+  sh.getRange(1, 6).setFontColor('#888888').setFontWeight('normal');
+  return true;
+}
+
+/** 내신_성취도분할점수 — 과목마다 A~E 기준점 (1차 · 2차 · 최종 각 5칸) */
+function GEN_cut_(ss) {
+  var sh = GEN_sheet_(ss, '내신_성취도분할점수');
+  if (!sh) return false;
+  var h1 = ['과목', '1차 기준점', '', '', '', '', '2차 기준점', '', '', '', '',
+            '최종 기준점', '', '', '', ''];
+  var h2 = ['과목'];
+  for (var t = 0; t < 3; t++) h2 = h2.concat(['A', 'B', 'C', 'D', 'E']);
+  sh.getRange(1, 1, 1, h1.length).setValues([h1]).setFontWeight('bold');
+  sh.getRange(2, 1, 1, h2.length).setValues([h2]).setFontWeight('bold');
+  sh.setFrozenRows(2);
+  var rows = [];
+  for (var i = 0; i < SUBJECTS.length; i++) {
+    rows.push([SUBJECTS[i].name, 90, 80, 70, 60, 40, 90, 80, 70, 60, 40, 90, 80, 70, 60, 40]);
+  }
+  if (rows.length) sh.getRange(3, 1, rows.length, 16).setValues(rows);
+  return true;
+}
+
+/** 학생 목표 · 상담내용 · 전입생_성적 — 선생님이 채우는 단순한 탭들 */
+function GEN_simple_(ss) {
+  var made = [];
+
+  var t = GEN_sheet_(ss, SHEET_TARGET);
+  if (t) {
+    GEN_head_(t, 1, ['반', '번호', '이름', '희망 대학', '희망 학과'], 1);
+    var ro = GEN_roster_();
+    if (ro.length) t.getRange(2, 1, ro.length, 3).setValues(ro);
+    made.push(SHEET_TARGET);
+  }
+
+  var c = GEN_sheet_(ss, SHEET_COUNSEL);
+  if (c) {
+    GEN_head_(c, 1, ['반', '번호', '이름', '상담 기록 1', '상담 기록 2', '상담 기록 3'], 1);
+    var ro2 = GEN_roster_();
+    if (ro2.length) c.getRange(2, 1, ro2.length, 3).setValues(ro2);
+    made.push(SHEET_COUNSEL);
+  }
+
+  var tr = GEN_sheet_(ss, SHEET_TRANSFER);
+  if (tr) {
+    GEN_head_(tr, 1, ['반', '번호', '이름', '과목', '환산총점', '최종등급', '최종성취도'], 1);
+    made.push(SHEET_TRANSFER);
+  }
+  return made;
+}
+
+/** 모의고사 네 탭 — 머리글 2줄 (1행 과목명 병합 / 2행 항목) */
+function GEN_mock_(ss) {
+  var made = [];
+  var SUBS = MOCK_SUBJECTS;                       // 국어·수학·영어·통합사회·통합과학·한국사
+  var ABS  = { '영어': 1, '한국사': 1 };          // 절대평가 → 백분위 칸 없음
+
+  for (var m = 0; m < MOCK_SHEETS.length; m++) {
+    var sh = GEN_sheet_(ss, MOCK_SHEETS[m].name);
+    if (!sh) continue;
+
+    var h1 = ['반', '번호', '이름'], h2 = ['반', '번호', '이름'];
+    for (var i = 0; i < SUBS.length; i++) {
+      var items = ABS[SUBS[i]] ? ['원점수', '표준점수', '등급']
+                               : ['원점수', '표준점수', '백분위', '등급'];
+      for (var k = 0; k < items.length; k++) {
+        h1.push(k === 0 ? SUBS[i] : '');
+        h2.push(items[k]);
+      }
+    }
+    sh.getRange(1, 1, 1, h1.length).setValues([h1]).setFontWeight('bold');
+    sh.getRange(2, 1, 1, h2.length).setValues([h2]).setFontWeight('bold');
+    sh.setFrozenRows(2);
+    var ro = GEN_roster_();
+    if (ro.length) sh.getRange(3, 1, ro.length, 3).setValues(ro);
+    made.push(MOCK_SHEETS[m].name);
+  }
+  return made;
+}
+
+/** 정시·수시 대학자료 — **머리글만** 만듭니다 (자료는 각 학교에서 넣습니다) */
+function GEN_univ_(ss) {
+  var made = [];
+
+  var u = GEN_sheet_(ss, SHEET_UNIV);
+  if (u) {
+    GEN_head_(u, 1, ['지역', '대학', '연도', '수시/정시', '교과/종합', '전형', '학과', '인문/자연',
+                     '모집인원', '경쟁률', '추합', '변환50', '평균70'], 1);
+    u.getRange(3, 1).setValue('※ 이 탭은 비워 두셔도 됩니다. 자료를 넣으면 🎓 정시 패널이 나옵니다.')
+                    .setFontColor('#888888');
+    made.push(SHEET_UNIV);
+  }
+
+  var s2 = GEN_sheet_(ss, SHEET_SUSI);
+  if (s2) {
+    var head = [];
+    for (var i = 0; i < 33; i++) head.push('');
+    head[4] = '연도'; head[6] = '대학명'; head[9] = '전형'; head[10] = '세부유형';
+    head[12] = '모집단위'; head[17] = '최종단계'; head[20] = '비고'; head[32] = '전교과';
+    GEN_head_(s2, 1, head, 1);
+    s2.getRange(3, 1).setValue('※ 이 탭은 비워 두셔도 됩니다. 자료를 넣으면 🎒 수시 패널이 나옵니다.')
+                     .setFontColor('#888888');
+    made.push(SHEET_SUSI);
+  }
+  return made;
+}
+
+/**
+ * ★ 여기를 실행하세요 ★
+ * 처음 실행하면 `학교설정` 탭만 만듭니다. 값을 고친 뒤 다시 실행하면 나머지를 전부 만듭니다.
+ */
+function 새시트만들기() {
+  var L = [];
+  function log(s) { L.push(s); }
+
+  var ss = getSpreadsheet_();
+  if (!ss) {
+    var msg = '❌ 스프레드시트를 열 수 없습니다.\n\n' +
+              'Code.gs 맨 위 SPREADSHEET_ID 를 이 스프레드시트의 주소에 있는 긴 글자로 바꿔 주세요.';
+    Logger.log(msg);
+    try { SpreadsheetApp.getUi().alert(msg); } catch (e) {}
+    return msg;
+  }
+
+  // ── 1단계 : 학교설정 탭이 없으면 그것만 만들고 멈춥니다 ──
+  if (GEN_config_(ss)) {
+    var first = '✅ 「학교설정」 탭을 만들었습니다.\n\n' +
+                '① 그 탭에서 학년 · 반 수 · 한 반 학생 수 · 과목 이름을 우리 학교에 맞게 고쳐 주세요.\n' +
+                '② 고치신 뒤 「새시트만들기」 를 한 번 더 실행하면 나머지 탭이 전부 만들어집니다.';
+    Logger.log(first);
+    try { SpreadsheetApp.getUi().alert(first); } catch (e) {}
+    return first;
+  }
+
+  // ── 2단계 : 학교설정을 읽어 나머지 탭을 만듭니다 ──
+  CFG_DONE = false;
+  resetConfig_();
+  ensureConfig_(ss);
+
+  log('════════ 새 시트 만들기 ════════');
+  log('학년 : ' + GRADE_LABEL);
+  log('반   : ' + CLASS_LIST.join(', ') + '반 (' + CLASS_LIST.length + '개)');
+  log('학생 : 한 반 ' + STUDENTS_PER_CLASS + '명 → 모두 ' +
+      (CLASS_LIST.length * STUDENTS_PER_CLASS) + '명');
+  log('과목 : ' + SUBJECTS.length + '개 — ' +
+      SUBJECTS.map(function (x) { return x.name; }).join(', '));
+  log('');
+
+  var lastRow = 2 + CLASS_LIST.length * STUDENTS_PER_CLASS;
+  var made = [], skip = [];
+
+  function mark(name, done) { if (done) made.push(name); else skip.push(name); }
+
+  mark('내신_반영비율',       GEN_ratio_(ss));
+  mark('내신_성취도분할점수', GEN_cut_(ss));
+  mark('내신_등급계산',       GEN_rank_(ss, lastRow));
+  mark(SHEET_GRADE,           GEN_grade_(ss));
+
+  var s1 = GEN_simple_(ss);
+  var s2 = GEN_mock_(ss);
+  var s3 = GEN_univ_(ss);
+  made = made.concat(s1, s2, s3);
+
+  ['학생 목표', '상담내용', '전입생_성적'].forEach(function (n) {
+    if (made.indexOf(n) === -1 && skip.indexOf(n) === -1) skip.push(n);
+  });
+  MOCK_SHEETS.forEach(function (c) { if (made.indexOf(c.name) === -1) skip.push(c.name); });
+  [SHEET_UNIV, SHEET_SUSI].forEach(function (n) { if (made.indexOf(n) === -1) skip.push(n); });
+
+  log('✅ 새로 만든 탭 (' + made.length + '개)');
+  made.forEach(function (n) { log('   · ' + n); });
+  if (skip.length) {
+    log('');
+    log('⏭️ 이미 있어서 건드리지 않은 탭 (' + skip.length + '개)');
+    skip.forEach(function (n) { log('   · ' + n); });
+  }
+  log('');
+  log('────────────────────────────────');
+  log('이제 하실 일');
+  log(' 1. 내신성적 탭의 「이름」 칸에 학생 이름을 넣으세요 (반·번호는 이미 있습니다).');
+  log(' 2. 1차시험 · 2차시험 · 1차수행 · 2차수행 점수를 넣으세요.');
+  log('    등급 · 환산총점 · 성취도는 수식이라 저절로 나옵니다.');
+  log(' 3. 내신_반영비율 · 내신_성취도분할점수를 학교 규정에 맞게 고치세요.');
+  log('    (지금은 30·30·20·20 과 90/80/70/60/40 으로 넣어 두었습니다)');
+  log(' 4. 상단 메뉴 🔐 상담시스템 관리 → 계정을 만들고 승인하세요.');
+  log('════════════════════════════════');
+
+  var out = L.join('\n');
+  Logger.log(out);
+  try { SpreadsheetApp.getUi().alert(out); } catch (e) {}
+  return out;
 }
