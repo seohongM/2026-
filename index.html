@@ -4298,7 +4298,7 @@ function renderGradeMock(){
     secHTML('⑤ 반별 × 과목별 평균점수','bar-chart-3')+'<div class="sub" style="margin-left:0;">원점수 평균. 국·수·영 100점, 통합사회·통합과학·한국사 50점 만점입니다. <b>과목별로 평균이 높은(상위) 반일수록 파란색이 진하고, 가장 낮은 반은 흰색</b>입니다.</div>'+
     '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+MOCK_SUBJECTS.map(u=>'<th>'+u.key+'<span class="mut">/'+u.max+'</span></th>').join('')+'</tr></thead><tbody>'+csRows+csTotal+'</tbody></table></div>'+
 
-    '<div class="disc">※ 모의고사 표준점수·백분위·등급은 191명 집단 분포 기반 추정치이며 정식 발표 후 확정됩니다. 9·10월은 미실시 시 "대기"로 표시되며 입력 시 자동 분석됩니다.</div></div>';
+    '<div class="disc">※ 모의고사 표준점수·백분위·등급은 학년 전체 분포 기반 추정치이며 정식 발표 후 확정됩니다. 9·10월은 미실시 시 "대기"로 표시되며 입력 시 자동 분석됩니다.</div></div>';
 
   bindGradeMockSeg();
   // dist 토글
