@@ -1349,9 +1349,12 @@ function subjectCalc_(gRow, si, ranks, cuts, tr) {
   var gfNum = toInt_(o.fGrade);
   var g1Num = toInt_(o.grade1);
 
-  if (o.hasAny && nt !== null && !isNaN(gfNum) && gfNum >= 1 && gfNum <= 5) {
+  // 학기말 기준은 **2차시험 점수가 들어온 뒤에만** 씁니다 (2026.09.30 사용자 결정).
+  // 1차시험만 본 학기(지금 2학기)는 시트의 환산총점·최종등급이 1차만 반영한 값이라
+  // 1차 점수 · 1차등급 기준으로 냅니다. 1학기는 2차시험까지 있으므로 예전과 같습니다.
+  if (o.exam2 !== '' && o.hasAny && nt !== null && !isNaN(gfNum) && gfNum >= 1 && gfNum <= 5) {
     nowGrade = gfNum; nowScore = nt; cutMap = ct.final; o.upBasis = '환산총점';
-  } else if (o.has1 && n1 !== null && !isNaN(g1Num) && g1Num >= 1 && g1Num <= 5) {
+  } else if (o.exam1 !== '' && n1 !== null && !isNaN(g1Num) && g1Num >= 1 && g1Num <= 5) {
     nowGrade = g1Num; nowScore = n1; cutMap = ct.first; o.upBasis = '1차 점수';
   }
 
@@ -1385,6 +1388,82 @@ function subjectCalc_(gRow, si, ranks, cuts, tr) {
     o.upNow = ''; o.upGrade = ''; o.upNeed = ''; o.upBasis = '';
   }
   return o;
+}
+
+
+/**
+ * 평균에 넣을 값 — 과목 하나 (2026.09.30 사용자 결정).
+ * 카드 · getAll · getStudentsByClass 가 **같이** 씁니다. 평균 규칙은 여기 한 곳에서만 정합니다.
+ *
+ *   2차시험 점수가 있으면   → 학기말 기준 (최종등급 · 환산총점)   ← 1학기는 모두 여기 (예전과 같음)
+ *   1차시험 점수만 있으면   → 1차 기준   (1차등급 · 1차시험)      ← 지금 2학기
+ *   시험 점수가 하나도 없으면 → 넣지 않음 (결시했거나 수행만 먼저 적은 과목)
+ *   이전 학교에서 받아 온 성적 → 넣지 않음
+ *
+ * k : 1 = 학기말 기준 / 2 = 1차 기준 (화면이 「(1차 기준)」 을 붙이는 데 씁니다)
+ */
+function avgPart_(c) {
+  if (c.prev) return null;
+  if (c.exam2 !== '') return { k: 1, g5: toNum_(c.fGrade), g9: c.gFnine, sc: c.nt, p: c.pctF };
+  if (c.exam1 !== '') return { k: 2, g5: toNum_(c.grade1), g9: c.g1nine, sc: c.n1, p: c.pct1 };
+  return null;
+}
+
+function avgAcc_() { return { n5: 0, s5: 0, n9: 0, s9: 0, nSc: 0, sSc: 0, nP: 0, sP: 0, k: 0 }; }
+
+function avgAdd_(acc, p) {
+  if (!p) return;
+  if (p.g5 !== null && p.g5 !== undefined) { acc.s5 += p.g5; acc.n5++; }
+  if (p.g9 !== null && p.g9 !== undefined) { acc.s9 += p.g9; acc.n9++; }
+  if (p.sc !== null && p.sc !== undefined) { acc.sSc += p.sc; acc.nSc++; }
+  if (p.p  !== null && p.p  !== undefined) { acc.sP  += p.p;  acc.nP++; }
+  acc.k = acc.k | p.k;
+}
+
+/**
+ * [과목 수, 5등급 평균, 9등급 평균, 평균 점수, 석차백분율 평균] — 비면 ''.
+ * 9등급 평균·석차백분율 평균은 **5등급 평균과 같은 과목**을 담을 때만 냅니다.
+ * (전입생의 이전 학교 성적은 9등급이 없어, 그대로 두면 서로 다른 과목 수의 값이 나란히 붙습니다)
+ */
+function avgOut_(acc) {
+  return [
+    acc.n5 || acc.n9,
+    acc.n5  ? round_(acc.s5  / acc.n5,  2) : '',
+    (acc.n9  && acc.n9  === acc.n5) ? round_(acc.s9  / acc.n9,  2) : '',
+    acc.nSc ? round_(acc.sSc / acc.nSc, 1) : '',
+    (acc.nP  && acc.nP  === acc.n5) ? round_(acc.sP  / acc.nP,  1) : ''
+  ];
+}
+
+/** 과목에 나오는 학기 번호들 (차례대로, 겹치지 않게) — 보통 [1, 2] */
+function semList_() {
+  var out = [];
+  SUBJECTS.forEach(function (s) { if (out.indexOf(s.sem) === -1) out.push(s.sem); });
+  return out;
+}
+
+/**
+ * 한 학생 줄의 평균 — 전체와 학기별.
+ *   all  : avgOut_ 모양 + k
+ *   sems : [[학기, 과목 수, 5등급 평균, 9등급 평균, k, 평균 점수, 석차백분율 평균], …]
+ * calcs[si] = subjectCalc_ 결과
+ */
+function avgBySem_(calcs) {
+  var all = avgAcc_(), per = {}, sems = semList_();
+  sems.forEach(function (s) { per[s] = avgAcc_(); });
+  for (var si = 0; si < SUBJECTS.length; si++) {
+    var p = avgPart_(calcs[si]);
+    if (!p) continue;
+    avgAdd_(all, p);
+    avgAdd_(per[SUBJECTS[si].sem], p);
+  }
+  return {
+    all: avgOut_(all), k: all.k,
+    sems: sems.map(function (s) {
+      var o = avgOut_(per[s]);
+      return [s, o[0], o[1], o[2], per[s].k, o[3], o[4]];
+    })
+  };
 }
 
 
@@ -1426,16 +1505,14 @@ function buildClassCards_(ss, cls) {
 
       var st = pick_(gn, String(gRow[2] || '').trim());
       var tr = transferOf_(trMap, cls, gn);
-      var n5 = 0, s5 = 0, n9 = 0, s9 = 0;
-      for (var si = 0; si < SUBJECTS.length; si++) {
-        var c = subjectCalc_(gRow, si, ranks, null, tr);
-        if (!c.hasAny || c.prev) continue;      // 이전 학교 성적은 평균에 안 넣습니다
-        var g5 = toNum_(c.fGrade);
-        if (g5 !== null) { s5 += g5; n5++; }
-        if (c.gFnine !== null) { s9 += c.gFnine; n9++; }
-      }
-      st.a5 = n5 ? round_(s5 / n5, 2) : null;
-      st.a9 = (n9 && n9 === n5) ? round_(s9 / n9, 2) : null;   // 같은 과목일 때만
+      var calcs = [];
+      for (var si = 0; si < SUBJECTS.length; si++) calcs.push(subjectCalc_(gRow, si, ranks, null, tr));
+      // 평균 규칙은 avgPart_ 한 곳에서 (이전 학교 성적 · 시험 안 본 과목은 빠짐)
+      var av = avgBySem_(calcs);
+      st.a5 = av.all[1] === '' ? null : av.all[1];
+      st.a9 = av.all[2] === '' ? null : av.all[2];
+      // 학기별 [학기, 과목 수, 5등급 평균, 9등급 평균, k(1 학기말 / 2 1차 / 3 섞임)]
+      st.ss = av.sems.map(function (x) { return [x[0], x[1], x[2], x[3], x[4]]; });
     }
   }
 
@@ -1544,7 +1621,7 @@ function apiGetAll_(req, user) {
 
       var st = ensure_(gc, gn, String(gRow[2] || '').trim());
       var tr = transferOf_(trMap, gc, gn);
-      var acc = { n5: 0, s5: 0, n9: 0, s9: 0, nSc: 0, sSc: 0, nP: 0, sP: 0 };
+      var calcs = [];
 
       for (var si = 0; si < SUBJECTS.length; si++) {
         var base = subjStart_(si);
@@ -1571,27 +1648,17 @@ function apiGetAll_(req, user) {
         st.d[d + 8] = c.has2 ? 1 : 0;
         st.d[d + 9] = c.prev ? 1 : 0;      // 이전 학교 성적인가
 
-        // 평균은 **우리 학교에서 본 시험만** 으로 냅니다.
-        // 전입생이 이전 학교에서 받아 온 성적(c.prev)은 표에는 보이지만 평균에는 안 넣습니다.
-        if (c.hasAny && !c.prev) {
-          var g5 = toNum_(c.fGrade);
-          if (g5 !== null) { acc.s5 += g5; acc.n5++; }
-          if (c.gFnine !== null) { acc.s9 += c.gFnine; acc.n9++; }
-          if (c.nt !== null) { acc.sSc += c.nt; acc.nSc++; }
-          if (c.pctF !== null) { acc.sP += c.pctF; acc.nP++; }
-        }
+        calcs.push(c);
       }
 
-      // 9등급 평균·석차백분율 평균은 **5등급 평균과 같은 과목**을 담을 때만 냅니다.
-      // 전입생의 이전 학교 성적은 우리 학교 석차가 없어 9등급·백분율이 빠지는데,
-      // 그대로 나란히 두면 「2.14 → 9.00」 처럼 서로 다른 과목 수의 값이 붙어 오해를 부릅니다.
-      st.s = [
-        acc.n5 || acc.n9,
-        acc.n5  ? round_(acc.s5  / acc.n5,  2) : '',
-        (acc.n9  && acc.n9  === acc.n5) ? round_(acc.s9  / acc.n9,  2) : '',
-        acc.nSc ? round_(acc.sSc / acc.nSc, 1) : '',
-        (acc.nP  && acc.nP  === acc.n5) ? round_(acc.sP  / acc.nP,  1) : ''
-      ];
+      // 평균 규칙은 avgPart_ 한 곳에서 정합니다 (우리 학교에서 본 시험만 ·
+      // 2차시험 전이면 1차 기준 · 시험 점수가 없는 과목은 빠짐).
+      // s[0..4] = 전체 [과목 수, 5등급, 9등급, 평균 점수, 석차백분율]  ← 예전과 같은 자리
+      // s[5]    = 학기별 [[학기, 과목 수, 5등급, 9등급, k, 평균 점수, 석차백분율], …]
+      // s[6]    = 전체의 k (1 학기말 기준 / 2 1차 기준 / 3 섞임)
+      // 옛 index.html 은 s[0..4] 만 읽으므로 그대로 동작합니다.
+      var av = avgBySem_(calcs);
+      st.s = av.all.concat([av.sems, av.k]);
     }
   }
 
@@ -1960,7 +2027,7 @@ var SUSI_JH_MAX_ = 8;
 /* 이 Code.gs 의 버전. 화면(index.html)의 PAGE_VER 와 짝이 맞아야 합니다.
    「고쳤는데 화면이 그대로다」 의 원인은 거의 늘 새 버전 배포를 안 한 것이라,
    ping 응답에 실어 보내 화면이 스스로 알아채게 합니다. */
-var APP_VER = '2026-09-23h';
+var APP_VER = '2026-09-30';
 
 /**
  * 아무 칸에서나 4자리 연도를 뽑아냅니다.
@@ -3021,21 +3088,13 @@ function getStudentsByClass(classNum) {
         var stu = ensureStudent(gNum, String(gRow[2] || '').trim());
         stu.schoolGrades = [];
 
-        // 평균 계산용 누적값
-        var acc = { n5: 0, s5: 0, n9: 0, s9: 0, nSc: 0, sSc: 0, nP: 0, sP: 0 };
+        var calcs = [];                // 평균은 avgBySem_ 가 냅니다 (getAll 과 같은 규칙)
 
         var tr2 = transferOf_(trMap2, gClass, gNum);
         SUBJECTS.forEach(function (subj, si) {
           // 계산은 subjectCalc_ 한 곳에서만 합니다 (getAll 과 같은 값)
           var c = subjectCalc_(gRow, si, ranks, cuts, tr2);
-
-          if (c.hasAny) {
-            var g5 = toNum_(c.fGrade);
-            if (g5 !== null) { acc.s5 += g5; acc.n5++; }
-            if (c.gFnine !== null) { acc.s9 += c.gFnine; acc.n9++; }
-            if (c.nt !== null) { acc.sSc += c.nt; acc.nSc++; }
-            if (c.pctF !== null) { acc.sP += c.pctF; acc.nP++; }
-          }
+          calcs.push(c);
 
           stu.schoolGrades.push({
             subject: subjLabel_(si),
@@ -3069,12 +3128,17 @@ function getStudentsByClass(classNum) {
           });
         });
 
+        var av = avgBySem_(calcs);
+        var nz = function (v) { return v === '' ? null : v; };
         stu.summary = {
-          subjectCount: acc.n5 || acc.n9,
-          avg5:     acc.n5  ? round_(acc.s5  / acc.n5,  2) : null,
-          avg9:     acc.n9  ? round_(acc.s9  / acc.n9,  2) : null,
-          avgScore: acc.nSc ? round_(acc.sSc / acc.nSc, 1) : null,
-          avgPct:   acc.nP  ? round_(acc.sP  / acc.nP,  1) : null
+          subjectCount: av.all[0],
+          avg5:     nz(av.all[1]),
+          avg9:     nz(av.all[2]),
+          avgScore: nz(av.all[3]),
+          avgPct:   nz(av.all[4]),
+          sems: av.sems.map(function (x) {
+            return { sem: x[0], subjectCount: x[1], avg5: nz(x[2]), avg9: nz(x[3]), basis: x[4] };
+          })
         };
       }
     }
