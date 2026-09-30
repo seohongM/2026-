@@ -65,6 +65,10 @@ var CLASS_LIST  = [1, 2, 3, 4, 5, 6, 7];
 // `새시트만들기` 가 명렬표를 몇 줄 만들지 (학교설정 탭에서 읽습니다)
 var STUDENTS_PER_CLASS = 30;
 
+// 학기별 학생 총원 (석차백분율을 낼 때 나누는 수). `학교설정` 의 「1학기 총원」 「2학기 총원」.
+// 비어 있으면 {} — 그러면 예전처럼 **시험 본 사람 수**로 나눕니다 (선생님 시트는 이 탭이 없어 늘 {}).
+var TOTAL_BY_SEM = {};
+
 // 이번 실행에서 `학교설정` 을 이미 읽었는지 (한 번만 읽으려고)
 var CFG_DONE = false;
 
@@ -361,6 +365,7 @@ function resetConfig_() {
   STUDENTS_PER_CLASS = CFG_BASE.perClass;
   SUBJECTS           = CFG_BASE.subjects;
   SUBJ_START         = null;               // 과목이 바뀌면 열 위치도 다시 찾아야 합니다
+  TOTAL_BY_SEM       = {};                 // 총원은 학교설정에 적혀 있을 때만
 }
 
 /** 한 줄이 「이름 : 값」 짝인지 보고, 이름이 맞으면 값을 돌려줍니다. */
@@ -402,6 +407,14 @@ function applyConfig_(rows) {
   // ── 한 반 학생 수 (명렬표를 몇 줄 만들지에만 씁니다) ──
   var sp = toInt_(cfgPick_(rows, ['한 반 학생 수', '한반 학생 수', '학생 수', '학생수']));
   if (!isNaN(sp) && sp >= 1 && sp <= 100) { STUDENTS_PER_CLASS = sp; changed = true; }
+
+  // ── 학기별 총원 (석차를 낼 때 나누는 수) ──
+  // 비워 두면 시트 수식도 서버도 **시험 본 사람 수**로 나눕니다.
+  // 적어 두면 둘 다 이 숫자로 나눕니다 → 시트의 5등급과 화면의 9등급이 같은 기준이 됩니다.
+  [1, 2].forEach(function (sem) {
+    var tv = toInt_(cfgPick_(rows, [sem + '학기 총원', sem + '학기 학생 총원', sem + '학기 총 인원']));
+    if (!isNaN(tv) && tv >= 1 && tv <= 3000) { TOTAL_BY_SEM[sem] = tv; changed = true; }
+  });
 
   // ── 과목 이름 ──
   // 「과목 이름」 이라고 적힌 줄을 찾아 그 아래를 차례로 읽습니다.
@@ -1464,7 +1477,13 @@ function buildClassCards_(ss, cls) {
   }
 
   order.sort(function (a, b) { return a - b; });
-  return { classNum: cls, students: order.map(function (k) { return map[k]; }) };
+  // 이름도 성적도 목표도 상담도 **하나도 없는 줄**은 빼냅니다 (명렬표를 넉넉히 만들어 남은 빈 줄).
+  // 이름이 다 적혀 있는 시트에서는 아무도 빠지지 않습니다.
+  var cards = order.map(function (k) { return map[k]; }).filter(function (st) {
+    var noName = !st.nm || st.nm === st.n + '번 학생';
+    return !(noName && st.a5 === null && st.a9 === null && !st.u && !st.mj && !st.cn);
+  });
+  return { classNum: cls, students: cards };
 }
 
 
@@ -1654,6 +1673,9 @@ function apiGetAll_(req, user) {
     }
   });
 
+  // 이름도 성적도 목표도 상담도 **하나도 없는 줄**은 빼냅니다 (명렬표를 넉넉히 만들어 남은 빈 줄).
+  // 카드(buildClassCards_)와 같은 기준입니다. 이름이 다 적혀 있는 시트에서는 아무도 빠지지 않습니다.
+  list = list.filter(function (st) { return !emptyStudent_(st); });
   list.sort(function (a, b) { return (a.c - b.c) || (a.n - b.n); });
 
   return ok_({
@@ -1666,6 +1688,17 @@ function apiGetAll_(req, user) {
     students:     list,
     updated:      nowStr_()
   });
+}
+
+
+/** getAll 의 학생 한 줄이 완전히 빈 줄인가 (이름·성적·목표·상담·모의고사 모두 없음) */
+function emptyStudent_(st) {
+  function blank(a) { for (var i = 0; i < (a || []).length; i++) if (a[i] !== '' && a[i] !== null && a[i] !== undefined) return false; return true; }
+  if (st.nm || st.u || st.mj || (st.h && st.h.length)) return false;
+  if ((st.tu && st.tu.length) || (st.tj && st.tj.length)) return false;
+  if (!blank(st.g) || !blank(st.tg)) return false;
+  for (var k in st.m) if (st.m.hasOwnProperty(k) && !blank(st.m[k])) return false;
+  return true;
 }
 
 
@@ -1765,16 +1798,10 @@ function saveTargetGrade(classNum, studentNum, studentName, si, phase, grade) {
        { u:[대학 이름들], d:[학과 이름들], r:[[대학번호, 학과번호, 평균70, 연도], …] }
    ══════════════════════════════════════════════════════════ */
 
-/** 0 → 'A', 25 → 'Z', 26 → 'AA' */
-function colName_(i) {
-  var s = '', n = i + 1;
-  while (n > 0) {
-    var r = (n - 1) % 26;
-    s = String.fromCharCode(65 + r) + s;
-    n = Math.floor((n - 1) / 26);
-  }
-  return s;
-}
+/* ⚠️ 열 글자를 만드는 `colName_` 은 이 파일에 **하나만** 있습니다 (수식점검 쪽, 1부터 셈).
+   예전에는 여기에 「0부터 세는」 같은 이름의 함수가 하나 더 있었는데, 같은 이름이면 **뒤의 것이 이겨서**
+   이 함수는 한 번도 쓰이지 않았습니다. 그 바람에 아래 `readColumns_` 가 열을 **한 칸 왼쪽**에서 읽었습니다
+   (고급 서비스를 켰을 때만 — 2026.09.30 발견). 헷갈리지 않게 지웠습니다. */
 
 /** 필요한 열만 골라 읽습니다. 고급 서비스가 켜져 있으면 왕복 한 번. */
 function readColumns_(ss, sheet, cols, lastRow) {
@@ -1785,8 +1812,9 @@ function readColumns_(ss, sheet, cols, lastRow) {
     try {
       var ranges = [];
       for (i = 0; i < cols.length; i++) {
+        // cols 는 0부터 센 열 번호, colName_ 은 1부터 셉니다 → +1
         ranges.push("'" + name.replace(/'/g, "''") + "'!" +
-                    colName_(cols[i]) + '2:' + colName_(cols[i]) + lastRow);
+                    colName_(cols[i] + 1) + '2:' + colName_(cols[i] + 1) + lastRow);
       }
       var res = Sheets.Spreadsheets.Values.batchGet(ss.getId(), {
         ranges: ranges,
@@ -2816,9 +2844,10 @@ function grade9From_(pct) {
 }
 
 /** 점수 목록을 받아 '점수 → 석차백분율' 변환기를 만듭니다. */
-function makeRanker_(values) {
-  var n = values.length;
-  if (!n) return null;
+function makeRanker_(values, total) {
+  if (!values.length) return null;
+  // 학교설정에 학기 총원이 있으면 그 수로 나눕니다 (시트 수식과 같은 기준). 없으면 시험 본 사람 수.
+  var n = (total > 0) ? total : values.length;
 
   var sorted = values.slice().sort(function (a, b) { return b - a; });   // 높은 점수부터
   var higher = {}, equal = {};
@@ -2860,10 +2889,11 @@ function buildGradeRanks_(gData) {
       if (tot !== null && (s1 !== null || s2 !== null || e1 !== null || e2 !== null)) vf.push(tot);
     }
 
+    var total = TOTAL_BY_SEM[subj.sem] || 0;       // 학교설정의 학기 총원 (없으면 0 = 시험 본 사람 수)
     ranks[si] = {
-      first:  makeRanker_(v1),
-      second: makeRanker_(v2),
-      final:  makeRanker_(vf),
+      first:  makeRanker_(v1, total),
+      second: makeRanker_(v2, total),
+      final:  makeRanker_(vf, total),
       n:      vf.length
     };
   });
@@ -4209,8 +4239,8 @@ function apiDeleteCounseling_(req, user) {
 
 /**
  * 1 → 'A' · 2 → 'B' … **1부터 세는** 열 번호를 글자로 바꿉니다.
- * ⚠️ `colName_` 은 주석에 「0 → A」 라고 적혀 있지만 **실제로는 1 → A** 입니다.
- *    2026.09 에 이것을 0부터라고 믿고 짰다가 **수식이 한 열씩 왼쪽을** 가리켰습니다.
+ * ⚠️ 예전에는 「0 → A」 라고 적힌 `colName_` 이 하나 더 있어서 헷갈렸습니다 (실제로 쓰인 것은 1 → A).
+ *    2026.09 에 0부터라고 믿고 짰다가 **수식이 한 열씩 왼쪽을** 가리켰습니다.
  *    그래서 여기서는 「1부터」 라는 것을 이름과 주석에 못 박아 둡니다.
  */
 function GEN_col_(oneBased) { return colName_(oneBased); }
@@ -4236,7 +4266,9 @@ function GEN_config_(ss) {
     ['학교설정', '', '← 이 탭의 값을 고치면 사이트에 그대로 반영됩니다'],
     ['학년', '1학년', '화면에 「1학년 3반 담임」 처럼 나옵니다'],
     ['반 수', 7, '1부터 이 숫자까지 반을 만듭니다'],
-    ['한 반 학생 수', 30, '명렬표를 몇 줄 만들지에만 씁니다 (나중에 늘리셔도 됩니다)'],
+    ['한 반 학생 수', 30, '명렬표를 몇 줄 만들지. 가장 많은 반 기준으로 넉넉히 (남는 줄은 비워 두면 화면에 안 나옵니다)'],
+    ['1학기 총원', '', '석차를 낼 때 나누는 수 (예: 191). 비워 두면 시험 본 사람 수를 저절로 셉니다'],
+    ['2학기 총원', '', '2학기에 전학생이 오면 이 칸만 고치세요. 1학기 등급은 그대로 남습니다 (예: 193)'],
     ['', '', ''],
     ['과목 이름', '학기', '한 줄에 한 과목씩. 1학기·2학기를 따로 적습니다'],
     ['공통국어', 1, ''],
@@ -4255,12 +4287,65 @@ function GEN_config_(ss) {
   ];
   sh.getRange(1, 1, rows.length, 3).setValues(rows);
   sh.getRange(1, 1, 1, 3).setFontWeight('bold');
-  sh.getRange(6, 1, 1, 3).setFontWeight('bold');
+  for (var hr = 0; hr < rows.length; hr++) {
+    if (rows[hr][0] === '과목 이름') sh.getRange(hr + 1, 1, 1, 3).setFontWeight('bold');
+  }
   sh.getRange(1, 3, rows.length, 1).setFontColor('#888888');
   sh.setColumnWidth(1, 130);
   sh.setColumnWidth(2, 110);
   sh.setColumnWidth(3, 420);
   return true;
+}
+
+/**
+ * 학교설정 탭에서 「1학기 총원」 · 「2학기 총원」 칸을 찾아 수식에 넣을 주소를 돌려줍니다.
+ * 예) 1 → "'학교설정'!$B$5". 그 줄이 없으면 null (그러면 시험 본 사람 수로 나눕니다).
+ * ⚠️ 칸 **위치**로 적어 두므로, 나중에 학교설정에 줄을 끼워 넣어도 구글 시트가 주소를 따라 옮겨 줍니다.
+ */
+function GEN_totalRef_(ss, sem) {
+  var sh = ss.getSheetByName(SHEET_CONFIG);
+  if (!sh) return null;
+  var rows = sh.getDataRange().getValues();
+  var want = [sem + '학기 총원', sem + '학기 학생 총원', sem + '학기 총 인원'].map(normalize_);
+  for (var r = 0; r < rows.length; r++) {
+    if (want.indexOf(normalize_(rows[r][0])) !== -1) return "'" + SHEET_CONFIG + "'!$B$" + (r + 1);
+  }
+  return null;
+}
+
+/**
+ * 석차백분율의 나누는 수.
+ *   학교설정에 그 학기 총원이 **숫자로** 적혀 있으면 → 그 숫자
+ *   비어 있으면                                    → COUNT(범위) = 시험 본 사람 수
+ */
+function GEN_div_(ref, rng) {
+  if (!ref) return 'COUNT(' + rng + ')';
+  return 'IF(AND(ISNUMBER(' + ref + '),' + ref + '>0),' + ref + ',COUNT(' + rng + '))';
+}
+
+/** 석차백분율 수식 한 칸. score = '내신성적'!D3 같은 칸, rng = 전교생 범위 */
+function GEN_pct_(score, rng, div) {
+  return '=IF(' + score + '="","",' +
+         'ROUND((COUNTIF(' + rng + ',">"&' + score + ')+1+' +
+         '(COUNTIF(' + rng + ',"="&' + score + ')-1)/2)/' + div + '*100,2))';
+}
+
+/**
+ * 반·번호는 값으로, 이름은 **내신성적의 같은 학생 칸을 끌어오는 수식**으로 적습니다.
+ * 그래서 이름은 내신성적에만 적으면 계산용 탭들(등급계산·상담_계산·상담_2차목표)에 저절로 나옵니다.
+ *   startRow : 이 탭에서 첫 학생 줄 / gradeRow0 : 내신성적에서 첫 학생 줄 (3)
+ */
+function GEN_rosterLinked_(sh, startRow, gradeRow0) {
+  var ro = GEN_roster_();
+  if (!ro.length) return 0;
+  sh.getRange(startRow, 1, ro.length, 2).setValues(ro.map(function (x) { return [x[0], x[1]]; }));
+  var f = [];
+  for (var i = 0; i < ro.length; i++) {
+    var gr = gradeRow0 + i;
+    f.push(["=IF('" + SHEET_GRADE + "'!C" + gr + "=\"\",\"\",'" + SHEET_GRADE + "'!C" + gr + ")"]);
+  }
+  sh.getRange(startRow, 3, ro.length, 1).setFormulas(f);
+  return ro.length;
 }
 
 /** 반·번호·이름 세 칸짜리 명렬표를 만들어 돌려줍니다 (머리글 제외) */
@@ -4373,8 +4458,9 @@ function GEN_achieve_(scoreCell, row, cA, cB, cC, cD, cE) {
 
 /**
  * 내신_등급계산 — 과목당 3칸(1차% · 2차% · 환산%) 석차백분율.
- * ⚠️ 나누는 수를 숫자로 박지 않고 **`COUNT(범위)`** 로 둡니다.
- *    그 과목 시험을 본 사람 수가 저절로 반영되므로, 전학생이 와도 고칠 것이 없습니다.
+ * ⚠️ 나누는 수 = **학교설정의 그 학기 총원** (「1학기 총원」 · 「2학기 총원」).
+ *    그 칸이 비어 있으면 `COUNT(범위)` = 시험 본 사람 수로 나눕니다.
+ *    전학생이 2학기에 오면 「2학기 총원」 만 고치면 되고, 1학기 등급은 그대로 남습니다.
  *    (선생님 시트는 숫자로 박혀 있지만 **그건 건드리지 않습니다** — 절대 규칙 3)
  */
 function GEN_rank_(ss, lastRow) {
@@ -4387,25 +4473,133 @@ function GEN_rank_(ss, lastRow) {
   }
   GEN_head_(sh, 1, head, 1);
 
-  var roster = GEN_roster_();
-  if (!roster.length) return true;
-  sh.getRange(2, 1, roster.length, 3).setValues(roster);
-
   // 내신성적은 3행부터, 여기는 2행부터라 줄이 하나 어긋납니다 → +1 로 맞춥니다
+  var n = GEN_rosterLinked_(sh, 2, 3);
+  if (!n) return true;
+  var tRef = { 1: GEN_totalRef_(ss, 1), 2: GEN_totalRef_(ss, 2) };
+
   for (var si = 0; si < SUBJECTS.length; si++) {
     var c0 = 4 + si * SUBJ_WIDTH;                                        // 1차시험 열 (1부터 셈)
     var cols = [GEN_col_(c0), GEN_col_(c0 + 2), GEN_col_(c0 + 6)];       // 1차시험·2차시험·환산총점
     for (var k = 0; k < 3; k++) {
       var X = cols[k], f = [];
-      for (var r = 2; r <= roster.length + 1; r++) {
-        var gr = r + 1;                                                   // 내신성적의 같은 학생 줄
-        var rng = "'내신성적'!$" + X + "$3:$" + X + "$" + (lastRow + 200);
-        f.push(["=IF('내신성적'!" + X + gr + "=\"\",\"\"," +
-                "ROUND((COUNTIF(" + rng + ",\">\"&'내신성적'!" + X + gr + ")+1+" +
-                "(COUNTIF(" + rng + ",\"=\"&'내신성적'!" + X + gr + ")-1)/2)/COUNT(" + rng + ")*100,2))"]);
+      var rng = "'" + SHEET_GRADE + "'!$" + X + "$3:$" + X + "$" + (lastRow + 200);
+      var div = GEN_div_(tRef[SUBJECTS[si].sem], rng);
+      for (var r = 2; r <= n + 1; r++) {
+        f.push([GEN_pct_("'" + SHEET_GRADE + "'!" + X + (r + 1), rng, div)]);   // 내신성적의 같은 학생 줄 = r+1
       }
       sh.getRange(2, 4 + si * 3 + k, f.length, 1).setFormulas(f);
     }
+  }
+  return true;
+}
+
+/* ══════════════════════════════════════════════════════════
+   상담_계산 · 상담_2차목표 — 선생님 시트와 같은 모양 (2026.09.30 사용자 요청)
+   홈페이지는 이 두 탭을 읽지 않습니다. 시트 안에서 상담할 때 보는 계산용입니다.
+
+   상담_계산      1·2행 머리글 / 3행부터 학생 (내신성적과 **같은 줄**)
+                  D열부터 과목당 2칸 : 석차백분율(1차시험 기준) · 1차등급
+                  학생 줄 아래 두 줄 띄우고 **과목별 등급컷 표** (A=과목, D~G = 1~4등급 최저점)
+   상담_2차목표   1·2행 머리글 / 3행부터 학생 (같은 줄)
+                  D열부터 과목당 3칸 : 1차점수 · 1차등급 · +1등급필요
+                  +1등급필요 = (한 등급 위 컷) − (내 1차점수). 1등급이면 「-」
+   ══════════════════════════════════════════════════════════ */
+
+/** 상담_계산 등급컷 표에서 과목 si 의 줄 번호 (학생 줄 끝 + 두 줄 띄움 + 제목 + 머리글) */
+function GEN_cutRow_(si) {
+  var last = 2 + CLASS_LIST.length * STUDENTS_PER_CLASS;
+  return last + 5 + si;
+}
+
+function GEN_counselCalc_(ss, lastRow) {
+  var sh = GEN_sheet_(ss, '상담_계산');
+  if (!sh) return false;
+
+  var h1 = ['반', '번호', '이름'], h2 = ['반', '번호', '이름'];
+  for (var i = 0; i < SUBJECTS.length; i++) {
+    h1.push(SUBJECTS[i].name, '');
+    h2.push('석차백분율', '1차등급');
+  }
+  sh.getRange(1, 1, 1, h1.length).setValues([h1]).setFontWeight('bold');
+  sh.getRange(2, 1, 1, h2.length).setValues([h2]).setFontWeight('bold');
+  sh.setFrozenRows(2);
+  sh.setFrozenColumns(3);
+
+  var n = GEN_rosterLinked_(sh, 3, 3);
+  if (!n) return true;
+  var last = 2 + n;
+  var tRef = { 1: GEN_totalRef_(ss, 1), 2: GEN_totalRef_(ss, 2) };
+
+  for (var si = 0; si < SUBJECTS.length; si++) {
+    var X   = GEN_col_(4 + si * SUBJ_WIDTH);                 // 내신성적의 1차시험 열
+    var rng = "'" + SHEET_GRADE + "'!$" + X + "$3:$" + X + "$" + (lastRow + 200);
+    var div = GEN_div_(tRef[SUBJECTS[si].sem], rng);
+    var P   = GEN_col_(4 + si * 2);                           // 이 탭의 석차백분율 열
+    var fp = [], fg = [];
+    for (var r = 3; r <= last; r++) {
+      fp.push([GEN_pct_("'" + SHEET_GRADE + "'!" + X + r, rng, div)]);
+      fg.push(['=IF(' + P + r + '="","",IF(' + P + r + '<=10,1,IF(' + P + r + '<=34,2,IF(' +
+               P + r + '<=66,3,IF(' + P + r + '<=90,4,5)))))']);
+    }
+    sh.getRange(3, 4 + si * 2, n, 1).setFormulas(fp);
+    sh.getRange(3, 5 + si * 2, n, 1).setFormulas(fg);
+  }
+
+  // ── 과목별 등급컷 표 ──
+  // 그 등급을 받은 학생 중 가장 낮은 1차시험 점수. 그 등급이 아무도 없으면 빈칸.
+  var t0 = last + 3;
+  sh.getRange(t0, 1).setValue('▼ 등급별 최저 컷 점수 (1차 시험 기준) — 상담_2차목표 의 「+1등급필요」 가 이 표를 봅니다');
+  sh.getRange(t0, 1).setFontWeight('bold');
+  sh.getRange(t0 + 1, 1, 1, 7).setValues([['과목', '', '', '1등급컷', '2등급컷', '3등급컷', '4등급컷']]).setFontWeight('bold');
+  for (var sj = 0; sj < SUBJECTS.length; sj++) {
+    var X2 = GEN_col_(4 + sj * SUBJ_WIDTH);
+    var G  = GEN_col_(5 + sj * 2);                          // 이 탭의 1차등급 열
+    var gR = '$' + G + '$3:$' + G + '$' + last;
+    var sR = "'" + SHEET_GRADE + "'!$" + X2 + '$3:$' + X2 + '$' + last;
+    var row = [SUBJECTS[sj].name, '', ''];
+    for (var k = 1; k <= 4; k++) {
+      row.push('=IF(COUNTIF(' + gR + ',' + k + ')=0,"",MINIFS(' + sR + ',' + gR + ',' + k + '))');
+    }
+    sh.getRange(GEN_cutRow_(sj), 1, 1, 7).setValues([row]);
+  }
+  return true;
+}
+
+function GEN_counselGoal_(ss) {
+  var sh = GEN_sheet_(ss, SHEET_GOAL);
+  if (!sh) return false;
+
+  var h1 = ['반', '번호', '이름'], h2 = ['반', '번호', '이름'];
+  for (var i = 0; i < SUBJECTS.length; i++) {
+    h1.push(SUBJECTS[i].name, '', '');
+    h2.push('1차점수', '1차등급', '+1등급필요');
+  }
+  sh.getRange(1, 1, 1, h1.length).setValues([h1]).setFontWeight('bold');
+  sh.getRange(2, 1, 1, h2.length).setValues([h2]).setFontWeight('bold');
+  sh.setFrozenRows(2);
+  sh.setFrozenColumns(3);
+
+  var n = GEN_rosterLinked_(sh, 3, 3);
+  if (!n) return true;
+  var last = 2 + n;
+
+  for (var si = 0; si < SUBJECTS.length; si++) {
+    var X  = GEN_col_(4 + si * SUBJ_WIDTH);                 // 내신성적 1차시험
+    var CG = GEN_col_(5 + si * 2);                          // 상담_계산 1차등급
+    var cr = GEN_cutRow_(si);                               // 상담_계산 등급컷 표의 이 과목 줄
+    var f1 = [], f2 = [], f3 = [];
+    for (var r = 3; r <= last; r++) {
+      var sc = "'" + SHEET_GRADE + "'!" + X + r;
+      var gd = "'상담_계산'!" + CG + r;
+      f1.push(['=IF(' + sc + '="","",' + sc + ')']);
+      f2.push(['=IF(' + gd + '="","",' + gd + ')']);
+      f3.push(['=IF(' + gd + '="","",IF(' + gd + '=1,"-",IFERROR(INDEX(' +
+               "'상담_계산'!$D$" + cr + ':$G$' + cr + ',1,' + gd + '-1)-' + sc + ',"")))']);
+    }
+    sh.getRange(3, 4 + si * 3, n, 1).setFormulas(f1);
+    sh.getRange(3, 5 + si * 3, n, 1).setFormulas(f2);
+    sh.getRange(3, 6 + si * 3, n, 1).setFormulas(f3);
   }
   return true;
 }
@@ -4448,16 +4642,14 @@ function GEN_simple_(ss) {
   var t = GEN_sheet_(ss, SHEET_TARGET);
   if (t) {
     GEN_head_(t, 1, ['반', '번호', '이름', '희망 대학', '희망 학과'], 1);
-    var ro = GEN_roster_();
-    if (ro.length) t.getRange(2, 1, ro.length, 3).setValues(ro);
+    GEN_rosterLinked_(t, 2, 3);                   // 이름은 내신성적에서 끌어옵니다
     made.push(SHEET_TARGET);
   }
 
   var c = GEN_sheet_(ss, SHEET_COUNSEL);
   if (c) {
     GEN_head_(c, 1, ['반', '번호', '이름', '상담 기록 1', '상담 기록 2', '상담 기록 3'], 1);
-    var ro2 = GEN_roster_();
-    if (ro2.length) c.getRange(2, 1, ro2.length, 3).setValues(ro2);
+    GEN_rosterLinked_(c, 2, 3);                   // 이름은 내신성적에서 끌어옵니다
     made.push(SHEET_COUNSEL);
   }
 
@@ -4491,8 +4683,7 @@ function GEN_mock_(ss) {
     sh.getRange(1, 1, 1, h1.length).setValues([h1]).setFontWeight('bold');
     sh.getRange(2, 1, 1, h2.length).setValues([h2]).setFontWeight('bold');
     sh.setFrozenRows(2);
-    var ro = GEN_roster_();
-    if (ro.length) sh.getRange(3, 1, ro.length, 3).setValues(ro);
+    GEN_rosterLinked_(sh, 3, 3);                  // 이름은 내신성적에서 끌어옵니다
     made.push(MOCK_SHEETS[m].name);
   }
   return made;
@@ -4545,7 +4736,8 @@ function 새시트만들기() {
   // ── 1단계 : 학교설정 탭이 없으면 그것만 만들고 멈춥니다 ──
   if (GEN_config_(ss)) {
     var first = '✅ 「학교설정」 탭을 만들었습니다.\n\n' +
-                '① 그 탭에서 학년 · 반 수 · 한 반 학생 수 · 과목 이름을 우리 학교에 맞게 고쳐 주세요.\n' +
+                '① 그 탭에서 학년 · 반 수 · 한 반 학생 수 · 1학기 총원 · 2학기 총원 · 과목 이름을\n' +
+                '   우리 학교에 맞게 고쳐 주세요. (총원은 석차를 낼 때 나누는 수입니다)\n' +
                 '② 고치신 뒤 「새시트만들기」 를 한 번 더 실행하면 나머지 탭이 전부 만들어집니다.';
     Logger.log(first);
     try { SpreadsheetApp.getUi().alert(first); } catch (e) {}
@@ -4564,6 +4756,12 @@ function 새시트만들기() {
       (CLASS_LIST.length * STUDENTS_PER_CLASS) + '명');
   log('과목 : ' + SUBJECTS.length + '개 — ' +
       SUBJECTS.map(function (x) { return x.name; }).join(', '));
+  [1, 2].forEach(function (sem) {
+    var hasRow = !!GEN_totalRef_(ss, sem);
+    log(sem + '학기 총원 : ' + (TOTAL_BY_SEM[sem] ? TOTAL_BY_SEM[sem] + '명으로 나눕니다'
+        : (hasRow ? '비어 있음 → 시험 본 사람 수로 나눕니다 (나중에 적어도 곧바로 반영됩니다)'
+                  : '학교설정에 이 줄이 없음 → 시험 본 사람 수로 나눕니다')));
+  });
   log('');
 
   var lastRow = 2 + CLASS_LIST.length * STUDENTS_PER_CLASS;
@@ -4575,6 +4773,8 @@ function 새시트만들기() {
   mark('내신_성취도분할점수', GEN_cut_(ss));
   mark('내신_등급계산',       GEN_rank_(ss, lastRow));
   mark(SHEET_GRADE,           GEN_grade_(ss));
+  mark('상담_계산',           GEN_counselCalc_(ss, lastRow));
+  mark(SHEET_GOAL,            GEN_counselGoal_(ss));
 
   var s1 = GEN_simple_(ss);
   var s2 = GEN_mock_(ss);
@@ -4598,11 +4798,13 @@ function 새시트만들기() {
   log('────────────────────────────────');
   log('이제 하실 일');
   log(' 1. 내신성적 탭의 「이름」 칸에 학생 이름을 넣으세요 (반·번호는 이미 있습니다).');
+  log('    다른 탭의 이름은 내신성적에서 저절로 따라옵니다. 학생이 없는 줄은 비워 두세요.');
   log(' 2. 1차시험 · 2차시험 · 1차수행 · 2차수행 점수를 넣으세요.');
-  log('    등급 · 환산총점 · 성취도는 수식이라 저절로 나옵니다.');
+  log('    등급 · 환산총점 · 성취도 · 상담_계산 · 상담_2차목표는 수식이라 저절로 나옵니다.');
   log(' 3. 내신_반영비율 · 내신_성취도분할점수를 학교 규정에 맞게 고치세요.');
   log('    (지금은 30·30·20·20 과 90/80/70/60/40 으로 넣어 두었습니다)');
-  log(' 4. 상단 메뉴 🔐 상담시스템 관리 → 계정을 만들고 승인하세요.');
+  log(' 4. 학교설정의 1학기 총원 · 2학기 총원 을 확인하세요 (언제 고쳐도 곧바로 반영됩니다).');
+  log(' 5. 상단 메뉴 🔐 상담시스템 관리 → 계정을 만들고 승인하세요.');
   log('════════════════════════════════');
 
   var out = L.join('\n');
