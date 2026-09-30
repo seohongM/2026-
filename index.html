@@ -24,7 +24,7 @@
 
     /* 이 index.html 의 버전. Apps Script 의 APP_VER 와 짝이 맞아야 합니다.
        다르면 [🔧 연결 상태 확인] 과 수시 패널이 알려 줍니다. */
-    const PAGE_VER = '2026-09-23g';
+    const PAGE_VER = '2026-09-30';
 
     </script>
 
@@ -1289,6 +1289,7 @@ function hydrate(row) {
     // Code.gs 를 아직 새 버전으로 배포하지 않아 옛 모양(9칸)이 와도
     // 한 칸씩 밀린 자리를 읽어 엉뚱한 값을 보여주지 않게 하려는 것입니다.
     const STEP = (SUBJ.length && d.length) ? Math.round(d.length / SUBJ.length) : 10;
+    const INFO = (ALL && ALL.subjectInfo) ? ALL.subjectInfo : null;
 
     const schoolGrades = SUBJ.map((name, si) => {
         const b = si * 11, e = si * STEP;
@@ -1300,6 +1301,7 @@ function hydrate(row) {
         return {
             index: si,
             subject: LABEL[si] || name,
+            sem: subjSem(INFO, si, name),
             prevSchool: prev,
             // 선생님이 적어 둔 목표 등급 (5등급제). 성적이 아니라 메모입니다.
             goal1: V(tg[si * 2 + 0]) === '' ? '' : String(tg[si * 2 + 0]),
@@ -1364,9 +1366,62 @@ function hydrate(row) {
             avg5:     V(s[1]) === '' ? null : s[1],
             avg9:     V(s[2]) === '' ? null : s[2],
             avgScore: V(s[3]) === '' ? null : s[3],
-            avgPct:   V(s[4]) === '' ? null : s[4]
+            avgPct:   V(s[4]) === '' ? null : s[4],
+            // 학기별 평균 · 전체의 기준 (옛 서버는 안 보내므로 없으면 null — 예전처럼 전체만 보입니다)
+            sems:  semAvgs(s[5]),
+            basis: V(s[6]) === '' ? 0 : Number(s[6])
         }
     };
+}
+
+/** 과목의 학기 — 서버의 subjectInfo 가 있으면 그것, 없으면 이름 끝의 1·2 */
+function subjSem(info, si, name) {
+    if (info && info[si] && info[si].s) return Number(info[si].s);
+    const m = /([12])$/.exec(String(name || ''));
+    return m ? Number(m[1]) : 0;
+}
+
+/**
+ * 서버의 학기별 평균 [[학기, 과목 수, 5등급, 9등급, k, 평균 점수, 석차백분율], …] → 이름표 붙은 모양.
+ * k(basis) : 1 = 학기말 기준 / 2 = 1차 기준 / 3 = 섞임. 없으면 null.
+ */
+function semAvgs(arr) {
+    if (!Array.isArray(arr) || !arr.length) return null;
+    return arr.map(x => ({
+        sem: Number(x[0]),
+        subjectCount: Number(x[1]) || 0,
+        avg5:     V(x[2]) === '' ? null : x[2],
+        avg9:     V(x[3]) === '' ? null : x[3],
+        basis:    Number(x[4]) || 0,
+        avgScore: V(x[5]) === '' ? null : x[5],
+        avgPct:   V(x[6]) === '' ? null : x[6]
+    }));
+}
+
+/** 평균 옆에 붙이는 기준 글자 — 1차만 본 학기는 「1차 기준」 */
+function basisTag(k) {
+    if (k === 2) return '1차 기준';
+    if (k === 3) return '1차·학기말 섞임';
+    return '';
+}
+
+/** 카드용 평균 세 줄 — 1학기 · 2학기 · 전체 (5등급 → 9등급) */
+function avgRowsHtml(sm) {
+    const pair = (a5, a9) => (a5 == null && a9 == null)
+        ? '<span class="text-slate-400">-</span>'
+        : (a5 != null ? Number(a5).toFixed(2) : '-') +
+          (a9 != null ? ` <span class="text-slate-300">→</span> <span class="text-blue-700 font-extrabold">${Number(a9).toFixed(2)}</span>` : '');
+    const rows = sm.sems.map(x => ({ label: x.sem + '학기', v: pair(x.avg5, x.avg9),
+                                     tag: x.subjectCount ? basisTag(x.basis) : '', strong: false }))
+        .concat([{ label: '전체', v: pair(sm.avg5, sm.avg9), tag: '', strong: true }]);
+    return `<div class="flex items-start gap-1 text-xs text-slate-600 font-semibold" title="5등급제 평균 → 9등급제 평균">
+                <span>📊</span>
+                <div class="grid grid-cols-[auto_auto_1fr] gap-x-1.5 items-baseline min-w-0">
+                    ${rows.map(r => `<span class="${r.strong ? 'text-slate-800 font-bold' : 'text-slate-600'}">${r.label}</span>
+                        <span class="${r.strong ? 'font-bold' : ''}">${r.v}</span>
+                        <span class="text-[10px] text-slate-600 font-medium truncate">${r.tag ? '(' + r.tag + ')' : ''}</span>`).join('')}
+                </div>
+            </div>`;
 }
 
 /** 카드만 그리기 위한 가벼운 모양 (1단계 응답) */
@@ -1380,7 +1435,8 @@ function hydrateCard(c, cls) {
         lastCounselingDate: c.cd || '상담 기록 없음',
         counselingHistory: new Array(c.cn || 0),
         schoolGrades: null,
-        summary: { avg5: V(c.a5) === '' ? null : c.a5, avg9: V(c.a9) === '' ? null : c.a9 },
+        summary: { avg5: V(c.a5) === '' ? null : c.a5, avg9: V(c.a9) === '' ? null : c.a9,
+                   sems: semAvgs(c.ss) },
         _light: true          // 아직 성적 전체가 없다는 표시
     };
 }
@@ -1532,7 +1588,9 @@ function renderStudentGrid() {
             ? `<span class="text-slate-300">→</span>
                <span class="text-blue-700 font-extrabold">${Number(sm.avg9).toFixed(2)}</span>`
             : '';
-        const avgLine = (sm.avg5 != null || sm.avg9 != null)
+        // 서버가 학기별 평균을 보내 주면 1학기 · 2학기 · 전체를 한 줄씩 (2026.09.30 사용자 요청)
+        const semLines = (sm.sems && (sm.avg5 != null || sm.avg9 != null)) ? avgRowsHtml(sm) : '';
+        const avgLine = semLines ? semLines : (sm.avg5 != null || sm.avg9 != null)
             ? `<div class="text-xs text-slate-600 font-semibold truncate" title="5등급제 평균 → 9등급제 평균">
                    📊 평균 ${sm.avg5 != null ? Number(sm.avg5).toFixed(2) : '-'}
                    ${nine}
@@ -3271,34 +3329,50 @@ function renderSchoolGrades(grades, summary) {
     // 이전 학교 성적은 표에는 보이지만 평균에는 안 들어갑니다 — 왜 과목 수가 다른지 밝혀 둡니다
     const prevCount = grades.filter(x => x.prevSchool).length;
 
-    tfoot.innerHTML = `
-        <tr class="border-t-2 border-slate-400">
-            <td class="p-1 font-extrabold border-r border-slate-300 bg-slate-100">평균</td>
+    // 평균 점수 칸 — 학기말 기준이면 환산총점 평균, 1차 기준이면 1차시험 평균(「1차」 표시), 섞이면 비움
+    const scoreCell = (v, k) => !has(v) ? '-'
+        : k === 2 ? `${v}<span class="block text-[9px] font-medium text-slate-600">1차 점수</span>`
+        : k === 3 ? '-' : String(v);
+    const footRow = (label, note, score, a5, a9, first, strong) => `
+        <tr class="${first ? 'border-t-2 border-slate-400' : 'border-t border-slate-200'}">
+            <td class="p-1 ${strong ? 'font-extrabold' : 'font-bold'} border-r border-slate-300 bg-slate-100">${label}</td>
             <td class="p-1 border-r border-slate-300" colspan="6">
-                <span class="text-[10px] font-medium text-slate-500">
-                    성적이 입력된 ${has(s.subjectCount) ? s.subjectCount : 0}과목 기준
-                    ${prevCount ? ' · 이전 학교 ' + prevCount + '과목은 평균에서 제외' : ''}
-                    ${has(s.avgPct) ? ' · 전교 석차백분율 평균 상위 ' + s.avgPct + '%' : ''}
-                </span>
+                <span class="text-[10px] font-medium text-slate-600">${note}</span>
             </td>
-            <td class="p-1 border-r border-slate-300 font-extrabold text-emerald-700 bg-emerald-50">
-                ${has(s.avgScore) ? s.avgScore : '-'}
-            </td>
-            <td class="p-1 border-r border-slate-300 bg-blue-50">
-                ${gradePair(avg5, avg9, true)}
-            </td>
+            <td class="p-1 border-r border-slate-300 font-extrabold text-emerald-700 bg-emerald-50">${score}</td>
+            <td class="p-1 border-r border-slate-300 bg-blue-50">${gradePair(a5, a9, true)}</td>
             <td class="p-1 text-slate-400 text-[10px]">-</td>
-        </tr>
-    `;
+        </tr>`;
+    const fx = v => has(v) ? Number(v).toFixed(2) : '';
+    const allNote = `성적이 입력된 ${has(s.subjectCount) ? s.subjectCount : 0}과목 기준`
+        + (prevCount ? ' · 이전 학교 ' + prevCount + '과목은 평균에서 제외' : '')
+        + (has(s.avgPct) ? ' · 전교 석차백분율 평균 상위 ' + s.avgPct + '%' : '');
+
+    if (s.sems && s.sems.length) {
+        // 1학기 · 2학기 · 전체 를 한 줄씩 (2026.09.30 사용자 요청)
+        // 2차시험 전인 학기는 1차등급으로 냅니다 — 학기말이 나오면 저절로 최종등급으로 바뀝니다.
+        const rowsHtml = s.sems.map((x, i) => footRow(
+            x.sem + '학기 평균',
+            x.subjectCount
+                ? x.subjectCount + '과목' + (basisTag(x.basis) ? ' · <b class="text-slate-800">' + basisTag(x.basis) + '</b>'
+                    + (x.basis === 2 ? ' (2차시험이 들어오면 학기말 성적으로 바뀝니다)' : '') : ' · 학기말 성적')
+                : '아직 성적 없음',
+            scoreCell(x.avgScore, x.basis), fx(x.avg5), fx(x.avg9), i === 0, false)).join('');
+        tfoot.innerHTML = rowsHtml + footRow('전체 평균',
+            allNote + (s.basis === 3 || s.basis === 2 ? ' · 1차만 본 학기는 1차 기준' : ''),
+            scoreCell(s.avgScore, s.basis), avg5, avg9, false, true);
+    } else {
+        tfoot.innerHTML = footRow('평균', allNote, has(s.avgScore) ? s.avgScore : '-', avg5, avg9, true, true);
+    }
 
     // ── 제목 옆 요약 배지 ──
     if (has(s.avg5) || has(s.avg9)) {
         badges.innerHTML = `
             <span class="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 rounded-md px-2 py-0.5">
-                5등급제 평균 <b class="text-slate-900 text-xs">${avg5 || '-'}</b>
+                ${s.sems ? '전체 ' : ''}5등급제 평균 <b class="text-slate-900 text-xs">${avg5 || '-'}</b>
             </span>` + (avg9
           ? `<span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-md px-2 py-0.5">
-                9등급제 평균 <b class="text-blue-900 text-xs">${avg9}</b>
+                ${s.sems ? '전체 ' : ''}9등급제 평균 <b class="text-blue-900 text-xs">${avg9}</b>
             </span>`
           : '');
     }
@@ -4298,7 +4372,7 @@ function renderGradeMock(){
     secHTML('⑤ 반별 × 과목별 평균점수','bar-chart-3')+'<div class="sub" style="margin-left:0;">원점수 평균. 국·수·영 100점, 통합사회·통합과학·한국사 50점 만점입니다. <b>과목별로 평균이 높은(상위) 반일수록 파란색이 진하고, 가장 낮은 반은 흰색</b>입니다.</div>'+
     '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+MOCK_SUBJECTS.map(u=>'<th>'+u.key+'<span class="mut">/'+u.max+'</span></th>').join('')+'</tr></thead><tbody>'+csRows+csTotal+'</tbody></table></div>'+
 
-    '<div class="disc">※ 모의고사 표준점수·백분위·등급은 191명 집단 분포 기반 추정치이며 정식 발표 후 확정됩니다. 9·10월은 미실시 시 "대기"로 표시되며 입력 시 자동 분석됩니다.</div></div>';
+    '<div class="disc">※ 모의고사 표준점수·백분위·등급은 학년 전체 분포 기반 추정치이며 정식 발표 후 확정됩니다. 9·10월은 미실시 시 "대기"로 표시되며 입력 시 자동 분석됩니다.</div></div>';
 
   bindGradeMockSeg();
   // dist 토글
@@ -4668,7 +4742,12 @@ function renderUplift(grades) {
     if (!grades) { card.classList.add('hidden'); return; }
 
     // upNow = 지금 등급 / upGrade = 한 등급 위 / upNeed = 그때까지 모자란 점수
-    const rows = (grades || []).filter(g => g.hasData && g.upNow);
+    // 이미 끝난 학기는 더 올릴 수 없으므로 **가장 최근 학기** 과목만 보여 줍니다 (2026.09.30 사용자 결정).
+    // 최근 학기 = 우리 학교 시험 점수가 하나라도 들어온 학기 중 가장 늦은 것.
+    // (지금은 2학기 · 1차시험 기준 — 기준 고르기는 서버의 subjectCalc_ 가 합니다)
+    const withExam = (grades || []).filter(g => !g.prevSchool && g.sem && (V(g.exam1) !== '' || V(g.exam2) !== ''));
+    const lastSem = withExam.length ? Math.max.apply(null, withExam.map(g => g.sem)) : 0;
+    const rows = (grades || []).filter(g => g.hasData && g.upNow && (!lastSem || g.sem === lastSem));
     if (!rows.length) { card.classList.add('hidden'); return; }
 
     const items = rows.map(g => ({
@@ -4714,8 +4793,10 @@ function renderUplift(grades) {
         ? (basis.indexOf('1차 점수') > -1 ? '학기말이 나온 과목은 환산총점, 아직인 과목은 1차 점수 기준' : '환산총점 기준')
         : '1차 점수 기준';
 
+    const semText = lastSem && (grades || []).some(g => g.sem && g.sem !== lastSem) ? lastSem + '학기 과목 · ' : '';
+
     body.innerHTML = '<div class="flex flex-wrap gap-1.5">' + chips + '</div>' +
-        `<p class="text-[10px] text-slate-400 mt-1.5">${basisText} · 전교에서 한 등급 위를 받은 학생의 최저 점수까지 모자란 점수입니다. 앞의 두 과목이 가장 적은 점수로 올릴 수 있습니다.</p>`;
+        `<p class="text-[10px] text-slate-400 mt-1.5">${semText}${basisText} · 전교에서 한 등급 위를 받은 학생의 최저 점수까지 모자란 점수입니다. 앞의 두 과목이 가장 적은 점수로 올릴 수 있습니다.</p>`;
 }
 
 function renderMockCharts(mockExams) {
