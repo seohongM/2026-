@@ -4420,7 +4420,7 @@ function renderGradeNaesin(){
 
     secHTML('⑨ '+iLabel+' 학생 명단','alert-triangle')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 40점 미만(I) — 최우선 지도 대상</div>'+
     '<div class="tscroll tall"><table><thead><tr><th class="name">학번 (이름)</th><th>반</th><th>I 과목</th></tr></thead><tbody>'+
-    (iStudents.length?iStudents.map(s=>{const isub=NS(sem).filter(subj=>{const o=s.naesin[sem][subj];return o&&o[AF]==='I';});return '<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td><td>'+s.ban+'반</td><td>'+isub.join(', ')+'</td></tr>';}).join(''):'<tr><td colspan="3" class="mut">해당 학생 없음</td></tr>')+
+    (iStudents.length?iStudents.map(s=>{const isub=NS(sem).filter(subj=>{const o=s.naesin[sem][subj];return inc(o)&&o[AF]==='I';});/* ⚠️ inc(o) 필수 — 점수가 빈 과목도 시트 성취도 수식은 0점으로 읽어 「I」 를 냅니다 (2026.10.01 사용자 신고) */return '<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td><td>'+s.ban+'반</td><td>'+isub.join(', ')+'</td></tr>';}).join(''):'<tr><td colspan="3" class="mut">해당 학생 없음</td></tr>')+
     '</tbody></table></div>'+
     '<div class="disc">※ '+SEMESTERS.find(x=>x.key===sem).label+' '+EX.lab+' 기준 분석입니다. 등급·성취도는 구글 시트 수식으로 산출되며, 통계·등급컷은 '+EX.unit+'을 기준으로 실시간 계산됩니다. 학기·차수 버튼으로 1학기·2학기 각각의 1차/2차/학기말(총 6개)을 볼 수 있습니다.</div></div>';
 
