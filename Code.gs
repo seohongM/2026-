@@ -36,7 +36,9 @@ var SHEET_UNIV    = '정시_대학자료';              // 정시 결과 (선생
 var SHEET_SUSI    = '수시_대학자료';              // 수시 지원 이력 (선배들의 합격·불합격)
 
 var TARGET_KEYWORDS = ['학생', '목표'];          // '학생목표', '1학년 학생 목표' 등도 인식
-var TRANSFER_KEYWORDS = ['전입생'];              // '전입생성적', '전입생 성적' 등도 인식
+var TRANSFER_KEYWORDS = ['전입생'];
+var SHEET_RATIO = '내신_반영비율';                 // 1·2차 시험 변환점에 1차·2차 비율만 씁니다
+var RATIO_KEYWORDS = ['반영비율'];              // '전입생성적', '전입생 성적' 등도 인식
 var TGRADE_KEYWORDS = ['목표등급'];              // '목표등급표' 등도 인식 ('학생 목표'와 안 겹칩니다)
 var TUNIV_KEYWORDS  = ['목표대학'];              // '정시_대학자료'·'수시_대학자료' 와 안 겹칩니다
 var UNIV_KEYWORDS = ['정시', '대학자료'];        // '정시 대학자료' 등도 인식
@@ -68,6 +70,9 @@ var STUDENTS_PER_CLASS = 30;
 // 학기별 학생 총원 (석차백분율을 낼 때 나누는 수). `학교설정` 의 「1학기 총원」 「2학기 총원」.
 // 비어 있으면 {} — 그러면 예전처럼 **시험 본 사람 수**로 나눕니다 (선생님 시트는 이 탭이 없어 늘 {}).
 var TOTAL_BY_SEM = {};
+
+// 과목마다 [1차시험 비율, 2차시험 비율] — `내신_반영비율` 에서 읽습니다 (applyRatio_). 없으면 30·30.
+var EXAM_W = [];
 
 // 이번 실행에서 `학교설정` 을 이미 읽었는지 (한 번만 읽으려고)
 var CFG_DONE = false;
@@ -366,6 +371,7 @@ function resetConfig_() {
   SUBJECTS           = CFG_BASE.subjects;
   SUBJ_START         = null;               // 과목이 바뀌면 열 위치도 다시 찾아야 합니다
   TOTAL_BY_SEM       = {};                 // 총원은 학교설정에 적혀 있을 때만
+  EXAM_W             = [];                 // 반영비율도 요청마다 새로 읽습니다
 }
 
 /** 한 줄이 「이름 : 값」 짝인지 보고, 이름이 맞으면 값을 돌려줍니다. */
@@ -988,7 +994,9 @@ function CARD_SHEETS_() {
     { key: 'grade',   name: SHEET_GRADE,   keywords: ['내신'] },
     { key: 'target',  name: SHEET_TARGET,  keywords: TARGET_KEYWORDS },
     { key: 'counsel', name: SHEET_COUNSEL, keywords: ['상담'] },
-    { key: 'transfer', name: SHEET_TRANSFER, keywords: TRANSFER_KEYWORDS }
+    { key: 'transfer', name: SHEET_TRANSFER, keywords: TRANSFER_KEYWORDS },
+    // 1·2차 시험 변환점(수행 전)에 1차·2차 비율을 씁니다. 묶음으로 읽어 왕복은 안 늡니다.
+    { key: 'ratio',    name: SHEET_RATIO,    keywords: RATIO_KEYWORDS }
   ];
 }
 
@@ -1342,6 +1350,26 @@ function subjectCalc_(gRow, si, ranks, cuts, tr) {
   o.pct1 = pct1; o.pct2 = pct2; o.pctF = pctF;
   o.n1 = n1; o.n2 = n2; o.nt = nt;
 
+  // ── 1·2차 시험 변환점 (수행 점수가 다 들어오기 전) — 2026.10.01 사용자 결정 ──
+  // 반영비율의 1차·2차 비율대로 (30·30 이면 60점 만점). 등급은 이 점수로 전교 석차를 다시 매깁니다.
+  o.mid = null; o.pctM = null; o.gMnine = null; o.gM5 = null;
+  if (n1 !== null && n2 !== null) {
+    o.mid    = midScore_(n1, n2, si);
+    o.pctM   = rk.mid ? rk.mid(o.mid) : null;
+    o.gMnine = grade9From_(o.pctM);
+    o.gM5    = grade5From_(o.pctM);
+  }
+
+  // ── 학기 단계 (평균에 무엇을 쓸지) ──
+  //   3 = 학기말 최종 : 1차시험·2차시험·1차수행·2차수행 넷 다 있음 → 시트의 환산총점·최종등급
+  //   2 = 1·2차 시험  : 시험 둘은 있고 수행이 덜 들어옴          → 위의 변환점
+  //   1 = 1차 시험    : 1차시험만 있음                            → 1차시험·1차등급
+  //   0 = 없음        : 시험 점수가 없음 (결시 · 수행만 먼저 적음) → 평균에 안 넣음
+  if (o.exam1 !== '' && o.exam2 !== '' && o.eval1 !== '' && o.eval2 !== '') o.stage = 3;
+  else if (o.mid !== null)                         o.stage = 2;
+  else if (o.exam1 !== '' && o.exam2 === '')       o.stage = 1;
+  else                                             o.stage = 0;
+
   // ── 현재 등급에서 한 등급 올리는 데 필요한 점수 ──
   var nowGrade = null, nowScore = null, cutMap = null;
   o.upBasis = '';
@@ -1392,31 +1420,39 @@ function subjectCalc_(gRow, si, ranks, cuts, tr) {
 
 
 /**
- * 평균에 넣을 값 — 과목 하나 (2026.09.30 사용자 결정).
+ * 평균에 넣을 값 — 과목 하나 (2026.09.30 · 10.01 사용자 결정).
  * 카드 · getAll · getStudentsByClass 가 **같이** 씁니다. 평균 규칙은 여기 한 곳에서만 정합니다.
  *
- *   2차시험 점수가 있으면   → 학기말 기준 (최종등급 · 환산총점)   ← 1학기는 모두 여기 (예전과 같음)
- *   1차시험 점수만 있으면   → 1차 기준   (1차등급 · 1차시험)      ← 지금 2학기
- *   시험 점수가 하나도 없으면 → 넣지 않음 (결시했거나 수행만 먼저 적은 과목)
- *   이전 학교에서 받아 온 성적 → 넣지 않음
+ *   넷 다 있음(1·2차 시험 + 1·2차 수행) → 학기말 최종 (시트 최종등급 · 환산총점)   k = 1
+ *   1·2차 시험만                        → 1·2차 시험 변환점 (반영비율대로)        k = 4
+ *   1차 시험만                          → 1차 시험 (1차등급 · 1차시험)            k = 2
+ *   시험 점수가 없음                    → 넣지 않음 (결시 · 수행만 먼저 적은 과목)
+ *   이전 학교에서 받아 온 성적          → 넣지 않음
  *
- * k : 1 = 학기말 기준 / 2 = 1차 기준 (화면이 「(1차 기준)」 을 붙이는 데 씁니다)
+ * k 는 비트로 합칩니다 (1|2 = 3 → 학기말과 1차가 섞임). 화면이 「(1차 기준)」 등을 붙이는 데 씁니다.
  */
-function avgPart_(c) {
+function avgPart_(c, si) {
   if (c.prev) return null;
-  if (c.exam2 !== '') return { k: 1, g5: toNum_(c.fGrade), g9: c.gFnine, sc: c.nt, p: c.pctF };
-  if (c.exam1 !== '') return { k: 2, g5: toNum_(c.grade1), g9: c.g1nine, sc: c.n1, p: c.pct1 };
+  if (c.stage === 3) return { k: 1, si: si, g5: toNum_(c.fGrade), g9: c.gFnine, sc: c.nt,  p: c.pctF };
+  if (c.stage === 2) return { k: 4, si: si, g5: c.gM5,             g9: c.gMnine, sc: c.mid, p: c.pctM };
+  if (c.stage === 1) return { k: 2, si: si, g5: toNum_(c.grade1),  g9: c.g1nine, sc: c.n1,  p: c.pct1 };
   return null;
 }
 
-function avgAcc_() { return { n5: 0, s5: 0, n9: 0, s9: 0, nSc: 0, sSc: 0, nP: 0, sP: 0, k: 0 }; }
+function avgAcc_() { return { n5: 0, s5: 0, n9: 0, s9: 0, nSc: 0, sSc: 0, nP: 0, sP: 0, k: 0, best: null, worst: null }; }
 
 function avgAdd_(acc, p) {
   if (!p) return;
   if (p.g5 !== null && p.g5 !== undefined) { acc.s5 += p.g5; acc.n5++; }
   if (p.g9 !== null && p.g9 !== undefined) { acc.s9 += p.g9; acc.n9++; }
   if (p.sc !== null && p.sc !== undefined) { acc.sSc += p.sc; acc.nSc++; }
-  if (p.p  !== null && p.p  !== undefined) { acc.sP  += p.p;  acc.nP++; }
+  if (p.p  !== null && p.p  !== undefined) {
+    acc.sP += p.p; acc.nP++;
+    // 가장 잘 본 / 못 본 과목 = 전교 석차백분율이 가장 작은 / 큰 과목 (2026.10.01 사용자 결정)
+    // 같으면 앞의 과목을 그대로 둡니다.
+    if (!acc.best  || p.p < acc.best.p)  acc.best  = p;
+    if (!acc.worst || p.p > acc.worst.p) acc.worst = p;
+  }
   acc.k = acc.k | p.k;
 }
 
@@ -1435,6 +1471,12 @@ function avgOut_(acc) {
   ];
 }
 
+/** 가장 잘 본 / 못 본 과목 → [표시 이름, 5등급, 석차백분율] (없으면 '') */
+function avgPick_(p) {
+  if (!p) return '';
+  return [subjLabel_(p.si), (p.g5 === null || p.g5 === undefined) ? '' : p.g5, round_(p.p, 1)];
+}
+
 /** 과목에 나오는 학기 번호들 (차례대로, 겹치지 않게) — 보통 [1, 2] */
 function semList_() {
   var out = [];
@@ -1444,26 +1486,71 @@ function semList_() {
 
 /**
  * 한 학생 줄의 평균 — 전체와 학기별.
- *   all  : avgOut_ 모양 + k
- *   sems : [[학기, 과목 수, 5등급 평균, 9등급 평균, k, 평균 점수, 석차백분율 평균], …]
+ *   all  : avgOut_ 모양 / k / pick : [가장 잘 본, 가장 못 본]
+ *   sems : [[학기, 과목 수, 5등급, 9등급, k, 평균 점수, 석차백분율, 가장 잘 본, 가장 못 본], …]
  * calcs[si] = subjectCalc_ 결과
  */
 function avgBySem_(calcs) {
   var all = avgAcc_(), per = {}, sems = semList_();
   sems.forEach(function (s) { per[s] = avgAcc_(); });
   for (var si = 0; si < SUBJECTS.length; si++) {
-    var p = avgPart_(calcs[si]);
+    var p = avgPart_(calcs[si], si);
     if (!p) continue;
     avgAdd_(all, p);
     avgAdd_(per[SUBJECTS[si].sem], p);
   }
   return {
     all: avgOut_(all), k: all.k,
+    pick: [avgPick_(all.best), avgPick_(all.worst)],
     sems: sems.map(function (s) {
       var o = avgOut_(per[s]);
-      return [s, o[0], o[1], o[2], per[s].k, o[3], o[4]];
+      return [s, o[0], o[1], o[2], per[s].k, o[3], o[4], avgPick_(per[s].best), avgPick_(per[s].worst)];
     })
   };
+}
+
+/** 석차백분율 → 5등급 (시트 수식과 같은 기준 10 / 34 / 66 / 90) */
+function grade5From_(pct) {
+  if (pct === null || pct === undefined) return null;
+  if (pct <= 10) return 1;
+  if (pct <= 34) return 2;
+  if (pct <= 66) return 3;
+  if (pct <= 90) return 4;
+  return 5;
+}
+
+/**
+ * `내신_반영비율` 에서 과목마다 1차시험·2차시험 비율을 읽습니다 (1·2차 시험 변환점에만 씀).
+ * 줄 찾기 : A열 과목 이름(공통국어1 · 정보 …) → 못 찾으면 줄 차례(공통국어1 = 2행 … SUBJECTS 차례)
+ * 비율 칸이 비었거나 숫자가 아니면 30·30 (선생님 학교 규정 = 30·30·20·20).
+ * 시트를 고치지 않습니다 — 읽기만 합니다.
+ */
+function applyRatio_(rows) {
+  EXAM_W = [];
+  var key = function (v) { return String(v === null || v === undefined ? '' : v).replace(/\s+/g, ''); };
+  var baseCount = {};
+  SUBJECTS.forEach(function (x) { baseCount[x.base] = (baseCount[x.base] || 0) + 1; });
+
+  for (var si = 0; si < SUBJECTS.length; si++) {
+    var hit = null;
+    if (rows && rows.length > 1) {
+      var want = key(SUBJECTS[si].name), base = key(SUBJECTS[si].base);
+      for (var r = 1; r < rows.length && !hit; r++) {
+        var a = key(rows[r][0]);
+        if (a && (a === want || (baseCount[SUBJECTS[si].base] === 1 && a === base))) hit = rows[r];
+      }
+      if (!hit && rows[si + 1]) hit = rows[si + 1];
+    }
+    var b = hit ? toNum_(hit[1]) : null, c = hit ? toNum_(hit[2]) : null;
+    if (b === null || c === null || b < 0 || c < 0 || b + c <= 0) { b = 30; c = 30; }
+    EXAM_W[si] = [b, c];
+  }
+}
+
+/** 1·2차 시험 변환점 = (1차시험 × 1차 비율 + 2차시험 × 2차 비율) ÷ 100 */
+function midScore_(s1, s2, si) {
+  var w = EXAM_W[si] || [30, 30];
+  return round_((s1 * w[0] + s2 * w[1]) / 100, 2);
 }
 
 
@@ -1496,6 +1583,7 @@ function buildClassCards_(ss, cls) {
   var gData = data.grade;
   if (gData) {
     syncSubjectCols_(gData);                        // 과목 열 위치를 머리글로 확인
+    applyRatio_(data.ratio);                        // 1·2차 시험 변환점에 쓸 비율
     var ranks = buildGradeRanks_(gData);
     for (var r = 1; r < gData.length; r++) {
       var gRow = gData[r];
@@ -1511,7 +1599,7 @@ function buildClassCards_(ss, cls) {
       var av = avgBySem_(calcs);
       st.a5 = av.all[1] === '' ? null : av.all[1];
       st.a9 = av.all[2] === '' ? null : av.all[2];
-      // 학기별 [학기, 과목 수, 5등급 평균, 9등급 평균, k(1 학기말 / 2 1차 / 3 섞임)]
+      // 학기별 [학기, 과목 수, 5등급 평균, 9등급 평균, k(비트 : 1 학기말 / 2 1차 / 4 1·2차 시험)]
       st.ss = av.sems.map(function (x) { return [x[0], x[1], x[2], x[3], x[4]]; });
     }
   }
@@ -1611,6 +1699,7 @@ function apiGetAll_(req, user) {
   var gData = data.grade;
   if (gData) {
     syncSubjectCols_(gData);                        // 과목 열 위치를 머리글로 확인
+    applyRatio_(data.ratio);                        // 1·2차 시험 변환점에 쓸 비율
     var ranks = buildGradeRanks_(gData);
     var cuts  = buildGradeCuts_(gData);
 
@@ -1654,11 +1743,12 @@ function apiGetAll_(req, user) {
       // 평균 규칙은 avgPart_ 한 곳에서 정합니다 (우리 학교에서 본 시험만 ·
       // 2차시험 전이면 1차 기준 · 시험 점수가 없는 과목은 빠짐).
       // s[0..4] = 전체 [과목 수, 5등급, 9등급, 평균 점수, 석차백분율]  ← 예전과 같은 자리
-      // s[5]    = 학기별 [[학기, 과목 수, 5등급, 9등급, k, 평균 점수, 석차백분율], …]
-      // s[6]    = 전체의 k (1 학기말 기준 / 2 1차 기준 / 3 섞임)
+      // s[5]    = 학기별 [[학기, 과목 수, 5등급, 9등급, k, 평균 점수, 석차백분율, 잘 본, 못 본], …]
+      // s[6]    = 전체의 k (비트 : 1 학기말 / 2 1차 / 4 1·2차 시험)
+      // s[7]    = 전체에서 [가장 잘 본 과목, 가장 못 본 과목] — 각 [이름, 5등급, 석차백분율]
       // 옛 index.html 은 s[0..4] 만 읽으므로 그대로 동작합니다.
       var av = avgBySem_(calcs);
-      st.s = av.all.concat([av.sems, av.k]);
+      st.s = av.all.concat([av.sems, av.k, av.pick]);
     }
   }
 
@@ -2027,7 +2117,7 @@ var SUSI_JH_MAX_ = 8;
 /* 이 Code.gs 의 버전. 화면(index.html)의 PAGE_VER 와 짝이 맞아야 합니다.
    「고쳤는데 화면이 그대로다」 의 원인은 거의 늘 새 버전 배포를 안 한 것이라,
    ping 응답에 실어 보내 화면이 스스로 알아채게 합니다. */
-var APP_VER = '2026-09-30';
+var APP_VER = '2026-10-01';
 
 /**
  * 아무 칸에서나 4자리 연도를 뽑아냅니다.
@@ -2939,7 +3029,7 @@ function buildGradeRanks_(gData) {
 
   SUBJECTS.forEach(function (subj, si) {
     var i = subjStart_(si);
-    var v1 = [], v2 = [], vf = [];
+    var v1 = [], v2 = [], vf = [], vm = [];
 
     for (var r = 1; r < gData.length; r++) {
       var row = gData[r];
@@ -2953,6 +3043,7 @@ function buildGradeRanks_(gData) {
 
       if (s1 !== null) v1.push(s1);
       if (s2 !== null) v2.push(s2);
+      if (s1 !== null && s2 !== null) vm.push(midScore_(s1, s2, si));   // 1·2차 시험 변환점
       if (tot !== null && (s1 !== null || s2 !== null || e1 !== null || e2 !== null)) vf.push(tot);
     }
 
@@ -2961,6 +3052,7 @@ function buildGradeRanks_(gData) {
       first:  makeRanker_(v1, total),
       second: makeRanker_(v2, total),
       final:  makeRanker_(vf, total),
+      mid:    makeRanker_(vm, total),
       n:      vf.length
     };
   });
@@ -3073,6 +3165,8 @@ function getStudentsByClass(classNum) {
     if (gradeSheet) {
       var gData = gradeSheet.getDataRange().getValues();
       syncSubjectCols_(gData);                      // 과목 열 위치를 머리글로 확인
+      var ratioSheet = findSheet_(ss, SHEET_RATIO, RATIO_KEYWORDS);
+      applyRatio_(ratioSheet ? ratioSheet.getDataRange().getValues() : null);
       var ranks = buildGradeRanks_(gData);          // 전교생 기준 석차백분율 변환기
       var cuts  = buildGradeCuts_(gData);           // 전교생 기준 과목별 등급컷
 
@@ -3137,8 +3231,10 @@ function getStudentsByClass(classNum) {
           avgScore: nz(av.all[3]),
           avgPct:   nz(av.all[4]),
           sems: av.sems.map(function (x) {
-            return { sem: x[0], subjectCount: x[1], avg5: nz(x[2]), avg9: nz(x[3]), basis: x[4] };
-          })
+            return { sem: x[0], subjectCount: x[1], avg5: nz(x[2]), avg9: nz(x[3]), basis: x[4],
+                     avgScore: nz(x[5]), avgPct: nz(x[6]), best: x[7] || null, worst: x[8] || null };
+          }),
+          best: av.pick[0] || null, worst: av.pick[1] || null
         };
       }
     }
