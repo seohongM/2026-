@@ -43,6 +43,13 @@
            ⚠️ 화면에서만 겁니다. 인쇄는 table-layout: fixed + keep-all 로 따로 맞춰 두었습니다. */
         @media screen { .subj-cell, #naesin-table-box thead th { white-space: nowrap; } }
 
+        /* 내신 표 평균 줄 — 화면용 설명(foot-scr) / 인쇄용 짧은 설명(foot-prt) (2026.10.01) */
+        .foot-prt { display: none; }
+        @media print {
+            .foot-scr { display: none !important; }
+            .foot-prt { display: inline !important; color: #334155 !important; }   /* 흐린 회색이면 인쇄물에서 안 보입니다 */
+        }
+
         /* ── 우리반 학생 목록 : 학생 카드는 왼쪽, 「오른/내린 5명」은 오른쪽 ──
            자리가 모자라면 CSS 가 알아서 아래로 내려 줍니다(flex-wrap).
            화면 너비를 숫자로 못 박지 않으므로 모니터가 바뀌어도 깨지지 않습니다.
@@ -3371,15 +3378,19 @@ function renderSchoolGrades(grades, summary) {
         : (k === 1 || k === 0) ? String(v)
         : SCORE_NAME[k] ? `${v}<span class="block text-[9px] font-medium text-slate-600">${SCORE_NAME[k]}</span>`
         : '-';
-    const footRow = (label, note, score, a5, a9, first, strong) => `
+    // note = 화면 설명 / notePrint = 인쇄용 짧은 설명 / pct = 석차백분율 평균
+    // 인쇄할 때만 설명을 짧게 하고 석차 평균은 맨 오른쪽(성취도) 칸으로 옮깁니다 (2026.10.01 사용자 요청 —
+    // 인쇄물에서 설명이 두 줄로 접혀서). 화면은 그대로입니다. foot-scr / foot-prt 는 위 CSS 참고.
+    const footRow = (label, note, score, a5, a9, first, strong, notePrint, pct) => `
         <tr class="${first ? 'border-t-2 border-slate-400' : 'border-t border-slate-200'}">
             <td class="subj-cell p-1 ${strong ? 'font-extrabold' : 'font-bold'} border-r border-slate-300 bg-slate-100">${label}</td>
             <td class="p-1 border-r border-slate-300" colspan="6">
-                <span class="text-[10px] font-medium text-slate-600">${note}</span>
+                <span class="foot-scr text-[10px] font-medium text-slate-600">${note}</span>
+                <span class="foot-prt">${notePrint === undefined ? note : notePrint}</span>
             </td>
             <td class="p-1 border-r border-slate-300 font-extrabold text-emerald-700 bg-emerald-50">${score}</td>
             <td class="p-1 border-r border-slate-300 bg-blue-50">${gradePair(a5, a9, true)}</td>
-            <td class="p-1 text-slate-400 text-[10px]">-</td>
+            <td class="p-1 text-slate-400 text-[10px]"><span class="foot-scr">-</span><span class="foot-prt">${has(pct) ? '상위 ' + pct + '%' : '-'}</span></td>
         </tr>`;
     const fx = v => has(v) ? Number(v).toFixed(2) : '';
     // 가장 잘 본 / 못 본 과목 · 석차백분율 평균 (2026.10.01 사용자 요청) — 과목이 하나면 한 번만
@@ -3387,6 +3398,14 @@ function renderSchoolGrades(grades, summary) {
             best ? '가장 잘 본 과목 <b class="text-slate-800">' + pickText(best) + '</b>' : '',
             (worst && (!best || worst.name !== best.name)) ? '가장 못 본 과목 <b class="text-slate-800">' + pickText(worst) + '</b>' : '',
             has(pct) ? '전교 석차백분율 평균 상위 ' + pct + '%' : ''
+        ].filter(Boolean).join(' · ');
+    // 인쇄용 짧은 말 — 「최고 공통수학1 2등급(19.9%) · 최저 통합사회1 4등급(70.2%)」
+    // 기준(1차 고사 등)은 옆 점수 칸 아래 「1차 점수」 로 이미 찍히므로 인쇄 설명에서는 뺍니다.
+    const shortPick = p => escapeHtml(p.name) + (p.grade != null ? ' ' + p.grade + '등급' : '') +
+                           (p.pct != null ? '(' + p.pct + '%)' : '');
+    const pickPrint = (best, worst) => [
+            best ? '최고 <b>' + shortPick(best) + '</b>' : '',
+            (worst && (!best || worst.name !== best.name)) ? '최저 <b>' + shortPick(worst) + '</b>' : ''
         ].filter(Boolean).join(' · ');
     // 「N과목 · 」 / 「성적이 입력된 N과목 기준 · 」 은 줄이 길어 뺐습니다 (2026.10.01 사용자 요청)
     const allNote = [pickNote(s.best, s.worst, s.avgPct),
@@ -3401,10 +3420,13 @@ function renderSchoolGrades(grades, summary) {
                 ? ['<b class="text-slate-800">' + (basisTag(x.basis) || '학기말 최종') + '</b>',
                    pickNote(x.best, x.worst, x.avgPct)].filter(Boolean).join(' · ')
                 : '아직 성적 없음',
-            scoreCell(x.avgScore, x.basis), fx(x.avg5), fx(x.avg9), i === 0, false)).join('');
+            scoreCell(x.avgScore, x.basis), fx(x.avg5), fx(x.avg9), i === 0, false,
+            x.subjectCount ? pickPrint(x.best, x.worst) : '아직 성적 없음', x.avgPct)).join('');
         tfoot.innerHTML = rowsHtml + footRow('전체 평균',
             allNote + ((s.basis & 6) ? ' · 학기말 성적이 아직인 과목은 시험 점수 기준' : ''),
-            scoreCell(s.avgScore, s.basis), avg5, avg9, false, true);
+            scoreCell(s.avgScore, s.basis), avg5, avg9, false, true,
+            [pickPrint(s.best, s.worst), prevCount ? '이전 학교 ' + prevCount + '과목 제외' : ''].filter(Boolean).join(' · '),
+            s.avgPct);
     } else {
         tfoot.innerHTML = footRow('평균', [`성적이 입력된 ${has(s.subjectCount) ? s.subjectCount : 0}과목 기준`,
                 prevCount ? '이전 학교 ' + prevCount + '과목은 평균에서 제외' : '',
