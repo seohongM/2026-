@@ -3388,8 +3388,8 @@ function renderSchoolGrades(grades, summary) {
             (worst && (!best || worst.name !== best.name)) ? '가장 못 본 과목 <b class="text-slate-800">' + pickText(worst) + '</b>' : '',
             has(pct) ? '전교 석차백분율 평균 상위 ' + pct + '%' : ''
         ].filter(Boolean).join(' · ');
-    const allNote = [`성적이 입력된 ${has(s.subjectCount) ? s.subjectCount : 0}과목 기준`,
-                     pickNote(s.best, s.worst, s.avgPct),
+    // 「N과목 · 」 / 「성적이 입력된 N과목 기준 · 」 은 줄이 길어 뺐습니다 (2026.10.01 사용자 요청)
+    const allNote = [pickNote(s.best, s.worst, s.avgPct),
                      prevCount ? '이전 학교 ' + prevCount + '과목은 평균에서 제외' : ''].filter(Boolean).join(' · ');
 
     if (s.sems && s.sems.length) {
@@ -3398,7 +3398,7 @@ function renderSchoolGrades(grades, summary) {
         const rowsHtml = s.sems.map((x, i) => footRow(
             x.sem + '학기 평균',
             x.subjectCount
-                ? [x.subjectCount + '과목 · <b class="text-slate-800">' + (basisTag(x.basis) || '학기말 최종') + '</b>',
+                ? ['<b class="text-slate-800">' + (basisTag(x.basis) || '학기말 최종') + '</b>',
                    pickNote(x.best, x.worst, x.avgPct)].filter(Boolean).join(' · ')
                 : '아직 성적 없음',
             scoreCell(x.avgScore, x.basis), fx(x.avg5), fx(x.avg9), i === 0, false)).join('');
