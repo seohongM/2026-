@@ -4215,7 +4215,9 @@ function yearGradeAvg(s){
    · 다음 학기 점수가 들어온 학기 → 「학기말 최종」 하나 (지금 1학기)
    · 아직 진행 중인 학기         → 「1차」 · 「2차」 따로 (지금 2학기 — 2차가 들어오면 저절로 한 칸 늘어남)
    · 합산 평균 = 그 칸들의 과목 등급을 모두 모아 낸 평균 → 상위 30명 (사용자 결정)
-   · 1등급 유지 = 과목마다 본 시험에서 **계속** 1등급 / 떨어짐 = 1등급이었다가 **가장 최근** 시험에서 내려감 */
+   · 1등급 유지 = 과목마다 본 시험에서 **계속** 1등급
+   · 1등급으로 올라감 = 바로 앞 시험에서 2등급 이하였다가 **가장 최근** 시험에서 1등급 (2026.10.01 사용자 요청)
+   · 1등급에서 떨어짐 = 1등급이었다가 **가장 최근** 시험에서 내려감 */
 const TOP1_N = 30;
 function top1Slots(){
   const arr=[...students.values()], out=[];
@@ -4244,17 +4246,16 @@ function top1Info(s,slots){
   if(!all.length)return null;
   // 과목마다 시험 차례대로 (학기가 달라도 같은 이름 — 공통국어 1학기 ↔ 공통국어 2학기)
   const bases=[];slots.forEach(sl=>NS(sl.sem).forEach(b=>{if(bases.indexOf(b)<0)bases.push(b);}));
-  const keep=[],drop=[];
+  const keep=[],up=[],drop=[];
   bases.forEach(b=>{
     const seq=slots.map(sl=>NS(sl.sem).indexOf(b)>-1?top1Grade((s.naesin[sl.sem]||{})[b],sl.ex):null).filter(x=>x!=null);
     if(seq.length<2)return;                                   // 한 번만 본 과목(정보 등)은 견줄 수 없음
-    const last=seq[seq.length-1], before=seq.slice(0,-1);
+    const last=seq[seq.length-1], prev=seq[seq.length-2], before=seq.slice(0,-1);
     if(seq.every(x=>x===1))keep.push(top1Short(b));
-    else if(last===1&&before.indexOf(1)>-1)keep.push(top1Short(b)+'(다시)');   // 1등급 → 내려감 → 다시 1등급
-    // 처음으로 1등급이 된 과목은 「유지」 가 아니므로 어느 칸에도 넣지 않습니다
-    else if(before.some(x=>x===1)&&last>1)drop.push(top1Short(b)+' 1→'+last);
+    else if(last===1)up.push(top1Short(b)+' '+prev+'→1');                      // 바로 앞이 2등급 이하 → 지금 1등급
+    else if(before.indexOf(1)>-1)drop.push(top1Short(b)+' 1→'+last);           // 1등급이었다가 지금 내려감
   });
-  return {per:per,avg:all.reduce((a,b)=>a+b,0)/all.length,ones:all.filter(x=>x===1).length,keep:keep,drop:drop};
+  return {per:per,avg:all.reduce((a,b)=>a+b,0)/all.length,ones:all.filter(x=>x===1).length,keep:keep,up:up,drop:drop};
 }
 function top1Html(){
   const slots=top1Slots();
@@ -4263,16 +4264,17 @@ function top1Html(){
     .sort((a,b)=>a.i.avg-b.i.avg||b.i.ones-a.i.ones).slice(0,TOP1_N);
   const head='<tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th>'+
     slots.map(sl=>'<th>'+sl.label+'<br><span class="mut">평균 (1등급 수)</span></th>').join('')+
-    '<th>합산 평균</th><th class="name">1등급 유지</th><th class="name">1등급에서 떨어짐</th></tr>';
+    '<th>합산 평균</th><th class="name">1등급 유지</th><th class="name">1등급으로 올라감</th><th class="name">1등급에서 떨어짐</th></tr>';
   const body=rows.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+'</td><td>'+x.s.ban+'반</td>'+
     x.i.per.map(p=>'<td>'+(p?'<span class="raw">'+p.avg.toFixed(2)+'</span> <span class="mut">('+p.ones+')</span>':'<span class="mut">-</span>')+'</td>').join('')+
     '<td class="raw">'+x.i.avg.toFixed(2)+'</td>'+
     '<td class="name" style="color:#2563eb;font-weight:700">'+(x.i.keep.length?x.i.keep.join(' · '):'<span class="mut">-</span>')+'</td>'+
+    '<td class="name" style="color:#16a34a;font-weight:700">'+(x.i.up.length?x.i.up.join(' · '):'<span class="mut">-</span>')+'</td>'+
     '<td class="name" style="color:var(--down);font-weight:700">'+(x.i.drop.length?x.i.drop.join(' · '):'<span class="mut">-</span>')+'</td></tr>').join('');
   return '<div class="sub" style="margin-left:0;">학기·차수 버튼과 상관없이 <b>'+slots.map(sl=>sl.label).join(' + ')+'</b> 를 합쳐 봅니다 '+
     '(2학기 2차고사 점수가 들어오면 그 칸이 저절로 더해집니다). 합산 평균등급이 좋은 '+TOP1_N+'명. '+
-    '<b>1등급 유지</b> = 본 시험마다 계속 1등급인 과목 · <b>1등급에서 떨어짐</b> = 1등급이었다가 가장 최근 시험에서 내려간 과목.</div>'+
-    '<div class="tscroll tall"><table><thead>'+head+'</thead><tbody>'+(body||'<tr><td colspan="'+(6+slots.length)+'" class="mut">해당 학생 없음</td></tr>')+'</tbody></table></div>';
+    '<b>1등급 유지</b> = 본 시험마다 계속 1등급인 과목 · <b>1등급으로 올라감</b> = 바로 앞 시험보다 올라 가장 최근 시험에서 1등급인 과목 · <b>1등급에서 떨어짐</b> = 1등급이었다가 가장 최근 시험에서 내려간 과목.</div>'+
+    '<div class="tscroll tall"><table><thead>'+head+'</thead><tbody>'+(body||'<tr><td colspan="'+(7+slots.length)+'" class="mut">해당 학생 없음</td></tr>')+'</tbody></table></div>';
 }
 
 /* ============================================================
