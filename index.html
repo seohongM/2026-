@@ -43,6 +43,13 @@
            ⚠️ 화면에서만 겁니다. 인쇄는 table-layout: fixed + keep-all 로 따로 맞춰 두었습니다. */
         @media screen { .subj-cell, #naesin-table-box thead th { white-space: nowrap; } }
 
+        /* 내신 표 평균 줄 — 화면용 설명(foot-scr) / 인쇄용 짧은 설명(foot-prt) (2026.10.01) */
+        .foot-prt { display: none; }
+        @media print {
+            .foot-scr { display: none !important; }
+            .foot-prt { display: inline !important; color: #334155 !important; }   /* 흐린 회색이면 인쇄물에서 안 보입니다 */
+        }
+
         /* ── 우리반 학생 목록 : 학생 카드는 왼쪽, 「오른/내린 5명」은 오른쪽 ──
            자리가 모자라면 CSS 가 알아서 아래로 내려 줍니다(flex-wrap).
            화면 너비를 숫자로 못 박지 않으므로 모니터가 바뀌어도 깨지지 않습니다.
@@ -1668,22 +1675,55 @@ function mvNum(v) {
     return isFinite(x) ? x : null;
 }
 
-/** 내신 : 그 학생의 1차 → 2차 평균 (두 번 다 본 과목만) */
-function mvNaesin(row) {
+/**
+ * 내신 시험 차례 — 1학기 1차 · 1학기 2차 · 2학기 1차 · 2학기 2차 중 **점수가 들어온 것만** (차례대로).
+ * 오른·내린 학생은 이 가운데 **마지막 둘**(직전 시험 → 최근 시험)을 견줍니다 (2026.10.01 사용자 요청).
+ * 예) 지금 = 1학기 2차 → 2학기 1차 / 2학기 2차가 들어오면 저절로 2학기 1차 → 2학기 2차
+ */
+function mvExamSlots() {
+    const SUBJ = (ALL && ALL.subjects) || [], INFO = (ALL && ALL.subjectInfo) || null;
+    const rows = (ALL && ALL.students) || [];
+    const sems = [];
+    SUBJ.forEach((n, si) => { const k = subjSem(INFO, si, n); if (k && sems.indexOf(k) < 0) sems.push(k); });
+    sems.sort((a, b) => a - b);
+    const slots = [];
+    sems.forEach(sem => [1, 2].forEach(ex => slots.push({ sem: sem, ex: ex, label: sem + '학기 ' + ex + '차' })));
+    return slots.filter(sl => rows.some(row => SUBJ.some((n, si) =>
+        subjSem(INFO, si, n) === sl.sem && mvNum((row.g || [])[si * 11 + (sl.ex === 1 ? 0 : 2)]) !== null)));
+}
+
+/** 과목의 학기 표시 뗀 이름 (공통국어1 → 공통국어) — 1학기 과목과 2학기 과목을 짝짓는 데 씁니다 */
+function mvBase(INFO, si, name) {
+    if (INFO && INFO[si] && INFO[si].b) return String(INFO[si].b);
+    const m = /^(.+?)[12]$/.exec(String(name || ''));
+    return m ? m[1] : String(name || '');
+}
+
+/**
+ * 내신 : 그 학생의 직전 시험(A) → 최근 시험(B) 평균 — **두 번 다 본 같은 과목만**.
+ * 학기가 다르면 같은 이름의 과목끼리 짝짓습니다 (공통국어1 ↔ 공통국어2). 한 학기에만 있는 과목(정보)은 빠집니다.
+ * 전입생이 이전 학교에서 받아 온 성적도 뺍니다.
+ */
+function mvNaesin(row, A, B) {
     const SUBJ = (ALL && ALL.subjects) ? ALL.subjects : [];
+    const INFO = (ALL && ALL.subjectInfo) || null;
     const g = row.g || [], d = row.d || [];
     const STEP = (SUBJ.length && d.length) ? Math.round(d.length / SUBJ.length) : 10;
+    const isPrev = si => STEP >= 10 && d[si * STEP + 9];          // 이전 학교 성적인가
+    const pick = (sem, base) => SUBJ.findIndex((n, si) => subjSem(INFO, si, n) === sem && mvBase(INFO, si, n) === base);
 
     let n = 0, s1 = 0, s2 = 0, ng = 0, a1 = 0, a2 = 0;
-    for (let si = 0; si < SUBJ.length; si++) {
-        const b = si * 11, e = si * STEP;
-        if (STEP >= 10 && d[e + 9]) continue;          // 이전 학교 성적은 제외
-        const x1 = mvNum(g[b + 0]), x2 = mvNum(g[b + 2]);
-        if (x1 === null || x2 === null) continue;      // 1차·2차 시험을 둘 다 본 과목만
+    SUBJ.forEach((name, sa) => {
+        if (subjSem(INFO, sa, name) !== A.sem) return;
+        const sb = (A.sem === B.sem) ? sa : pick(B.sem, mvBase(INFO, sa, name));
+        if (sb < 0 || isPrev(sa) || isPrev(sb)) return;
+        const oa = A.ex === 1 ? 0 : 2, ob = B.ex === 1 ? 0 : 2;
+        const x1 = mvNum(g[sa * 11 + oa]), x2 = mvNum(g[sb * 11 + ob]);
+        if (x1 === null || x2 === null) return;                  // 두 시험을 다 본 과목만
         n++; s1 += x1; s2 += x2;
-        const q1 = mvNum(g[b + 1]), q2 = mvNum(g[b + 3]);
+        const q1 = mvNum(g[sa * 11 + oa + 1]), q2 = mvNum(g[sb * 11 + ob + 1]);
         if (q1 !== null && q2 !== null) { ng++; a1 += q1; a2 += q2; }
-    }
+    });
     if (!n || !ng) return null;
     return { n: n, score1: s1 / n, score2: s2 / n, grade1: a1 / ng, grade2: a2 / ng };
 }
@@ -1730,12 +1770,13 @@ function mvMockMonths() {
         rows.some(row => ((row.m && row.m[mm.key]) || []).some(v => mvNum(v) !== null)));
 }
 
-/** 내신 : 전교생을 계산하고 학년 석차까지 매깁니다. */
-function mvNaesinAll() {
+/** 내신 : 전교생을 계산하고 학년 석차까지 매깁니다. A → B = 직전 시험 → 최근 시험 */
+function mvNaesinAll(A, B) {
     const rows = (ALL && ALL.students) || [];
     const recs = [];
+    if (!A || !B) return recs;
     rows.forEach(row => {
-        const mv = mvNaesin(row);
+        const mv = mvNaesin(row, A, B);
         if (mv) recs.push({ c: Number(row.c), n: Number(row.n), nm: row.nm || '', mv: mv });
     });
     if (!recs.length) return [];
@@ -1841,11 +1882,15 @@ function renderMovers() {
     const cls = Number(currentClass);
     let html = '';
 
-    /* ── ① 내신 : 1차 → 2차 ── */
-    const nAll  = mvNaesinAll();
+    /* ── ① 내신 : 직전 시험 → 최근 시험 (2026.10.01 사용자 요청) ── */
+    const slots = mvExamSlots();
+    const nA = slots.length >= 2 ? slots[slots.length - 2] : null;
+    const nB = slots.length >= 2 ? slots[slots.length - 1] : null;
+    const nAll  = mvNaesinAll(nA, nB);
     const nMine = nAll.filter(r => r.c === cls);
-    const nSub  = '1차 → 2차 시험 · 학년 석차 순';
-    const nEmpty = '1차·2차 시험을 모두 본 과목이 아직 없습니다.';
+    const nPair = nA ? nA.label + ' → ' + nB.label : '';
+    const nSub  = nA ? nPair + ' 시험 · 학년 석차 순' : '직전 시험 → 최근 시험';
+    const nEmpty = nA ? '두 시험을 모두 본 과목이 아직 없습니다.' : '견줄 시험이 아직 두 번 없습니다.';
 
     // 몇 등 올랐나를 기준으로 줄 세웁니다.
     // (등급은 여섯 과목 평균이라 잘 안 움직여 순서를 가리기 어렵습니다)
@@ -1872,7 +1917,7 @@ function renderMovers() {
     html += mvPanel('내신이 오른 학생 5명',   nSub, MV_UP,   nUp.map(nRow),   nEmpty);
     html += mvPanel('내신이 내린 학생 5명',   nSub, MV_DOWN, nDown.map(nRow), nEmpty);
     html += mvPanel('내신 변화가 적은 학생 5명',
-                    '1차 → 2차 시험 · 석차가 거의 그대로', MV_FLAT, nFlat.map(nRow), nEmpty);
+                    (nA ? nPair + ' 시험' : '직전 시험 → 최근 시험') + ' · 석차가 거의 그대로', MV_FLAT, nFlat.map(nRow), nEmpty);
 
     /* ── ② 모의고사 : 직전 회차 → 최근 회차 ── */
     const mm = mvMockMonths();
@@ -3371,15 +3416,19 @@ function renderSchoolGrades(grades, summary) {
         : (k === 1 || k === 0) ? String(v)
         : SCORE_NAME[k] ? `${v}<span class="block text-[9px] font-medium text-slate-600">${SCORE_NAME[k]}</span>`
         : '-';
-    const footRow = (label, note, score, a5, a9, first, strong) => `
+    // note = 화면 설명 / notePrint = 인쇄용 짧은 설명 / pct = 석차백분율 평균
+    // 인쇄할 때만 설명을 짧게 하고 석차 평균은 맨 오른쪽(성취도) 칸으로 옮깁니다 (2026.10.01 사용자 요청 —
+    // 인쇄물에서 설명이 두 줄로 접혀서). 화면은 그대로입니다. foot-scr / foot-prt 는 위 CSS 참고.
+    const footRow = (label, note, score, a5, a9, first, strong, notePrint, pct) => `
         <tr class="${first ? 'border-t-2 border-slate-400' : 'border-t border-slate-200'}">
             <td class="subj-cell p-1 ${strong ? 'font-extrabold' : 'font-bold'} border-r border-slate-300 bg-slate-100">${label}</td>
             <td class="p-1 border-r border-slate-300" colspan="6">
-                <span class="text-[10px] font-medium text-slate-600">${note}</span>
+                <span class="foot-scr text-[10px] font-medium text-slate-600">${note}</span>
+                <span class="foot-prt">${notePrint === undefined ? note : notePrint}</span>
             </td>
             <td class="p-1 border-r border-slate-300 font-extrabold text-emerald-700 bg-emerald-50">${score}</td>
             <td class="p-1 border-r border-slate-300 bg-blue-50">${gradePair(a5, a9, true)}</td>
-            <td class="p-1 text-slate-400 text-[10px]">-</td>
+            <td class="p-1 text-slate-400 text-[10px]"><span class="foot-scr">-</span><span class="foot-prt">${has(pct) ? '상위 ' + pct + '%' : '-'}</span></td>
         </tr>`;
     const fx = v => has(v) ? Number(v).toFixed(2) : '';
     // 가장 잘 본 / 못 본 과목 · 석차백분율 평균 (2026.10.01 사용자 요청) — 과목이 하나면 한 번만
@@ -3387,6 +3436,14 @@ function renderSchoolGrades(grades, summary) {
             best ? '가장 잘 본 과목 <b class="text-slate-800">' + pickText(best) + '</b>' : '',
             (worst && (!best || worst.name !== best.name)) ? '가장 못 본 과목 <b class="text-slate-800">' + pickText(worst) + '</b>' : '',
             has(pct) ? '전교 석차백분율 평균 상위 ' + pct + '%' : ''
+        ].filter(Boolean).join(' · ');
+    // 인쇄용 짧은 말 — 「최고 공통수학1 2등급(19.9%) · 최저 통합사회1 4등급(70.2%)」
+    // 기준(1차 고사 등)은 옆 점수 칸 아래 「1차 점수」 로 이미 찍히므로 인쇄 설명에서는 뺍니다.
+    const shortPick = p => escapeHtml(p.name) + (p.grade != null ? ' ' + p.grade + '등급' : '') +
+                           (p.pct != null ? '(' + p.pct + '%)' : '');
+    const pickPrint = (best, worst) => [
+            best ? '최고 <b>' + shortPick(best) + '</b>' : '',
+            (worst && (!best || worst.name !== best.name)) ? '최저 <b>' + shortPick(worst) + '</b>' : ''
         ].filter(Boolean).join(' · ');
     // 「N과목 · 」 / 「성적이 입력된 N과목 기준 · 」 은 줄이 길어 뺐습니다 (2026.10.01 사용자 요청)
     const allNote = [pickNote(s.best, s.worst, s.avgPct),
@@ -3401,10 +3458,13 @@ function renderSchoolGrades(grades, summary) {
                 ? ['<b class="text-slate-800">' + (basisTag(x.basis) || '학기말 최종') + '</b>',
                    pickNote(x.best, x.worst, x.avgPct)].filter(Boolean).join(' · ')
                 : '아직 성적 없음',
-            scoreCell(x.avgScore, x.basis), fx(x.avg5), fx(x.avg9), i === 0, false)).join('');
+            scoreCell(x.avgScore, x.basis), fx(x.avg5), fx(x.avg9), i === 0, false,
+            x.subjectCount ? pickPrint(x.best, x.worst) : '아직 성적 없음', x.avgPct)).join('');
         tfoot.innerHTML = rowsHtml + footRow('전체 평균',
             allNote + ((s.basis & 6) ? ' · 학기말 성적이 아직인 과목은 시험 점수 기준' : ''),
-            scoreCell(s.avgScore, s.basis), avg5, avg9, false, true);
+            scoreCell(s.avgScore, s.basis), avg5, avg9, false, true,
+            [pickPrint(s.best, s.worst), prevCount ? '이전 학교 ' + prevCount + '과목 제외' : ''].filter(Boolean).join(' · '),
+            s.avgPct);
     } else {
         tfoot.innerHTML = footRow('평균', [`성적이 입력된 ${has(s.subjectCount) ? s.subjectCount : 0}과목 기준`,
                 prevCount ? '이전 학교 ' + prevCount + '과목은 평균에서 제외' : '',
@@ -4150,6 +4210,71 @@ function yearGradeAvg(s){
   return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;
 }
 
+/* ⑧ 상위권 · 1등급 추이 (2026.10.01 사용자 요청 — 예전 「⑧ 학습부진 우려」 를 바꿈)
+   학기·차수 버튼과 상관없이 지금까지 본 시험을 차례로 놓고 합쳐 봅니다.
+   · 다음 학기 점수가 들어온 학기 → 「학기말 최종」 하나 (지금 1학기)
+   · 아직 진행 중인 학기         → 「1차」 · 「2차」 따로 (지금 2학기 — 2차가 들어오면 저절로 한 칸 늘어남)
+   · 합산 평균 = 그 칸들의 과목 등급을 모두 모아 낸 평균 → 상위 30명 (사용자 결정)
+   · 1등급 유지 = 과목마다 본 시험에서 **계속** 1등급 / 떨어짐 = 1등급이었다가 **가장 최근** 시험에서 내려감 */
+const TOP1_N = 30;
+function top1Slots(){
+  const arr=[...students.values()], out=[];
+  SEMESTERS.forEach((sem,i)=>{
+    const later=SEMESTERS.slice(i+1).some(x=>naesinSemHasAny(x.key));
+    if(later) out.push({sem:sem.key,ex:'최종',label:sem.label+' 학기말'});
+    else ['1차','2차'].forEach(ex=>out.push({sem:sem.key,ex:ex,label:sem.label+' '+ex}));
+  });
+  return out.filter(sl=>arr.some(s=>NS(sl.sem).some(subj=>top1Grade((s.naesin[sl.sem]||{})[subj],sl.ex)!=null)));
+}
+// 그 칸의 등급 — 시험 점수가 있어야만 (학기말은 1·2차 시험 + 1·2차 수행 넷 다 있어야)
+function top1Grade(o,ex){
+  if(!o)return null;
+  if(ex==='최종')return (subjFinalComplete(o)&&o['최종등급']!=null)?o['최종등급']:null;
+  if(ex==='1차')return (o['1차시험']!=null&&o['1차등급']!=null)?o['1차등급']:null;
+  return (o['2차시험']!=null&&o['2차등급']!=null)?o['2차등급']:null;
+}
+function top1Short(b){return String(b).replace(/^공통|^통합/,'');}   // 공통국어 → 국어 · 통합사회 → 사회
+function top1Info(s,slots){
+  const all=[];
+  const per=slots.map(sl=>{
+    const gs=NS(sl.sem).map(subj=>top1Grade((s.naesin[sl.sem]||{})[subj],sl.ex)).filter(x=>x!=null);
+    all.push(...gs);
+    return gs.length?{avg:gs.reduce((a,b)=>a+b,0)/gs.length,ones:gs.filter(x=>x===1).length}:null;
+  });
+  if(!all.length)return null;
+  // 과목마다 시험 차례대로 (학기가 달라도 같은 이름 — 공통국어 1학기 ↔ 공통국어 2학기)
+  const bases=[];slots.forEach(sl=>NS(sl.sem).forEach(b=>{if(bases.indexOf(b)<0)bases.push(b);}));
+  const keep=[],drop=[];
+  bases.forEach(b=>{
+    const seq=slots.map(sl=>NS(sl.sem).indexOf(b)>-1?top1Grade((s.naesin[sl.sem]||{})[b],sl.ex):null).filter(x=>x!=null);
+    if(seq.length<2)return;                                   // 한 번만 본 과목(정보 등)은 견줄 수 없음
+    const last=seq[seq.length-1], before=seq.slice(0,-1);
+    if(seq.every(x=>x===1))keep.push(top1Short(b));
+    else if(last===1&&before.indexOf(1)>-1)keep.push(top1Short(b)+'(다시)');   // 1등급 → 내려감 → 다시 1등급
+    // 처음으로 1등급이 된 과목은 「유지」 가 아니므로 어느 칸에도 넣지 않습니다
+    else if(before.some(x=>x===1)&&last>1)drop.push(top1Short(b)+' 1→'+last);
+  });
+  return {per:per,avg:all.reduce((a,b)=>a+b,0)/all.length,ones:all.filter(x=>x===1).length,keep:keep,drop:drop};
+}
+function top1Html(){
+  const slots=top1Slots();
+  if(!slots.length)return '<div class="mut">아직 성적이 없습니다.</div>';
+  const rows=[...students.values()].map(s=>({s:s,i:top1Info(s,slots)})).filter(x=>x.i)
+    .sort((a,b)=>a.i.avg-b.i.avg||b.i.ones-a.i.ones).slice(0,TOP1_N);
+  const head='<tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th>'+
+    slots.map(sl=>'<th>'+sl.label+'<br><span class="mut">평균 (1등급 수)</span></th>').join('')+
+    '<th>합산 평균</th><th class="name">1등급 유지</th><th class="name">1등급에서 떨어짐</th></tr>';
+  const body=rows.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+'</td><td>'+x.s.ban+'반</td>'+
+    x.i.per.map(p=>'<td>'+(p?'<span class="raw">'+p.avg.toFixed(2)+'</span> <span class="mut">('+p.ones+')</span>':'<span class="mut">-</span>')+'</td>').join('')+
+    '<td class="raw">'+x.i.avg.toFixed(2)+'</td>'+
+    '<td class="name" style="color:#2563eb;font-weight:700">'+(x.i.keep.length?x.i.keep.join(' · '):'<span class="mut">-</span>')+'</td>'+
+    '<td class="name" style="color:var(--down);font-weight:700">'+(x.i.drop.length?x.i.drop.join(' · '):'<span class="mut">-</span>')+'</td></tr>').join('');
+  return '<div class="sub" style="margin-left:0;">학기·차수 버튼과 상관없이 <b>'+slots.map(sl=>sl.label).join(' + ')+'</b> 를 합쳐 봅니다 '+
+    '(2학기 2차고사 점수가 들어오면 그 칸이 저절로 더해집니다). 합산 평균등급이 좋은 '+TOP1_N+'명. '+
+    '<b>1등급 유지</b> = 본 시험마다 계속 1등급인 과목 · <b>1등급에서 떨어짐</b> = 1등급이었다가 가장 최근 시험에서 내려간 과목.</div>'+
+    '<div class="tscroll tall"><table><thead>'+head+'</thead><tbody>'+(body||'<tr><td colspan="'+(6+slots.length)+'" class="mut">해당 학생 없음</td></tr>')+'</tbody></table></div>';
+}
+
 /* ============================================================
    학년 성적 분석 리포트 — 내신 탭 / 모의고사 탭 (조건 6)
    ============================================================ */
@@ -4256,9 +4381,7 @@ function renderGradeNaesin(){
   // ⑦⑧ 학생 그룹
   const withAvg=arr.filter(s=>naesinExamHas(s,sem,gradeNaesinExam)).map(s=>({s,...stuGradeAvg(s)})).filter(x=>x.avg!=null);
   const topStu=withAvg.slice().sort((a,b)=>a.avg-b.avg||b.ones-a.ones).slice(0,15);
-  const lowStu=withAvg.filter(x=>x.low>=4).sort((a,b)=>b.low-a.low||b.avg-a.avg);
   let topRows=topStu.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+'</td><td>'+x.s.ban+'반</td><td class="raw">'+x.avg.toFixed(2)+'</td><td>'+x.ones+'개</td></tr>').join('');
-  let lowRows=lowStu.length?lowStu.map(x=>'<tr><td class="name">'+hak(x.s)+' '+esc(x.s.name)+'</td><td>'+x.s.ban+'반</td><td style="color:var(--down);font-weight:700">'+x.low+'과목</td><td class="raw">'+x.avg.toFixed(2)+'</td></tr>').join(''):'<tr><td colspan="4" class="mut">해당 학생 없음</td></tr>';
 
   const iLabel=gradeNaesinExam==='최종'?'미이수(I)':EX.lab+' I(40점 미만)';
 
@@ -4291,10 +4414,9 @@ function renderGradeNaesin(){
     secHTML('⑥ 반별 × 과목별 평균'+EX.unit,'bar-chart-3')+'<div class="sub" style="margin-left:0;">'+EX.unit+' 평균(4개 항목이 모두 입력된 과목만 집계). <b>과목별로 평균이 높은(상위) 반일수록 파란색이 진하고, 가장 낮은 반은 흰색</b>입니다. 반 간 격차는 반편성에 따른 자연 변동일 수 있습니다.</div>'+
     '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+NS(sem).map(subj=>'<th>'+subj+'</th>').join('')+'<th>전체</th></tr></thead><tbody>'+csRows+csTotal+'</tbody></table></div>'+
 
-    '<div class="twocol" style="margin-top:6px;">'+
-      '<div>'+secHTML('⑦ 최우수 그룹 (등급평균 상위 15)','star')+'<div class="tscroll tall"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th><th>등급평균</th><th>1등급</th></tr></thead><tbody>'+topRows+'</tbody></table></div></div>'+
-      '<div>'+secHTML('⑧ 학습부진 우려 (4·5등급 4과목↑)','alert-circle')+'<div class="tscroll tall"><table><thead><tr><th class="name">학번 (이름)</th><th>반</th><th>4·5등급</th><th>등급평균</th></tr></thead><tbody>'+lowRows+'</tbody></table></div></div>'+
-    '</div>'+
+    // ⑦ 은 그대로 · ⑧ 은 「상위권 1등급 추이」 로 바꿈 (2026.10.01) — 칸이 많아 둘 다 한 줄을 다 씁니다
+    secHTML('⑦ 최우수 그룹 (등급평균 상위 15)','star')+'<div class="tscroll tall"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th><th>등급평균</th><th>1등급</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
+    secHTML('⑧ 상위권 1등급 추이 (지금까지 합산 · 상위 '+TOP1_N+')','trending-up')+top1Html()+
 
     secHTML('⑨ '+iLabel+' 학생 명단','alert-triangle')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 40점 미만(I) — 최우선 지도 대상</div>'+
     '<div class="tscroll tall"><table><thead><tr><th class="name">학번 (이름)</th><th>반</th><th>I 과목</th></tr></thead><tbody>'+
