@@ -168,6 +168,9 @@
 #view-stats th .sbtn:hover{background:#eef2f6;color:var(--ink);}
 #view-stats th .sbtn.on{font-weight:800;}
 #view-stats td.g59{white-space:nowrap;}
+/* 성적 데이터 열람(내신) 표만 칸을 좁게 — 2026.10.02 사용자 요청 「칸 넓이를 줄여 정보까지 한 화면에」 */
+#view-stats table.dtab th, #view-stats table.dtab td{padding:7px 4px;}
+#view-stats table.dtab td.name, #view-stats table.dtab th.name{padding-left:8px;padding-right:6px;}
 #view-stats td.g59 .g5t{font-size:14px;font-weight:800;color:#0f172a;}
 #view-stats td.g59 .g9t{font-size:14px;font-weight:700;color:#7c3aed;}
 #view-stats .need{display:inline-block;min-width:22px;padding:2px 8px;border-radius:7px;font-size:11px;font-weight:800;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;}
@@ -5005,11 +5008,18 @@ function renderDataControls(){
 
 const ACH_RANK={A:1,B:2,C:3,D:4,E:5,I:6};
 const NAESIN_FINAL_FIELDS=['환산총점','최종등급','최종성취도'];
+// 학년 표 : 과목(학기 구분 없이) 차례 · 한 과목의 두 학기 평균 (2026.10.02 사용자 결정 「두 학기 평균」)
+//   9등급 평균은 5등급과 같은 학기 수일 때만 (평균 규칙과 같음). n = 들어간 학기 수
+function yrBases(){const out=[];NAESIN_DEF.forEach(d=>{if(out.indexOf(d.base)<0)out.push(d.base);});return out;}
+function yrBase(y,bs){let a5=[],a9=[];NAESIN_DEF.forEach((d,si)=>{if(d.base!==bs)return;if(y.g5[si]!=null)a5.push(y.g5[si]);if(y.g9[si]!=null)a9.push(y.g9[si]);});
+  const m=a=>a.length?a.reduce((x,z)=>x+z,0)/a.length:null;
+  return {n:a5.length,g5:m(a5),g9:(a9.length&&a9.length===a5.length)?m(a9):null};}
 function dataGetVal(s,key){
   if(key==='name')return s.ban*1000+s.num;
   if(key.indexOf('yr|')===0){const y=s.yr;if(!y)return null;const t=key.split('|'),w=t[t.length-1]==='9'?1:0;  // yr|all|5 · yr|s1|9 · yr|si|3|5
     if(t[1]==='all')return y.all[w];
     if(t[1]==='si'){const v=(w?y.g9:y.g5)[+t[2]];return v==null?null:v;}
+    if(t[1]==='b'){const v=yrBase(y,t[2]);return w?v.g9:v.g5;}
     const m=y.sem[+t[1].slice(1)];return m?m[w]:null;}
   if(dataNaesinSem==='year')return null;
   // 2026.10.02 사용자 결정 — 시험 점수가 없으면 등급도 없음 (시트 수식이 빈 점수로 만든 등급은 안 씀 · 9등급과 같은 과목 수)
@@ -5057,7 +5067,7 @@ function renderDataTable(){
   const sth=(label,k)=>'<th class="sortable'+(SS.key===k?' sorted':'')+'" data-sort="'+k+'">'+label+aw(k)+'</th>';
   const nameTh='<th class="name sortable'+(SS.key==='name'?' sorted':'')+'" data-sort="name" rowspan="2">학생'+aw('name')+'</th>';
 
-  let h='<div class="panel glass"><div class="tscroll"><table>';
+  let h='<div class="panel glass"><div class="tscroll"><table'+(dataTab==='naesin'?' class="dtab"':'')+'>';
 
   if(dataTab==='naesin'){
     const sem=dataNaesinSem,view=dataNaesinView;
@@ -5073,7 +5083,9 @@ function renderDataTable(){
       if(a5==null&&a9==null)return '<td class="mut">-</td>';
       return '<td class="g59">'+(a5==null?'<span class="mut">-</span>':g5t(a5.toFixed(2)))+(a9==null?'':p9(a9.toFixed(2)))+'</td>';};
     const sbtn=(label,k)=>'<span class="sbtn'+(SS.key===k?' on':'')+'" data-sort="'+k+'">'+label+aw(k)+'</span>';
-    const dualTh=(k5,k9,pre,rs)=>'<th class="dual'+((SS.key===k5||SS.key===k9)?' sorted':'')+'"'+(rs?' rowspan="2"':'')+'>'+(pre||'')+sbtn('5등급',k5)+'('+sbtn('9등급',k9)+')</th>';
+    const dualTh=(k5,k9,pre,rs)=>'<th class="dual'+((SS.key===k5||SS.key===k9)?' sorted':'')+'"'+(rs?' rowspan="2"':'')+'>'+(pre||'')+sbtn('5등급',k5)+'<br>('+sbtn('9등급',k9)+')</th>';
+    // 2026.10.02 사용자 요청 — 학기 표의 과목 머리글도 정확한 이름 (공통국어1 · 공통국어2 · 정보). 서버 subjectInfo.l
+    const lab=subj=>{const d=NAESIN_DEF.find(x=>x.sem===sem&&x.base===subj);return esc(d?(d.label||d.name):subj);};
     const AK={'최종':['avgG_final','avg9_최종'],'1차':['avgG_1cha','avg9_1차'],'2차':['avgG_2cha','avg9_2차']}[view];
     const avgHead=dualTh(AK[0],AK[1],'전체 평균<br>',true);
     const avgCell=s=>avg59(s,AK[0],AK[1]);
@@ -5082,22 +5094,23 @@ function renderDataTable(){
       const yc=(a5,a9)=>{if(a5==null&&a9==null)return '<td class="mut">-</td>';return '<td class="g59">'+(a5==null?'<span class="mut">-</span>':g5t(a5))+(a9==null?'':p9(a9))+'</td>';};
       const ya=(a5,a9)=>{if(a5==null&&a9==null)return '<td class="mut">-</td>';return '<td class="g59">'+(a5==null?'<span class="mut">-</span>':g5t(a5.toFixed(2)))+(a9==null?'':p9(a9.toFixed(2)))+'</td>';};
       const yTh=(k,pre)=>dualTh(k+'|5',k+'|9',pre,false);
+      const YB=yrBases();
       h+='<thead><tr><th class="name sortable'+(SS.key==='name'?' sorted':'')+'" data-sort="name">학생'+aw('name')+'</th>'+
         yTh('yr|all','학년 전체 평균<br>')+SEMESTERS.map(x=>yTh('yr|s'+x.key,x.label+' 평균<br>')).join('')+
-        NAESIN_DEF.map((def,si)=>yTh('yr|si|'+si,esc(def.label||def.name)+'<br>')).join('')+'</tr></thead><tbody>';
+        YB.map(bs=>yTh('yr|b|'+bs,esc(bs)+'<br>')).join('')+'</tr></thead><tbody>';
       arr.forEach(s=>{const y=s.yr||{g5:[],g9:[],all:[null,null],sem:{}};
         h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+ya(y.all[0],y.all[1])+
           SEMESTERS.map(x=>{const m=y.sem[x.key]||[null,null];return ya(m[0],m[1]);}).join('')+
-          NAESIN_DEF.map((def,si)=>yc(y.g5[si],y.g9[si])).join('')+'</tr>';});
+          YB.map(bs=>{const v=yrBase(y,bs);return v.n>1?ya(v.g5,v.g9):yc(v.g5,v.g9);}).join('')+'</tr>';});
     }else if(view==='최종'){
       // 환산 · 5등급(9등급) · 성취
-      h+='<thead><tr class="grp">'+nameTh+avgHead+NS(sem).map(subj=>'<th colspan="3">'+subj+'</th>').join('')+'</tr><tr>'+
+      h+='<thead><tr class="grp">'+nameTh+avgHead+NS(sem).map(subj=>'<th colspan="3">'+lab(subj)+'</th>').join('')+'</tr><tr>'+
         NS(sem).map(subj=>sth('환산','naesin|'+subj+'|환산총점')+dualTh('naesin|'+subj+'|최종등급','naesin9|'+subj+'|최종')+sth('성취','naesin|'+subj+'|최종성취도')).join('')+'</tr></thead><tbody>';
       arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+avgCell(s)+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};if(!subjFinalComplete(o))return '<td class="mut">대기</td><td class="mut">-</td><td class="mut">-</td>';return '<td class="raw">'+fmt(o['환산총점'],1)+'</td>'+g59(s,subj,dataGetVal(s,'naesin|'+subj+'|최종등급'),'최종')+'<td>'+ach(o['최종성취도'])+'</td>';}).join('')+'</tr>';});
     }else{
       // 1차 / 2차 : 시험점수 · 5등급(9등급)
       const ex=view;
-      h+='<thead><tr class="grp">'+nameTh+avgHead+NS(sem).map(subj=>'<th colspan="2">'+subj+'</th>').join('')+'</tr><tr>'+
+      h+='<thead><tr class="grp">'+nameTh+avgHead+NS(sem).map(subj=>'<th colspan="2">'+lab(subj)+'</th>').join('')+'</tr><tr>'+
         NS(sem).map(subj=>sth(ex+'점수','naesin|'+subj+'|'+ex+'시험')+dualTh('naesin|'+subj+'|'+ex+'등급','naesin9|'+subj+'|'+ex)).join('')+'</tr></thead><tbody>';
       arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+avgCell(s)+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};return '<td class="raw">'+fmt(o[ex+'시험'])+'</td>'+g59(s,subj,dataGetVal(s,'naesin|'+subj+'|'+ex+'등급'),ex);}).join('')+'</tr>';});
     }
