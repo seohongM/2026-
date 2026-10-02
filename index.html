@@ -4968,7 +4968,7 @@ let dataMockMonth='m3';
 let dataBan='', dataSearch='';
 let dataSort={key:'name',dir:1};
 
-document.getElementById('dataSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;dataTab=b.getAttribute('data-d');dataSort={key:'name',dir:1};[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));renderData();});
+document.getElementById('dataSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;dataTab=b.getAttribute('data-d');dataSort=dataTab==='mock'?{key:'mockAll|p',dir:-1}:{key:'name',dir:1};[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));renderData();});
 
 function renderData(){
   if(!dataReady)return;
@@ -5014,6 +5014,11 @@ function yrBases(){const out=[];NAESIN_DEF.forEach(d=>{if(out.indexOf(d.base)<0)
 function yrBase(y,bs){let a5=[],a9=[];NAESIN_DEF.forEach((d,si)=>{if(d.base!==bs)return;if(y.g5[si]!=null)a5.push(y.g5[si]);if(y.g9[si]!=null)a9.push(y.g9[si]);});
   const m=a=>a.length?a.reduce((x,z)=>x+z,0)/a.length:null;
   return {n:a5.length,g5:m(a5),g9:(a9.length&&a9.length===a5.length)?m(a9):null};}
+// 모의고사 「전체」 (2026.10.02 사용자 요청) — 등급 = 국어·수학·영어·통합사회·통합과학 5과목 평균 (한국사 제외, 사용자 결정)
+//   백분위 = 백분위가 있는 국어·수학·통합사회·통합과학 4과목 평균 (영어·한국사는 절대평가라 백분위 없음)
+const MOCK_ALL_G=['국어','수학','영어','통합사회','통합과학'], MOCK_ALL_P=['국어','수학','통합사회','통합과학'];
+function mockAll(s,mk){const m=(s.mock&&s.mock[mk])||{};const avg=(ks,f)=>{const a=ks.map(k=>m[k]&&m[k][f]).filter(v=>v!=null);return a.length?a.reduce((x,z)=>x+z,0)/a.length:null;};
+  return {g:avg(MOCK_ALL_G,'grade'),p:avg(MOCK_ALL_P,'pct')};}
 function dataGetVal(s,key){
   if(key==='name')return s.ban*1000+s.num;
   if(key.indexOf('yr|')===0){const y=s.yr;if(!y)return null;const t=key.split('|'),w=t[t.length-1]==='9'?1:0;  // yr|all|5 · yr|s1|9 · yr|si|3|5
@@ -5042,6 +5047,7 @@ function dataGetVal(s,key){
   }
   if(t[0]==='counsel'){const o=s.counsel[dataNaesinSem][t[1]];return o?o[t[2]]:null;}
   if(t[0]==='mock'){const o=s.mock[dataMockMonth][t[1]];return o?o[t[2]]:null;}
+  if(t[0]==='mockAll'){const v=mockAll(s,dataMockMonth);return t[1]==='g'?v.g:v.p;}
   return null;
 }
 
@@ -5067,7 +5073,7 @@ function renderDataTable(){
   const sth=(label,k)=>'<th class="sortable'+(SS.key===k?' sorted':'')+'" data-sort="'+k+'">'+label+aw(k)+'</th>';
   const nameTh='<th class="name sortable'+(SS.key==='name'?' sorted':'')+'" data-sort="name" rowspan="2">학생'+aw('name')+'</th>';
 
-  let h='<div class="panel glass"><div class="tscroll"><table'+(dataTab==='naesin'?' class="dtab"':'')+'>';
+  let h='<div class="panel glass"><div class="tscroll"><table class="dtab">';   // 내신·모의 둘 다 칸을 좁게 (2026.10.02 사용자 요청)
 
   if(dataTab==='naesin'){
     const sem=dataNaesinSem,view=dataNaesinView;
@@ -5118,9 +5124,14 @@ function renderDataTable(){
   }else{
     const mk=dataMockMonth;
     // 상대평가: 원점수·표준·백분위·등급 / 절대평가: 원점수·등급 (변경14: 백분위 추가)
-    h+='<thead><tr class="grp">'+nameTh+MOCK_SUBJECTS.map(u=>'<th colspan="'+(u.rel?4:2)+'">'+u.key+'</th>').join('')+'</tr><tr>'+
+    // 전체 : 학생 바로 옆 한 칸 「등급 (백분위)」 · 두 글자를 각각 눌러 정렬 (처음엔 백분위 높은 순)
+    const msb=(label,k)=>'<span class="sbtn'+(SS.key===k?' on':'')+'" data-sort="'+k+'">'+label+aw(k)+'</span>';
+    const allTh='<th rowspan="2" class="dual'+((SS.key==='mockAll|g'||SS.key==='mockAll|p')?' sorted':'')+'">전체<br>'+msb('등급','mockAll|g')+'<br>('+msb('백분위','mockAll|p')+')</th>';
+    const allTd=s=>{const v=mockAll(s,mk);if(v.g==null&&v.p==null)return '<td class="mut">-</td>';
+      return '<td class="g59">'+(v.g==null?'<span class="mut">-</span>':'<b class="g5t">'+v.g.toFixed(2)+'</b>')+(v.p==null?'':' <span class="g9t">('+v.p.toFixed(2)+')</span>')+'</td>';};
+    h+='<thead><tr class="grp">'+nameTh+allTh+MOCK_SUBJECTS.map(u=>'<th colspan="'+(u.rel?4:2)+'">'+u.key+'</th>').join('')+'</tr><tr>'+
       MOCK_SUBJECTS.map(u=>u.rel?(sth('원점','mock|'+u.key+'|raw')+sth('표준','mock|'+u.key+'|std')+sth('백분위','mock|'+u.key+'|pct')+sth('등급','mock|'+u.key+'|grade')):(sth('원점','mock|'+u.key+'|raw')+sth('등급','mock|'+u.key+'|grade'))).join('')+'</tr></thead><tbody>';
-    arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+MOCK_SUBJECTS.map(u=>{const o=s.mock[mk][u.key]||{};return u.rel?('<td class="raw">'+fmt(o.raw)+'</td><td class="mut">'+fmt(o.std)+'</td><td>'+fmt(o.pct)+'</td><td>'+gb(o.grade)+'</td>'):('<td class="raw">'+fmt(o.raw)+'</td><td>'+gb(o.grade)+'</td>');}).join('')+'</tr>';});
+    arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+allTd(s)+MOCK_SUBJECTS.map(u=>{const o=s.mock[mk][u.key]||{};return u.rel?('<td class="raw">'+fmt(o.raw)+'</td><td class="mut">'+fmt(o.std)+'</td><td>'+fmt(o.pct)+'</td><td>'+gb(o.grade)+'</td>'):('<td class="raw">'+fmt(o.raw)+'</td><td>'+gb(o.grade)+'</td>');}).join('')+'</tr>';});
     h+='</tbody>';
   }
   const ctx=dataTab==='naesin'?(dataNaesinSem==='year'?'학년 (지금까지 본 내신을 합친 결과 · 과목마다 학기말이 끝났으면 최종등급, 진행 중이면 1차 고사 또는 1·2차 변환점 · 개별 상담의 「전체 평균」 과 같은 규칙)':(SEMESTERS.find(x=>x.key===dataNaesinSem).label+' '+dataNaesinView)):MOCK_MONTHS.find(x=>x.key===dataMockMonth).label;
