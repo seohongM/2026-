@@ -738,12 +738,9 @@
                     </div>
                 </div>
 
-                <!-- 모의고사 변화 (화면 전용 · 인쇄 제외) — 2026.10.02 사용자가 그래프 대신 표(시안 A)를 고름 -->
+                <!-- 모의고사 변화 (화면 전용 · 인쇄 제외) — 2026.10.02 사용자가 「과목마다 작은 그래프」(시안 B)를 고름 -->
                 <div class="no-print mb-2">
-                    <div class="bg-white border border-slate-200 rounded-xl p-3">
-                        <h3 class="text-xs font-extrabold text-slate-800 mb-2">📈 모의고사 변화 <span class="font-medium text-[10px] text-slate-400">등급 (백분위) · 맨 오른쪽 「변화」 = 직전 회차보다</span></h3>
-                        <div id="mock-change"></div>
-                    </div>
+                    <div id="mock-change" class="grid grid-cols-2 lg:grid-cols-3 gap-3"></div>
                 </div>
 
                 <div class="print-card mb-2">
@@ -5328,9 +5325,9 @@ function upliftParts(grades) {
 }
 
 function renderMockCharts(mockExams) {
-    // 2026.10.02 사용자 요청 「모의고사 변화가 어지럽다 · 보기 편한 방법」 → 시안 A(표)를 고름.
-    //   과목마다 한 줄 : 회차별 「등급 (백분위)」 + 맨 오른쪽 「변화」 = 그 과목을 본 마지막 두 회차를 견줌
-    //   ▲ 오름(파랑) · ▼ 내림(빨강) · ― 그대로 · 괄호 = 백분위 차이 (영어·한국사는 백분위 없음)
+    // 2026.10.02 사용자 요청 「모의고사 변화 어지럽다 · 보기 편한 방법」 → 시안 둘 중 「과목마다 작은 그래프」(B)를 고름.
+    //   과목마다 그래프 하나 (6칸 · 한 줄에 3개) · 곧은 선 · 위로 갈수록 좋음(등급 축 뒤집음)
+    //   세로축 = 그 과목 등급 ±1 (1~9 안) · 점마다 「5등급 (46)」 = 등급 (백분위). 영어·한국사는 백분위 없음
     const box = document.getElementById('mock-change');
     if (!box) return;
     const subjects = ['국어', '수학', '영어', '통합사회', '통합과학', '한국사'];
@@ -5345,33 +5342,37 @@ function renderMockCharts(mockExams) {
         const v = parseFloat(String(f[field] || '').replace(/[^0-9.]/g, ''));
         return isNaN(v) ? null : v;
     };
+    subjects.forEach((s, i) => { if (CHARTS['mock-chg-' + i]) { CHARTS['mock-chg-' + i].destroy(); delete CHARTS['mock-chg-' + i]; } });
     const used = months.filter(m => subjects.some(s => pick(m.key, s, 'grade') != null));
     if (!used.length) {
-        box.innerHTML = '<p class="text-xs text-slate-400 py-2">모의고사 성적이 아직 없습니다.</p>';
+        box.innerHTML = '<p class="text-xs text-slate-400 py-2 col-span-2 lg:col-span-3">모의고사 성적이 아직 없습니다.</p>';
         return;
     }
+    box.innerHTML = subjects.map((s, i) =>
+        '<div class="bg-white border border-slate-200 rounded-xl p-3"><h3 class="text-xs font-extrabold text-slate-800 mb-1">' + s +
+        ' <span class="font-medium text-[10px] text-slate-400">등급 (위로 갈수록 좋음)</span></h3>' +
+        '<div style="height:120px"><canvas id="mock-chg-' + i + '"></canvas></div></div>').join('');
     const num = v => String(Math.round(v * 10) / 10);
-    let h = '<table class="w-full text-[13px] border-collapse"><thead><tr class="bg-slate-50 text-slate-600">' +
-        '<th class="p-2 text-left">과목</th>' + used.map(m => '<th class="p-2">' + m.label + '</th>').join('') +
-        '<th class="p-2">변화</th></tr></thead><tbody>';
-    subjects.forEach(s => {
+    subjects.forEach((s, i) => {
         const g = used.map(m => pick(m.key, s, 'grade')), p = used.map(m => pick(m.key, s, 'percent'));
-        const idx = g.map((v, i) => v != null ? i : -1).filter(i => i >= 0);
-        let ch = '<span class="text-slate-300">-</span>';
-        if (idx.length >= 2) {
-            const a = idx[idx.length - 2], b = idx[idx.length - 1], d = g[a] - g[b];
-            const pd = (p[a] != null && p[b] != null) ? p[b] - p[a] : null;
-            ch = d > 0 ? '<b style="color:#2563eb">▲ ' + d + '등급</b>'
-               : d < 0 ? '<b style="color:#dc2626">▼ ' + (-d) + '등급</b>'
-               : '<b class="text-slate-500">― 그대로</b>';
-            if (pd != null) ch += ' <span class="text-slate-500">(' + (pd >= 0 ? '+' : '') + pd.toFixed(1) + ')</span>';
-        }
-        h += '<tr class="border-t border-slate-100"><td class="p-2 font-bold text-slate-700">' + s + '</td>' +
-            g.map((v, i) => '<td class="p-2 text-center">' + (v == null ? '<span class="text-slate-300">-</span>'
-                : '<b>' + num(v) + '</b>' + (p[i] != null ? ' <span class="text-slate-500">(' + num(p[i]) + ')</span>' : '')) + '</td>').join('') +
-            '<td class="p-2 text-center">' + ch + '</td></tr>';
+        const ok = g.filter(v => v != null);
+        const el = document.getElementById('mock-chg-' + i);
+        if (!ok.length) { el.parentNode.innerHTML = '<p class="text-xs text-slate-400 pt-10 text-center">성적 없음</p>'; return; }
+        const lbl = { id: 'mockChgLbl', afterDatasetsDraw(c) {
+            const x = c.ctx; x.save(); x.font = '700 11px Pretendard, sans-serif'; x.textAlign = 'center'; x.fillStyle = '#334155';
+            c.getDatasetMeta(0).data.forEach((e, j) => { if (g[j] == null) return;
+                x.fillText(num(g[j]) + '등급' + (p[j] != null ? ' (' + num(p[j]) + ')' : ''), e.x, e.y - 8); });
+            x.restore(); } };
+        drawChart('mock-chg-' + i, {
+            type: 'line', plugins: [lbl],
+            data: { labels: used.map(m => m.label),
+                    datasets: [{ label: s, data: g, borderColor: '#2563eb', backgroundColor: '#2563eb', borderWidth: 2, tension: 0, pointRadius: 4, spanGaps: true }] },
+            options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18, left: 30, right: 40 } },
+                plugins: { legend: { display: false } },
+                scales: { y: { reverse: true, min: Math.max(1, Math.min(...ok) - 1), max: Math.min(9, Math.max(...ok) + 1), ticks: { stepSize: 1 } },
+                          x: { grid: { display: false } } } }
+        });
     });
-    box.innerHTML = h + '</tbody></table>';
 }
 
 
