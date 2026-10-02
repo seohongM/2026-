@@ -1714,11 +1714,12 @@ function apiGetAll_(req, user) {
     var key = c + '-' + n;
     if (!index[key]) {
       var st = { c: c, n: n, nm: nm || '', u: '', mj: '', cd: '', h: [], hc: [],
-                 g: [], d: [], s: ['', '', '', '', ''], tg: [],
+                 g: [], d: [], s: ['', '', '', '', ''], a: [], tg: [],
                  tu: [], tj: [], m: {} };
       var i;
       for (i = 0; i < G_LEN; i++) st.g.push('');
       for (i = 0; i < D_LEN; i++) st.d.push('');
+      for (i = 0; i < SUBJECTS.length * 2; i++) st.a.push('');
       for (i = 0; i < TG_LEN; i++) st.tg.push('');
       MOCK_SHEETS.forEach(function (cfg) {
         var arr = [];
@@ -1774,6 +1775,12 @@ function apiGetAll_(req, user) {
         st.d[d + 7] = c.has1 ? 1 : 0;
         st.d[d + 8] = c.has2 ? 1 : 0;
         st.d[d + 9] = c.prev ? 1 : 0;      // 이전 학교 성적인가
+
+        // a = 과목마다 「평균에 들어간 등급」 [5등급, 9등급] (2026.10.02 — 통합 성적 관리 「학년」 표)
+        //     avgPart_ 그대로라 이 칸들의 평균 = s 의 평균. 평균에 안 들어간 과목(시험 없음 · 이전 학교)은 ''
+        var ap = avgPart_(c, si);
+        st.a[si * 2]     = ap ? E_(ap.g5) : '';
+        st.a[si * 2 + 1] = ap ? E_(ap.g9) : '';
 
         calcs.push(c);
       }
@@ -2155,7 +2162,7 @@ var SUSI_JH_MAX_ = 8;
 /* 이 Code.gs 의 버전. 화면(index.html)의 PAGE_VER 와 짝이 맞아야 합니다.
    「고쳤는데 화면이 그대로다」 의 원인은 거의 늘 새 버전 배포를 안 한 것이라,
    ping 응답에 실어 보내 화면이 스스로 알아채게 합니다. */
-var APP_VER = '2026-10-02';
+var APP_VER = '2026-10-02b';
 
 /**
  * 아무 칸에서나 4자리 연도를 뽑아냅니다.

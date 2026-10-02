@@ -24,7 +24,7 @@
 
     /* 이 index.html 의 버전. Apps Script 의 APP_VER 와 짝이 맞아야 합니다.
        다르면 [🔧 연결 상태 확인] 과 수시 패널이 알려 줍니다. */
-    const PAGE_VER = '2026-10-02';
+    const PAGE_VER = '2026-10-02b';
 
     </script>
 
@@ -4140,7 +4140,7 @@ function naesinDefFromName(n){
 function setNaesinDef(d){
   let list=null;
   if(d&&d.subjectInfo&&d.subjectInfo.length){
-    list=d.subjectInfo.map(x=>({name:x.n,base:x.b,sem:+x.s||1}));
+    list=d.subjectInfo.map(x=>({name:x.n,base:x.b,sem:+x.s||1,label:x.l||x.n}));
   }else if(d&&d.subjects&&d.subjects.length){
     list=d.subjects.map(naesinDefFromName);
   }
@@ -4271,6 +4271,25 @@ function fillFromServer(d){
         };
       });
     });
+
+    // 학년 (2026.10.02 사용자 요청 — 성적 데이터 열람 [학년]) : 지금까지 본 내신을 합친 결과
+    //   과목마다 「평균에 들어간 등급」 = 서버 a (avgPart_ 그대로 · 개별 상담 「전체 평균」 과 같은 규칙)
+    //   평균은 서버 s 를 그대로 (s[1]·s[2] 전체 · s[5] 학기별) → 개별 상담 화면 숫자와 똑같습니다
+    const yr={g5:[],g9:[],all:[null,null],sem:{}};
+    const a=row.a, sv=row.s||[];
+    NAESIN_DEF.forEach((def,si)=>{
+      let g5=null,g9=null;
+      if(a&&a.length){g5=numOrNull(a[si*2]);g9=numOrNull(a[si*2+1]);}
+      else{ // 옛 서버 (a 없음) : 학기말 끝 → 최종등급 · 1차시험만 → 1차등급 · 1·2차 시험만(변환점)은 알 수 없어 비움
+        const o=s.naesin[def.sem][def.base];const prev=+d9[si*D9STEP+9]===1;
+        if(o&&!prev){if(subjFinalComplete(o)){g5=o['최종등급'];g9=o._g9['최종'];}else if(o['1차시험']!=null&&o['2차시험']==null){g5=o['1차등급'];g9=o._g9['1차'];}}
+      }
+      if(!(g5>0))g5=null; if(!(g9>0))g9=null;
+      yr.g5.push(g5); yr.g9.push(g9);
+    });
+    yr.all=[numOrNull(sv[1]),numOrNull(sv[2])];
+    (Array.isArray(sv[5])?sv[5]:[]).forEach(x=>{if(Array.isArray(x))yr.sem[x[0]]=[numOrNull(x[2]),numOrNull(x[3])];});
+    s.yr=yr;
 
     students.set(row.c+'-'+row.n,s);
   });
@@ -4958,8 +4977,9 @@ function renderDataControls(){
   const arr=allStudents();const bans=[...new Set(arr.map(s=>s.ban))].sort((a,b)=>a-b);
   let html='<div class="controls glass">';
   if(dataTab==='naesin'){
-    html+='<span class="seg" id="dNaesinSem">'+SEMESTERS.map(sem=>'<button data-s="'+sem.key+'"'+(dataNaesinSem===sem.key?' class="on"':'')+'>'+sem.label+(naesinSemHasAny(sem.key)?'':' (대기)')+'</button>').join('')+'</span>';
-    html+='<span class="seg" id="dNaesinView">'+
+    html+='<span class="seg" id="dNaesinSem">'+SEMESTERS.map(sem=>'<button data-s="'+sem.key+'"'+(dataNaesinSem===sem.key?' class="on"':'')+'>'+sem.label+(naesinSemHasAny(sem.key)?'':' (대기)')+'</button>').join('')+
+      '<button data-s="year"'+(dataNaesinSem==='year'?' class="on"':'')+'>학년</button></span>';
+    if(dataNaesinSem!=='year')html+='<span class="seg" id="dNaesinView">'+
       '<button data-v="1차"'+(dataNaesinView==='1차'?' class="on"':'')+'>1차 시험</button>'+
       '<button data-v="2차"'+(dataNaesinView==='2차'?' class="on"':'')+'>2차 시험</button>'+
       '<button data-v="최종"'+(dataNaesinView==='최종'?' class="on"':'')+'>학기말 최종</button></span>';
@@ -4972,8 +4992,10 @@ function renderDataControls(){
   document.getElementById('dataControls').innerHTML=html;
 
   if(dataTab==='naesin'){
-    document.getElementById('dNaesinSem').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;dataNaesinSem=+b.getAttribute('data-s');renderData();});
-    document.getElementById('dNaesinView').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;dataNaesinView=b.getAttribute('data-v');renderData();});
+    document.getElementById('dNaesinSem').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const v=b.getAttribute('data-s');const nv=v==='year'?'year':+v;
+      if((nv==='year')!==(dataNaesinSem==='year'))dataSort={key:'name',dir:1};   // 학년 ↔ 학기 : 정렬 열쇠가 달라 처음으로
+      dataNaesinSem=nv;renderData();});
+    if(dataNaesinSem!=='year')document.getElementById('dNaesinView').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;dataNaesinView=b.getAttribute('data-v');renderData();});
   }else{
     document.getElementById('dMockMonth').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;dataMockMonth=b.getAttribute('data-m');renderData();});
   }
@@ -4985,6 +5007,11 @@ const ACH_RANK={A:1,B:2,C:3,D:4,E:5,I:6};
 const NAESIN_FINAL_FIELDS=['환산총점','최종등급','최종성취도'];
 function dataGetVal(s,key){
   if(key==='name')return s.ban*1000+s.num;
+  if(key.indexOf('yr|')===0){const y=s.yr;if(!y)return null;const t=key.split('|'),w=t[t.length-1]==='9'?1:0;  // yr|all|5 · yr|s1|9 · yr|si|3|5
+    if(t[1]==='all')return y.all[w];
+    if(t[1]==='si'){const v=(w?y.g9:y.g5)[+t[2]];return v==null?null:v;}
+    const m=y.sem[+t[1].slice(1)];return m?m[w]:null;}
+  if(dataNaesinSem==='year')return null;
   // 2026.10.02 사용자 결정 — 시험 점수가 없으면 등급도 없음 (시트 수식이 빈 점수로 만든 등급은 안 씀 · 9등급과 같은 과목 수)
   if(key==='avgG_1cha'||key==='avgG_2cha'){const ex=key==='avgG_1cha'?'1차':'2차';let g=[];NS(dataNaesinSem).forEach(subj=>{const v=dataGetVal(s,'naesin|'+subj+'|'+ex+'등급');if(v!=null)g.push(v);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
   if(key==='avgG_final'){let g=[];NS(dataNaesinSem).forEach(subj=>{const o=s.naesin[dataNaesinSem][subj];if(subjFinalComplete(o)&&o['최종등급']!=null)g.push(o['최종등급']);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
@@ -5015,7 +5042,8 @@ function renderDataTable(){
   const box=document.getElementById('dataTable');
 
   // 대기 안내
-  if(dataTab==='naesin'&&!naesinSemHasAny(dataNaesinSem)){
+  if(dataTab==='naesin'&&dataNaesinSem==='year'?!SEMESTERS.some(x=>naesinSemHasAny(x.key)):(dataTab==='naesin'&&!naesinSemHasAny(dataNaesinSem))){
+    if(dataNaesinSem==='year'){box.innerHTML='<div class="panel glass"><div class="notice"><b>내신 데이터가 아직 입력되지 않았습니다.</b></div></div>';return;}
     box.innerHTML='<div class="panel glass"><div class="notice"><b>'+SEMESTERS.find(x=>x.key===dataNaesinSem).label+' 내신 데이터가 아직 입력되지 않았습니다.</b><br>시트에 점수가 입력되면 표가 자동으로 채워집니다.</div></div>';return;
   }
   if(dataTab==='mock'&&!mockMonthHasAny(dataMockMonth)){
@@ -5049,7 +5077,19 @@ function renderDataTable(){
     const AK={'최종':['avgG_final','avg9_최종'],'1차':['avgG_1cha','avg9_1차'],'2차':['avgG_2cha','avg9_2차']}[view];
     const avgHead=dualTh(AK[0],AK[1],'전체 평균<br>',true);
     const avgCell=s=>avg59(s,AK[0],AK[1]);
-    if(view==='최종'){
+    if(sem==='year'){
+      // 학년 (2026.10.02 사용자 요청) : 학생 | 학년 전체 평균 | 학기 평균들 | 과목마다 지금 등급 — 모두 5등급 (9등급)
+      const yc=(a5,a9)=>{if(a5==null&&a9==null)return '<td class="mut">-</td>';return '<td class="g59">'+(a5==null?'<span class="mut">-</span>':g5t(a5))+(a9==null?'':p9(a9))+'</td>';};
+      const ya=(a5,a9)=>{if(a5==null&&a9==null)return '<td class="mut">-</td>';return '<td class="g59">'+(a5==null?'<span class="mut">-</span>':g5t(a5.toFixed(2)))+(a9==null?'':p9(a9.toFixed(2)))+'</td>';};
+      const yTh=(k,pre)=>dualTh(k+'|5',k+'|9',pre,false);
+      h+='<thead><tr><th class="name sortable'+(SS.key==='name'?' sorted':'')+'" data-sort="name">학생'+aw('name')+'</th>'+
+        yTh('yr|all','학년 전체 평균<br>')+SEMESTERS.map(x=>yTh('yr|s'+x.key,x.label+' 평균<br>')).join('')+
+        NAESIN_DEF.map((def,si)=>yTh('yr|si|'+si,esc(def.label||def.name)+'<br>')).join('')+'</tr></thead><tbody>';
+      arr.forEach(s=>{const y=s.yr||{g5:[],g9:[],all:[null,null],sem:{}};
+        h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+ya(y.all[0],y.all[1])+
+          SEMESTERS.map(x=>{const m=y.sem[x.key]||[null,null];return ya(m[0],m[1]);}).join('')+
+          NAESIN_DEF.map((def,si)=>yc(y.g5[si],y.g9[si])).join('')+'</tr>';});
+    }else if(view==='최종'){
       // 환산 · 5등급(9등급) · 성취
       h+='<thead><tr class="grp">'+nameTh+avgHead+NS(sem).map(subj=>'<th colspan="3">'+subj+'</th>').join('')+'</tr><tr>'+
         NS(sem).map(subj=>sth('환산','naesin|'+subj+'|환산총점')+dualTh('naesin|'+subj+'|최종등급','naesin9|'+subj+'|최종')+sth('성취','naesin|'+subj+'|최종성취도')).join('')+'</tr></thead><tbody>';
@@ -5070,7 +5110,7 @@ function renderDataTable(){
     arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+MOCK_SUBJECTS.map(u=>{const o=s.mock[mk][u.key]||{};return u.rel?('<td class="raw">'+fmt(o.raw)+'</td><td class="mut">'+fmt(o.std)+'</td><td>'+fmt(o.pct)+'</td><td>'+gb(o.grade)+'</td>'):('<td class="raw">'+fmt(o.raw)+'</td><td>'+gb(o.grade)+'</td>');}).join('')+'</tr>';});
     h+='</tbody>';
   }
-  const ctx=dataTab==='naesin'?(SEMESTERS.find(x=>x.key===dataNaesinSem).label+' '+dataNaesinView):MOCK_MONTHS.find(x=>x.key===dataMockMonth).label;
+  const ctx=dataTab==='naesin'?(dataNaesinSem==='year'?'학년 (지금까지 본 내신을 합친 결과 · 과목마다 학기말이 끝났으면 최종등급, 진행 중이면 1차 고사 또는 1·2차 변환점 · 개별 상담의 「전체 평균」 과 같은 규칙)':(SEMESTERS.find(x=>x.key===dataNaesinSem).label+' '+dataNaesinView)):MOCK_MONTHS.find(x=>x.key===dataMockMonth).label;
   h+='</table></div><div class="sub" style="margin:8px 0 0;">표시 '+arr.length+'명'+(dataBan?' · '+dataBan+'반':'')+(dataSearch?' · "'+esc(dataSearch)+'"':'')+' · '+ctx+' · 열 제목을 한 번 누르면 <b>오름차순 ▲</b>, 한 번 더 누르면 <b>내림차순 ▼</b> · 등급 칸은 「5등급」·「9등급」 글자를 <b>각각</b> 눌러 정렬</div></div>';
   box.innerHTML=h;
 
