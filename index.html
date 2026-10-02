@@ -168,6 +168,8 @@
 #view-stats th .sbtn:hover{background:#eef2f6;color:var(--ink);}
 #view-stats th .sbtn.on{font-weight:800;}
 #view-stats td.g59{white-space:nowrap;}
+#view-stats td.g59 .g5t{font-size:14px;font-weight:800;color:#0f172a;}
+#view-stats td.g59 .g9t{font-size:14px;font-weight:700;color:#7c3aed;}
 #view-stats .need{display:inline-block;min-width:22px;padding:2px 8px;border-radius:7px;font-size:11px;font-weight:800;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;}
 #view-stats .need.zero{background:#f0fdf4;color:#15803d;border-color:#bbf7d0;}
 #view-stats .need.dash{background:transparent;color:var(--muted);border:none;font-weight:600;}
@@ -4983,8 +4985,8 @@ const ACH_RANK={A:1,B:2,C:3,D:4,E:5,I:6};
 const NAESIN_FINAL_FIELDS=['환산총점','최종등급','최종성취도'];
 function dataGetVal(s,key){
   if(key==='name')return s.ban*1000+s.num;
-  if(key==='avgG_1cha'){let g=[];NS(dataNaesinSem).forEach(subj=>{const o=s.naesin[dataNaesinSem][subj];if(o&&o['1차등급']!=null)g.push(o['1차등급']);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
-  if(key==='avgG_2cha'){let g=[];NS(dataNaesinSem).forEach(subj=>{const o=s.naesin[dataNaesinSem][subj];const gg=o?o['2차등급']:null;if(gg!=null)g.push(gg);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
+  // 2026.10.02 사용자 결정 — 시험 점수가 없으면 등급도 없음 (시트 수식이 빈 점수로 만든 등급은 안 씀 · 9등급과 같은 과목 수)
+  if(key==='avgG_1cha'||key==='avgG_2cha'){const ex=key==='avgG_1cha'?'1차':'2차';let g=[];NS(dataNaesinSem).forEach(subj=>{const v=dataGetVal(s,'naesin|'+subj+'|'+ex+'등급');if(v!=null)g.push(v);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
   if(key==='avgG_final'){let g=[];NS(dataNaesinSem).forEach(subj=>{const o=s.naesin[dataNaesinSem][subj];if(subjFinalComplete(o)&&o['최종등급']!=null)g.push(o['최종등급']);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
   // 9등급 (2026.10.02 사용자 요청 — 성적 데이터 열람에서 5등급 옆에 9등급 · 따로 정렬)
   //   값은 서버가 계산한 9등급 환산(o._g9). 그 시험 점수가 있어야만 (학기말은 1·2차 시험 + 1·2차 수행 넷 다)
@@ -4996,6 +4998,7 @@ function dataGetVal(s,key){
   }
   if(t[0]==='naesin'){const o=s.naesin[dataNaesinSem][t[1]];if(!o)return null;
     if(NAESIN_FINAL_FIELDS.includes(t[2])&&!subjFinalComplete(o))return null; // 미완(대기)은 정렬 맨 뒤
+    if((t[2]==='1차등급'||t[2]==='2차등급')&&o[t[2].slice(0,2)+'시험']==null)return null; // 시험 점수 없으면 등급 없음
     const v=o[t[2]];if(v==null)return null;
     if(NAESIN_ACH_FIELDS.includes(t[2]))return ACH_RANK[v]!=null?ACH_RANK[v]:null; // 성취도 A~I → 1~6
     return v;
@@ -5032,14 +5035,15 @@ function renderDataTable(){
     const sem=dataNaesinSem,view=dataNaesinView;
     // 2026.10.02 사용자 요청 — 등급은 한 칸에 「5등급(9등급)」 · 전체 평균은 맨 앞(학생 바로 옆)
     //   머리글의 「5등급」·「9등급」 글자를 각각 누르면 그 기준으로 정렬 (한 번 = 오름 ▲ · 한 번 더 = 내림 ▼)
-    //   9등급은 ⑦·⑧ 과 같은 보라 글씨
-    const p9=v=>'<span style="color:#7c3aed;font-weight:700">('+v+')</span>';
+    //   모양 (2026.10.02 사용자가 시안 셋 중 「글자만」 고름) : 색 배지 없이 5등급 = 검정 굵은 글자 · 9등급 = 보라 글자 · 같은 크기 · 한 칸 띄움
+    const p9=v=>' <span class="g9t">('+v+')</span>';
+    const g5t=v=>'<b class="g5t">'+v+'</b>';
     const g59=(s,subj,g5,ex)=>{const g9=dataGetVal(s,'naesin9|'+subj+'|'+ex);
       if(g5==null&&g9==null)return '<td class="mut">-</td>';
-      return '<td class="g59">'+(g5==null?'<span class="mut">-</span>':gb(g5))+(g9==null?'':p9(g9))+'</td>';};
+      return '<td class="g59">'+(g5==null?'<span class="mut">-</span>':g5t(g5))+(g9==null?'':p9(g9))+'</td>';};
     const avg59=(s,k5,k9)=>{const a5=dataGetVal(s,k5),a9=dataGetVal(s,k9);
       if(a5==null&&a9==null)return '<td class="mut">-</td>';
-      return '<td class="g59">'+(a5==null?'<span class="mut">-</span>':'<span class="raw">'+a5.toFixed(2)+'</span>')+(a9==null?'':p9(a9.toFixed(2)))+'</td>';};
+      return '<td class="g59">'+(a5==null?'<span class="mut">-</span>':g5t(a5.toFixed(2)))+(a9==null?'':p9(a9.toFixed(2)))+'</td>';};
     const sbtn=(label,k)=>'<span class="sbtn'+(SS.key===k?' on':'')+'" data-sort="'+k+'">'+label+aw(k)+'</span>';
     const dualTh=(k5,k9,pre,rs)=>'<th class="dual'+((SS.key===k5||SS.key===k9)?' sorted':'')+'"'+(rs?' rowspan="2"':'')+'>'+(pre||'')+sbtn('5등급',k5)+'('+sbtn('9등급',k9)+')</th>';
     const AK={'최종':['avgG_final','avg9_최종'],'1차':['avgG_1cha','avg9_1차'],'2차':['avgG_2cha','avg9_2차']}[view];
@@ -5049,13 +5053,13 @@ function renderDataTable(){
       // 환산 · 5등급(9등급) · 성취
       h+='<thead><tr class="grp">'+nameTh+avgHead+NS(sem).map(subj=>'<th colspan="3">'+subj+'</th>').join('')+'</tr><tr>'+
         NS(sem).map(subj=>sth('환산','naesin|'+subj+'|환산총점')+dualTh('naesin|'+subj+'|최종등급','naesin9|'+subj+'|최종')+sth('성취','naesin|'+subj+'|최종성취도')).join('')+'</tr></thead><tbody>';
-      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+avgCell(s)+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};if(!subjFinalComplete(o))return '<td class="mut">대기</td><td class="mut">-</td><td class="mut">-</td>';return '<td class="raw">'+fmt(o['환산총점'],1)+'</td>'+g59(s,subj,o['최종등급'],'최종')+'<td>'+ach(o['최종성취도'])+'</td>';}).join('')+'</tr>';});
+      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+avgCell(s)+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};if(!subjFinalComplete(o))return '<td class="mut">대기</td><td class="mut">-</td><td class="mut">-</td>';return '<td class="raw">'+fmt(o['환산총점'],1)+'</td>'+g59(s,subj,dataGetVal(s,'naesin|'+subj+'|최종등급'),'최종')+'<td>'+ach(o['최종성취도'])+'</td>';}).join('')+'</tr>';});
     }else{
       // 1차 / 2차 : 시험점수 · 5등급(9등급)
       const ex=view;
       h+='<thead><tr class="grp">'+nameTh+avgHead+NS(sem).map(subj=>'<th colspan="2">'+subj+'</th>').join('')+'</tr><tr>'+
         NS(sem).map(subj=>sth(ex+'점수','naesin|'+subj+'|'+ex+'시험')+dualTh('naesin|'+subj+'|'+ex+'등급','naesin9|'+subj+'|'+ex)).join('')+'</tr></thead><tbody>';
-      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+avgCell(s)+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};return '<td class="raw">'+fmt(o[ex+'시험'])+'</td>'+g59(s,subj,o[ex+'등급'],ex);}).join('')+'</tr>';});
+      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+avgCell(s)+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};return '<td class="raw">'+fmt(o[ex+'시험'])+'</td>'+g59(s,subj,dataGetVal(s,'naesin|'+subj+'|'+ex+'등급'),ex);}).join('')+'</tr>';});
     }
     h+='</tbody>';
   }else{
