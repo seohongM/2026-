@@ -43,6 +43,21 @@
            ⚠️ 화면에서만 겁니다. 인쇄는 table-layout: fixed + keep-all 로 따로 맞춰 두었습니다. */
         @media screen { .subj-cell, #naesin-table-box thead th { white-space: nowrap; } }
 
+        /* 내신 표 아래 평균 한 줄 · 9칸 (2026.10.02) — 1학기 · 2학기 · 전체 세 묶음을 같은 너비로 */
+        .sem-avg-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr)); }
+        .sem-avg-grid > div { padding: 5px 4px; text-align: center; border-left: 1px solid #cbd5e1; display: flex;
+                              align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
+        .sem-avg-grid > div:first-child { border-left: 0; }
+        .sem-avg-grid > .sem-avg-lab { font-weight: 800; font-size: 12px; }
+        .sem-avg-grid > .sem-avg-lab:not(:first-child) { border-left: 2px solid #94a3b8; }
+        .sem-avg-val b { font-size: 14px; font-weight: 800; }
+        .sem-avg-cap { font-size: 10px; color: #64748b; font-weight: 600; }
+        @media print {
+            .sem-avg-grid > div { padding: 1px 2px !important; gap: 3px !important; }
+            .print-table tfoot .sem-avg-grid .sem-avg-lab, .print-table tfoot .sem-avg-val b { font-size: 6pt !important; }
+            .print-table tfoot .sem-avg-cap { font-size: 5pt !important; }
+        }
+
         /* 내신 표 평균 줄 — 화면용 설명(foot-scr) / 인쇄용 짧은 설명(foot-prt) (2026.10.01) */
         .foot-prt { display: none; }
         @media print {
@@ -2038,11 +2053,35 @@ const univNorm = v => String(v === undefined || v === null ? '' : v).replace(/\s
  *   서울대학교 ↔ 서울대   ·   체육 ↔ 체육교육과   ·   화학공학 ↔ 화학공학과
  */
 function univKey(v) { return univNorm(v).replace(/대학교$/, '대'); }
-function univHit(dataName, query) {
-    if (!query) return true;
+
+/**
+ * 희망 칸에 **여러 개**를 적으신 경우 나눕니다 (2026.10.02 사용자 요청).
+ *   「국문학과/국어교육과」 · 「국문학과, 국어교육과」 · 「서울대 또는 연세대」 → 둘 다 찾습니다.
+ * 나누는 표시 : /  ／  ,  ，  、  ;  ；  |  또는  혹은
+ * ⚠️ 일부러 **안 나누는 것** — 실제 학과 이름에 들어 있어서입니다.
+ *    `·`(물리·천문학부) · `및`(산업및시스템공학과) · `&`(AI&빅데이터) · 띄어쓰기(컴퓨터 공학과)
+ * 검색칸에 적힌 말(query) 쪽만 나눕니다. 대학자료 쪽 이름은 나누지 않습니다.
+ */
+const WISH_SPLIT = /[\/／,，、;；|]|또는|혹은/;
+function wishParts(v) {
+    const out = [];
+    String(v === undefined || v === null ? '' : v).split(WISH_SPLIT).forEach(t => {
+        t = t.trim();
+        if (t && out.indexOf(t) < 0) out.push(t);
+    });
+    return out;
+}
+function univHit1(dataName, query) {
     const a = univKey(dataName), b = univKey(query);
     if (!a || !b) return false;
     return a.indexOf(b) > -1 || b.indexOf(a) > -1;
+}
+/** 여러 개 적혀 있으면 **하나라도** 걸리면 걸린 것으로 봅니다 */
+function univHit(dataName, query) {
+    if (!query) return true;
+    const parts = wishParts(query);
+    if (parts.length < 2) return univHit1(dataName, query);
+    return parts.some(q => univHit1(dataName, q));
 }
 
 /**
@@ -2237,7 +2276,13 @@ function univCore(name) {
                          .replace(/(전공|계열|학군)$/, '')
                          .replace(/[과부군]$/, '');
 }
+/** 여러 개 적혀 있으면 그중 **가장 비슷한 것**으로 봅니다 (b = 검색칸에 적힌 말) */
 function univSim(a, b) {
+    const parts = wishParts(b);
+    if (parts.length < 2) return univSim1(a, b);
+    return Math.max.apply(null, parts.map(q => univSim1(a, q)));
+}
+function univSim1(a, b) {
     const A = univCore(a), B = univCore(b);
     if (!A || !B) return 0;
     // ⚠️ **한 글자로 줄어든 말은 견주지 않습니다.**
@@ -3440,24 +3485,24 @@ function renderSchoolGrades(grades, summary) {
                 <span class="foot-prt">${up.notePrint}</span>
             </td>
         </tr>`;
-    // 학기 평균을 **한 줄 · 6칸**으로 (2026.10.02 사용자 요청 — 「2학기 평균」 · 「전체 평균」 두 줄을 합침)
-    //   1학기 평균 | 5등급 | 9등급 | 2학기 평균 | 5등급 | 9등급
+    // 평균을 **한 줄 · 9칸**으로 (2026.10.02 사용자 요청 — 「2학기 평균」 · 「전체 평균」 두 줄을 합침)
+    //   1학기 평균 | 5등급 | 9등급 ┃ 2학기 평균 | 5등급 | 9등급 ┃ 전체 평균 | 5등급 | 9등급
+    // 표의 10칸과 상관없이 **세 묶음을 같은 너비**로 보이게, 칸 하나(colspan 10) 안에 격자로 그립니다.
     // 가장 잘 본·못 본 과목 · 석차백분율 · 평균 점수 설명은 사용자가 「모두 빼기」 를 골라 뺐습니다.
-    // 전체 평균은 표 제목 옆 배지(전체 5등급제 · 9등급제 평균)에 그대로 남아 있습니다.
-    // 칸 너비 : 표 10칸을 2·2·1 / 2·2·1 로 나눠 씁니다.
-    const semCell = (label, x, first) => {
-        const v5 = x && x.subjectCount ? fx(x.avg5) : '', v9 = x && x.subjectCount ? fx(x.avg9) : '';
-        return `
-            <td class="sem-avg-label p-1 font-bold ${first ? '' : 'border-l-2 border-slate-300'} border-r border-slate-300 bg-slate-100" colspan="2">${label}</td>
-            <td class="p-1 border-r border-slate-300 bg-slate-50" colspan="2"><span class="text-[10px] text-slate-600">5등급</span> <b class="text-slate-900">${v5 || '-'}</b></td>
-            <td class="p-1 border-r border-slate-300 bg-blue-50"><span class="text-[10px] text-blue-700">9등급</span> <b class="text-blue-800">${v9 || '-'}</b></td>`;
-    };
+    const avgGroup = (label, a5v, a9v, total) => `
+        <div class="sem-avg-lab ${total ? 'bg-indigo-100 text-indigo-900' : 'bg-slate-100 text-slate-800'}">${label}</div>
+        <div class="sem-avg-val bg-white"><span class="sem-avg-cap">5등급</span><b class="text-slate-900">${a5v || '-'}</b></div>
+        <div class="sem-avg-val bg-blue-50"><span class="sem-avg-cap text-blue-700">9등급</span><b class="text-blue-800">${a9v || '-'}</b></div>`;
+    const semOf = x => x && x.subjectCount ? [fx(x.avg5), fx(x.avg9)] : ['', ''];
 
     if (s.sems && s.sems.length) {
         const bySem = k => s.sems.filter(x => Number(x.sem) === k)[0] || null;
+        const s1 = semOf(bySem(1)), s2 = semOf(bySem(2));
         tfoot.innerHTML = upRow + `
         <tr class="sem-avg-row ${upRow ? 'border-t border-slate-300' : 'border-t-2 border-slate-400'}">
-            ${semCell('1학기 평균', bySem(1), true)}${semCell('2학기 평균', bySem(2), false)}
+            <td class="p-0" colspan="10"><div class="sem-avg-grid">
+                ${avgGroup('1학기 평균', s1[0], s1[1])}${avgGroup('2학기 평균', s2[0], s2[1])}${avgGroup('전체 평균', avg5, avg9, true)}
+            </div></td>
         </tr>`;
     } else {
         tfoot.innerHTML = upRow + footRow('평균', [`성적이 입력된 ${has(s.subjectCount) ? s.subjectCount : 0}과목 기준`,
