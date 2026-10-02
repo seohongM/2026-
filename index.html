@@ -499,6 +499,10 @@
             </div>
 
             <nav class="space-y-2">
+                <button onclick="navBack()" id="nav-back" title="바로 앞 화면으로 돌아갑니다 (브라우저의 [뒤로] 와 같음)"
+                        class="hidden w-full flex items-center justify-center space-x-2 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold transition">
+                    <span>← 뒤로</span>
+                </button>
                 <button onclick="switchView('home')" id="nav-home" class="w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl bg-blue-600 text-white font-semibold shadow-md transition hover:bg-blue-500">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                     <span>우리반 학생 목록</span>
@@ -1134,6 +1138,7 @@ function startApp(me) {
     document.getElementById('home-title').textContent = classLabel(currentClass);
     document.getElementById('search-class').value = currentClass;
 
+    navStart();
     switchView('home');
 
     // 1단계 — 로그인 응답에 카드가 같이 왔으면 요청 없이 바로 그립니다
@@ -3733,7 +3738,86 @@ function switchView(view) {
     });
 
     if (view === 'stats') statsBoot(false);
+    navRecord();
 }
+
+/* ══════════════════════════════════════════════════════════
+   뒤로가기 (2026.10.02 사용자 요청)
+   화면을 옮길 때마다(학생 목록 · 개별 상담의 어느 학생 · 통합 성적 관리의 어느 화면 · 어느 반)
+   브라우저 기록에 한 칸씩 남깁니다 → 브라우저·휴대폰의 [뒤로] 와 왼쪽 [← 뒤로] 버튼이 그 칸으로 돌아갑니다.
+   ⚠️ 주소(URL)는 바꾸지 않습니다 — history.pushState 에 주소를 넘기지 않으므로 늘 같은 주소입니다.
+   ⚠️ 되돌아가는 동안(NAV_RESTORING)은 다시 기록하지 않습니다 (안 그러면 앞으로 가기가 지워짐).
+   ══════════════════════════════════════════════════════════ */
+let NAV_RESTORING = false;
+
+function navState() {
+    const v = VIEWS.find(x => { const s = document.getElementById('view-' + x); return s && !s.classList.contains('hidden'); }) || 'home';
+    return {
+        app: 'sc', v: v, cls: Number(currentClass),
+        stu: (v === 'counseling' && selectedStudent)
+            ? [Number(selectedStudent.classNum || currentClass), Number(selectedStudent.number)] : null,
+        sv: (v === 'stats' && window.statsCurView) ? window.statsCurView() : null
+    };
+}
+
+function navSame(a, b) {
+    return !!a && !!b && a.v === b.v && a.cls === b.cls && a.sv === b.sv &&
+           JSON.stringify(a.stu) === JSON.stringify(b.stu);
+}
+
+function navRecord() {
+    if (NAV_RESTORING || !ME) return;
+    const st = navState(), cur = history.state;
+    if (cur && cur.app === 'sc' && navSame(cur, st)) return;
+    try {
+        if (cur && cur.app === 'sc') { st.i = (cur.i || 0) + 1; history.pushState(st, ''); }
+        else { st.i = 0; history.replaceState(st, ''); }
+    } catch (e) { /* 기록을 못 남겨도 화면은 그대로 동작 */ }
+    navBtn();
+}
+
+// 로그인 직후 — 이전 접속에서 남은 기록 위에 쌓지 않도록 첫 칸으로 둡니다
+function navStart() {
+    try { history.replaceState(null, ''); } catch (e) {}
+}
+
+function navBtn() {
+    const b = document.getElementById('nav-back');
+    if (!b) return;
+    const st = history.state;
+    b.classList.toggle('hidden', !(st && st.app === 'sc' && st.i > 0));
+}
+
+function navBack() {
+    const st = history.state;
+    if (st && st.app === 'sc' && st.i > 0) history.back();
+}
+
+window.addEventListener('popstate', async e => {
+    const st = e.state;
+    if (!ME || !st || st.app !== 'sc') { navBtn(); return; }
+    NAV_RESTORING = true;
+    try {
+        const cls = st.stu ? st.stu[0] : st.cls;
+        if (cls && Number(cls) !== Number(currentClass)) {
+            document.getElementById('class-select').value = cls;
+            await changeClass();
+        }
+        if (st.v === 'counseling' && st.stu) {
+            await selectStudent(st.stu[1]);
+            if (!selectedStudent || Number(selectedStudent.number) !== st.stu[1]) switchView('counseling');
+        } else {
+            switchView(st.v);
+            if (st.v === 'stats' && st.sv && window.statsShowView) window.statsShowView(st.sv);
+        }
+        window.scrollTo(0, 0);
+    } catch (err) {
+        console.error('뒤로가기 실패:', err);
+    } finally {
+        NAV_RESTORING = false;
+        navBtn();
+    }
+});
 
 function changeClass() {
     currentClass = parseInt(document.getElementById('class-select').value, 10);
@@ -3745,7 +3829,7 @@ function changeClass() {
     document.getElementById('search-error').classList.add('hidden');
 
     switchView('home');
-    loadClassData(currentClass);
+    return loadClassData(currentClass);
 }
 
 function searchAndStartCounseling() {
@@ -4082,7 +4166,9 @@ function fillFromServer(d){
   students=new Map();
   (d.students||[]).forEach(row=>{
     const s=blankStudent(row.c,row.n,row.nm);
-    const g=row.g||[], t=row.t||[];
+    const g=row.g||[], t=row.t||[], d9=row.d||[];
+    // 과목당 계산값 칸 수 (서버 버전에 따라 9 또는 10) — 앞의 세 칸이 1차·2차·최종 9등급
+    const D9STEP=(NAESIN_DEF.length&&d9.length)?Math.round(d9.length/NAESIN_DEF.length):10;
 
     // 내신 — 서버가 보낸 과목 순서(공통국어1, 공통국어2, 공통수학1 … 정보2) 그대로 한 칸씩 풉니다.
     //        과목이 한 학기에만 있어도(정보) 학기 정보가 같이 오므로 자리를 맞출 수 있습니다.
@@ -4096,6 +4182,9 @@ function fillFromServer(d){
         const v=g[base+fi];
         o[f]=NAESIN_ACH_FIELDS.includes(f)?strOrNull(v):numOrNull(v);
       });
+      // 9등급 환산 (서버 계산값). 0·빈칸은 없는 값 — ⑧ 의 「9등급 평균」 에 씁니다
+      o._g9={'1차':numOrNull(d9[si*D9STEP]),'2차':numOrNull(d9[si*D9STEP+1]),'최종':numOrNull(d9[si*D9STEP+2])};
+      ['1차','2차','최종'].forEach(k=>{if(!(o._g9[k]>0))o._g9[k]=null;});
       s.naesin[def.sem][def.base]=o;
 
       const cb=si*COUNSEL_FIELDS.length;
@@ -4149,6 +4238,7 @@ let statsView='grade';
 
 function showStatsView(v){
   statsView=v;
+  if(window.navRecord)window.navRecord();   // 뒤로가기 기록 (학년 분석 ↔ 데이터 열람)
   document.querySelectorAll('#view-stats .view').forEach(x=>x.classList.remove('active'));
   const el=document.getElementById('sview-'+v);
   if(el)el.classList.add('active');
@@ -4214,11 +4304,30 @@ function yearGradeAvg(s){
    학기·차수 버튼과 상관없이 지금까지 본 시험을 차례로 놓고 합쳐 봅니다.
    · 다음 학기 점수가 들어온 학기 → 「학기말 최종」 하나 (지금 1학기)
    · 아직 진행 중인 학기         → 「1차」 · 「2차」 따로 (지금 2학기 — 2차가 들어오면 저절로 한 칸 늘어남)
-   · 합산 평균 = 그 칸들의 과목 등급을 모두 모아 낸 평균 → 상위 30명 (사용자 결정)
+   · 합산 평균 = 그 칸들의 과목 등급을 모두 모아 낸 평균 → 상위 50명 (2026.10.02 사용자 요청 — 처음엔 30명)
+   · 이름 옆 = 같은 시험·과목의 **9등급 환산 평균** (서버가 보낸 d 의 9등급 · 2026.10.02 사용자 요청)
    · 1등급 유지 = 과목마다 본 시험에서 **계속** 1등급
    · 1등급으로 올라감 = 바로 앞 시험에서 2등급 이하였다가 **가장 최근** 시험에서 1등급 (2026.10.01 사용자 요청)
-   · 1등급에서 떨어짐 = 1등급이었다가 **가장 최근** 시험에서 내려감 */
-const TOP1_N = 30;
+   · 1등급에서 떨어짐 = 1등급이었다가 **가장 최근** 시험에서 내려감
+   · 괄호 = 가장 최근 시험의 **1등급 컷**(그 시험에서 1등급을 받은 학생 중 가장 낮은 점수)과의 차이
+     떨어짐 `국어 1→2 (−3.5점)` = 컷보다 3.5점 모자람 / 올라감 `국어 2→1 (+2점)` = 컷보다 2점 높음 (2026.10.02 사용자 요청)
+     점수 = 1차 → 1차시험 · 2차 → 2차시험 · 학기말 → 환산총점 (등급을 매긴 바로 그 점수) */
+const TOP1_N = 50;
+const TOP1_SCORE = {'1차':'1차시험','2차':'2차시험','최종':'환산총점'};
+// 칸(시험)마다 과목별 1등급 컷 = 그 시험에서 1등급인 학생의 가장 낮은 점수
+function top1Cuts(slots){
+  return slots.map(sl=>{
+    const cut={};
+    students.forEach(s=>NS(sl.sem).forEach(b=>{
+      const o=(s.naesin[sl.sem]||{})[b];
+      if(top1Grade(o,sl.ex)!==1)return;
+      const v=o[TOP1_SCORE[sl.ex]];
+      if(v!=null&&(cut[b]==null||v<cut[b]))cut[b]=v;
+    }));
+    return cut;
+  });
+}
+function top1Gap(v){const r=Math.round(v*100)/100;return (r>0?'+':r<0?'−':'±')+Math.abs(r)+'점';}
 function top1Slots(){
   const arr=[...students.values()], out=[];
   SEMESTERS.forEach((sem,i)=>{
@@ -4236,11 +4345,14 @@ function top1Grade(o,ex){
   return (o['2차시험']!=null&&o['2차등급']!=null)?o['2차등급']:null;
 }
 function top1Short(b){return String(b).replace(/^공통|^통합/,'');}   // 공통국어 → 국어 · 통합사회 → 사회
-function top1Info(s,slots){
-  const all=[];
+function top1Info(s,slots,cuts){
+  const all=[],all9=[];
   const per=slots.map(sl=>{
     const gs=NS(sl.sem).map(subj=>top1Grade((s.naesin[sl.sem]||{})[subj],sl.ex)).filter(x=>x!=null);
     all.push(...gs);
+    // 9등급 — 5등급을 센 바로 그 과목들만 (시험 점수가 있는 과목)
+    NS(sl.sem).forEach(subj=>{const o=(s.naesin[sl.sem]||{})[subj];
+      if(top1Grade(o,sl.ex)!=null&&o._g9&&o._g9[sl.ex]!=null)all9.push(o._g9[sl.ex]);});
     return gs.length?{avg:gs.reduce((a,b)=>a+b,0)/gs.length,ones:gs.filter(x=>x===1).length}:null;
   });
   if(!all.length)return null;
@@ -4248,24 +4360,33 @@ function top1Info(s,slots){
   const bases=[];slots.forEach(sl=>NS(sl.sem).forEach(b=>{if(bases.indexOf(b)<0)bases.push(b);}));
   const keep=[],up=[],drop=[];
   bases.forEach(b=>{
-    const seq=slots.map(sl=>NS(sl.sem).indexOf(b)>-1?top1Grade((s.naesin[sl.sem]||{})[b],sl.ex):null).filter(x=>x!=null);
+    const seqI=[];
+    slots.forEach((sl,si)=>{if(NS(sl.sem).indexOf(b)<0)return;const gr=top1Grade((s.naesin[sl.sem]||{})[b],sl.ex);if(gr!=null)seqI.push({g:gr,si:si});});
+    const seq=seqI.map(x=>x.g);
     if(seq.length<2)return;                                   // 한 번만 본 과목(정보 등)은 견줄 수 없음
     const last=seq[seq.length-1], prev=seq[seq.length-2], before=seq.slice(0,-1);
+    // 가장 최근 시험의 1등급 컷과의 점수 차이
+    const li=seqI[seqI.length-1].si, ls=slots[li], cut=((cuts&&cuts[li])||{})[b];
+    const my=((s.naesin[ls.sem]||{})[b]||{})[TOP1_SCORE[ls.ex]];
+    const gap=(cut!=null&&my!=null)?' ('+top1Gap(my-cut)+')':'';
     if(seq.every(x=>x===1))keep.push(top1Short(b));
-    else if(last===1)up.push(top1Short(b)+' '+prev+'→1');                      // 바로 앞이 2등급 이하 → 지금 1등급
-    else if(before.indexOf(1)>-1)drop.push(top1Short(b)+' 1→'+last);           // 1등급이었다가 지금 내려감
+    else if(last===1)up.push(top1Short(b)+' '+prev+'→1'+gap);                  // 바로 앞이 2등급 이하 → 지금 1등급
+    else if(before.indexOf(1)>-1)drop.push(top1Short(b)+' 1→'+last+gap);       // 1등급이었다가 지금 내려감
   });
-  return {per:per,avg:all.reduce((a,b)=>a+b,0)/all.length,ones:all.filter(x=>x===1).length,keep:keep,up:up,drop:drop};
+  return {per:per,avg:all.reduce((a,b)=>a+b,0)/all.length,ones:all.filter(x=>x===1).length,
+          avg9:all9.length===all.length?all9.reduce((a,b)=>a+b,0)/all9.length:null,keep:keep,up:up,drop:drop};
 }
 function top1Html(){
   const slots=top1Slots();
   if(!slots.length)return '<div class="mut">아직 성적이 없습니다.</div>';
-  const rows=[...students.values()].map(s=>({s:s,i:top1Info(s,slots)})).filter(x=>x.i)
+  const cuts=top1Cuts(slots);
+  const rows=[...students.values()].map(s=>({s:s,i:top1Info(s,slots,cuts)})).filter(x=>x.i)
     .sort((a,b)=>a.i.avg-b.i.avg||b.i.ones-a.i.ones).slice(0,TOP1_N);
   const head='<tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th>'+
     slots.map(sl=>'<th>'+sl.label+'<br><span class="mut">평균 (1등급 수)</span></th>').join('')+
     '<th>합산 평균</th><th class="name">1등급 유지</th><th class="name">1등급으로 올라감</th><th class="name">1등급에서 떨어짐</th></tr>';
-  const body=rows.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+'</td><td>'+x.s.ban+'반</td>'+
+  const body=rows.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+
+    (x.i.avg9!=null?' <span style="color:#7c3aed;font-weight:700">(9등급 '+x.i.avg9.toFixed(2)+')</span>':'')+'</td><td>'+x.s.ban+'반</td>'+
     x.i.per.map(p=>'<td>'+(p?'<span class="raw">'+p.avg.toFixed(2)+'</span> <span class="mut">('+p.ones+')</span>':'<span class="mut">-</span>')+'</td>').join('')+
     '<td class="raw">'+x.i.avg.toFixed(2)+'</td>'+
     '<td class="name" style="color:#2563eb;font-weight:700">'+(x.i.keep.length?x.i.keep.join(' · '):'<span class="mut">-</span>')+'</td>'+
@@ -4273,7 +4394,9 @@ function top1Html(){
     '<td class="name" style="color:var(--down);font-weight:700">'+(x.i.drop.length?x.i.drop.join(' · '):'<span class="mut">-</span>')+'</td></tr>').join('');
   return '<div class="sub" style="margin-left:0;">학기·차수 버튼과 상관없이 <b>'+slots.map(sl=>sl.label).join(' + ')+'</b> 를 합쳐 봅니다 '+
     '(2학기 2차고사 점수가 들어오면 그 칸이 저절로 더해집니다). 합산 평균등급이 좋은 '+TOP1_N+'명. '+
-    '<b>1등급 유지</b> = 본 시험마다 계속 1등급인 과목 · <b>1등급으로 올라감</b> = 바로 앞 시험보다 올라 가장 최근 시험에서 1등급인 과목 · <b>1등급에서 떨어짐</b> = 1등급이었다가 가장 최근 시험에서 내려간 과목.</div>'+
+    '<b>1등급 유지</b> = 본 시험마다 계속 1등급인 과목 · <b>1등급으로 올라감</b> = 바로 앞 시험보다 올라 가장 최근 시험에서 1등급인 과목 · <b>1등급에서 떨어짐</b> = 1등급이었다가 가장 최근 시험에서 내려간 과목. '+
+    '괄호 = 가장 최근 시험의 <b>1등급 컷</b>과의 점수 차이 (<b>−</b> 컷까지 모자란 점수 · <b>+</b> 컷보다 높은 점수 · 학기말은 환산총점 기준). '+
+    '이름 옆 <b>(9등급 …)</b> = 같은 시험·과목의 9등급 환산 평균.</div>'+
     '<div class="tscroll tall"><table><thead>'+head+'</thead><tbody>'+(body||'<tr><td colspan="'+(7+slots.length)+'" class="mut">해당 학생 없음</td></tr>')+'</tbody></table></div>';
 }
 
@@ -4901,6 +5024,8 @@ document.getElementById('statsSeg').addEventListener('click',e=>{
 
 window.statsBoot=statsBoot;
 window.statsReset=statsReset;
+window.statsCurView=()=>statsView;          // 뒤로가기 — 지금 보고 있는 화면
+window.statsShowView=v=>showStatsView(v);   // 뒤로가기 — 그 화면으로 되돌리기
 
 
 })();
