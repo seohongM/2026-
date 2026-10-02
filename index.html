@@ -4108,6 +4108,35 @@ function drawChart(id, config) {
 
 const SUBJ_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#ea580c', '#7c3aed', '#0891b2'];
 
+// 2026.10.02 사용자 요청 「변화의 폭이 한눈에 보이도록」 — 세로축을 1~9·0~100 통째가 아니라 값이 있는 범위로 좁힙니다.
+//   위아래로 25% 여유 · 값이 거의 같아도 최소 폭 minW · lo~hi(등급 1~9, 백분위 0~100) 밖으로는 안 나감
+function zoomRange(vals, lo, hi, minW, step) {
+    const v = vals.filter(x => x != null && isFinite(x));
+    if (!v.length) return { min: lo, max: hi };
+    let a = Math.min(...v), b = Math.max(...v);
+    if (b - a < minW) { const c = (a + b) / 2; a = c - minW / 2; b = c + minW / 2; }
+    const pad = (b - a) * 0.25;
+    let mn = a - pad, mx = b + pad;
+    if (mn < lo) { mx = Math.min(hi, mx + (lo - mn)); mn = lo; }
+    if (mx > hi) { mn = Math.max(lo, mn - (mx - hi)); mx = hi; }
+    if (step) { mn = Math.max(lo, Math.floor(mn / step) * step); mx = Math.min(hi, Math.ceil(mx / step) * step); }
+    return { min: +mn.toFixed(2), max: +mx.toFixed(2) };
+}
+// 점마다 값 — 통합 성적 관리 [통계] ② · 개별 상담 모의 추이 (2026.10.02 사용자 요청 「변화의 폭이 한눈에」)
+function pointLabels(fmtV){return {id:'ptLbl',afterDatasetsDraw(c){const x=c.ctx;x.save();x.font='700 11px Pretendard, sans-serif';
+  // 같은 달의 점들을 위에서부터 늘어놓고, 맨 위는 점 위 · 나머지는 점 아래에 (아래 점과 가까우면 점 오른쪽에) 적어 겹치지 않게
+  const n=Math.max(0,...c.data.datasets.map(d=>d.data.length));
+  for(let i=0;i<n;i++){const pts=[];c.data.datasets.forEach((ds,di)=>{const m=c.getDatasetMeta(di);if(m.hidden||ds.data[i]==null||!m.data[i])return;pts.push({e:m.data[i],v:ds.data[i],col:ds.borderColor});});
+    pts.sort((a,b)=>a.e.y-b.e.y);
+    // 같은 자리에 겹친 점(같은 값)은 숫자를 한 번만
+    const uq=pts.filter((q,k)=>k===0||Math.abs(q.e.y-pts[k-1].e.y)>3||fmtV(q.v)!==fmtV(pts[k-1].v));
+    const bottom=c.chartArea.bottom;let lastR=null;
+    uq.forEach((q,k)=>{x.fillStyle='#334155';const next=uq[k+1];
+      if(k===0&&q.e.y-9>c.chartArea.top-12){x.textAlign='center';x.fillText(fmtV(q.v),q.e.x,q.e.y-9);}
+      else if((!next||next.e.y-q.e.y>26)&&q.e.y+17<bottom-2){x.textAlign='center';x.fillText(fmtV(q.v),q.e.x,q.e.y+17);}
+      else{let y=q.e.y-5;if(lastR!=null&&y-lastR<12)y=lastR+12;lastR=y;x.textAlign='left';x.fillText(fmtV(q.v),q.e.x+8,y);}});}
+  x.restore();}};}
+
 
 /* ══════════════════════════════════════════════════════════
    통합 성적 관리
@@ -4200,6 +4229,31 @@ function heatStyle(val,min,max){
   let t=(val-min)/(max-min);if(t<0)t=0;if(t>1)t=1;
   const a=(t*0.55).toFixed(3);
   return ' style="background:rgba(37,99,235,'+a+')"';
+}
+// 반×과목 평균 표의 색 (2026.10.02 사용자 요청) — 학년 평균을 가운데(흰색)로, 높으면 파랑 · 낮으면 빨강.
+//   spread = 그 열에서 학년 평균과 가장 먼 차이 → 그 반이 가장 진함. 점수가 높을수록 좋은 표에만 씁니다.
+function heatDiv(val,mid,spread){
+  if(val==null||mid==null||!spread)return '';
+  let t=(val-mid)/spread;if(t>1)t=1;if(t<-1)t=-1;
+  return ' style="background:rgba('+(t>=0?'37,99,235':'220,38,38')+','+(Math.abs(t)*0.45).toFixed(3)+')"';
+}
+function spreadOf(vals,mid){let m=0;vals.forEach(v=>{if(v!=null&&mid!=null)m=Math.max(m,Math.abs(v-mid));});return m;}
+// 반별 평균등급 — 학년 평균과의 차이 막대 (2026.10.02 사용자가 시안 A 고름)
+//   막대 = 학년 평균 − 반 평균 (등급은 작을수록 좋으므로 + 가 좋음) · 파랑 = 좋음 / 빨강 = 낮음 · 끝에 「2.90 (+0.10)」
+function classDiffChart(el,bans,vals,avg){
+  // 막대 끝에 두 줄 : 반 평균 / (차이) — 좁은 그래프에서도 옆 막대 글자와 안 겹치게
+  const lbl={id:'diffLbl',afterDatasetsDraw(c){const x=c.ctx;x.save();x.textAlign='center';x.fillStyle='#334155';
+    c.getDatasetMeta(0).data.forEach((e,i)=>{const v=vals[i];if(v==null||avg==null)return;const d=avg-v,up=d>=0;
+      const y1=up?e.y-20:e.y+15, y2=up?e.y-6:e.y+29;
+      x.font='700 12px Pretendard, sans-serif';x.fillText(v.toFixed(2),e.x,y1);
+      x.font='600 11px Pretendard, sans-serif';x.fillText('('+(up?'+':'−')+Math.abs(d).toFixed(2)+')',e.x,y2);});x.restore();}};
+  return new Chart(el,{type:'bar',data:{labels:bans.map(b=>b+'반'),datasets:[{label:'학년 평균 대비',data:vals.map(v=>v==null||avg==null?null:avg-v),
+      backgroundColor:vals.map(v=>v!=null&&avg!=null&&avg-v>=0?'#2563eb':'#dc2626'),borderRadius:4,maxBarThickness:46}]},
+    options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:30,bottom:20,left:4,right:8}},plugins:{legend:{display:false},
+      tooltip:{callbacks:{label:t=>{const v=vals[t.dataIndex];const d=avg-v;return v.toFixed(2)+'등급 · 학년 평균('+avg.toFixed(2)+')보다 '+Math.abs(d).toFixed(2)+(d>=0?' 좋음':' 낮음');}}}},
+      scales:{y:{grace:'35%',title:{display:true,text:'학년 평균'+(avg!=null?'('+avg.toFixed(2)+')':'')+'보다 좋음 ↑ / 낮음 ↓',font:{family:'Pretendard',size:11}},
+        ticks:{font:{family:'Pretendard'},callback:v=>(v>0?'+':'')+(+v).toFixed(2)},grid:{color:c=>c.tick.value===0?'#64748b':'#eef2f6',lineWidth:c=>c.tick.value===0?1.5:1}},
+        x:{ticks:{font:{family:'Pretendard'}},grid:{display:false}}}},plugins:[lbl]});
 }
 function ach(a){return a==null?'<span class="mut">-</span>':'<span class="ach">'+esc(a)+'</span>';}
 function esc(s){return (''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -4583,9 +4637,10 @@ function renderGradeNaesin(){
 
   // ⑥ 반별 × 과목별 평균점수 (미완 과목 제외 + 과목 열별 히트맵)
   const classSubjAvg={};NS(sem).forEach(subj=>{classSubjAvg[subj]={};bans.forEach(b=>{const v=arr.filter(s=>s.ban===b).map(s=>s.naesin[sem][subj]).filter(o=>inc(o)&&o[SF]!=null).map(o=>o[SF]);classSubjAvg[subj][b]=v.length?v.reduce((a,x)=>a+x,0)/v.length:null;});});
-  const subjMM={};NS(sem).forEach(subj=>{const vs=bans.map(b=>classSubjAvg[subj][b]).filter(x=>x!=null);subjMM[subj]=vs.length?{min:Math.min(...vs),max:Math.max(...vs)}:{min:null,max:null};});
+  // 학년 평균 (색의 가운데) — 그 과목을 본 학생 전체의 평균
+  const subjMid={};NS(sem).forEach(subj=>{const v=arr.map(s=>s.naesin[sem][subj]).filter(o=>inc(o)&&o[SF]!=null).map(o=>o[SF]);subjMid[subj]=v.length?v.reduce((a,x)=>a+x,0)/v.length:null;});
   let csRows=bans.map(b=>{
-    let c=NS(sem).map(subj=>{const m=classSubjAvg[subj][b];const mm=subjMM[subj];return '<td'+heatStyle(m,mm.min,mm.max)+'>'+fmt(m,1)+'</td>';}).join('');
+    let c=NS(sem).map(subj=>{const m=classSubjAvg[subj][b];const mid=subjMid[subj];return '<td'+heatDiv(m,mid,spreadOf(bans.map(x=>classSubjAvg[subj][x]),mid))+'>'+fmt(m,1)+'</td>';}).join('');
     const allv=arr.filter(s=>s.ban===b).flatMap(s=>NS(sem).map(subj=>s.naesin[sem][subj]).filter(o=>inc(o)&&o[SF]!=null).map(o=>o[SF]));
     const allm=allv.length?allv.reduce((a,x)=>a+x,0)/allv.length:null;
     return '<tr><td class="name">'+b+'반</td>'+c+'<td class="raw">'+fmt(allm,1)+'</td></tr>';
@@ -4635,7 +4690,7 @@ function renderGradeNaesin(){
     '<div style="margin:2px 0 12px;"><span class="seg sm" id="gNaesinDistSubjTab">'+NS(sem).map((subj)=>'<button data-subj="'+subj+'"'+(gNaesinDistSubj===subj?' class="on"':'')+'>'+subj+'</button>').join('')+'</span></div>'+
     '<div id="gNaesinDistBlock">'+buildNaesinDistBySubj(arr,sem,bans,gNaesinDistSubj,GF,gradeNaesinExam)+'</div>'+
 
-    secHTML('③ 반별 평균등급 추이','users')+'<div class="hint">'+EX.lab+' 등급 기준. 위로 갈수록 우수합니다 (1등급이 가장 높은 위치).</div>'+
+    secHTML('③ 반별 평균등급','users')+'<div class="hint">'+EX.lab+' 등급 기준. 학년 평균과 견준 차이입니다 — <b style="color:#2563eb">위(파랑) = 평균보다 좋음</b> · <b style="color:#dc2626">아래(빨강) = 평균보다 낮음</b>. 막대 끝 숫자 = 반 평균 (차이).</div>'+
     '<div class="chartbox"><canvas id="gNaesinClass"></canvas></div>'+
 
     secHTML('④ 과목별 성취도 분포 (절대평가)','award')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 성취도 A~E 및 I(40점 미만). 인원 (비율).</div>'+
@@ -4644,7 +4699,7 @@ function renderGradeNaesin(){
     secHTML('⑤ 과목별 등급컷 (등급별 최저 '+EX.unit+')','scissors')+'<div class="sub" style="margin-left:0;">각 등급을 받은 학생 중 가장 낮은 '+EX.unit+'. 등급 간 간격이 좁으면 동점 변동이 잦은 경계입니다.</div>'+
     '<div class="tscroll"><table><thead><tr><th class="name">과목</th>'+[1,2,3,4,5].map(g=>'<th>'+g+'등급 최저</th>').join('')+'</tr></thead><tbody>'+cutRows+'</tbody></table></div>'+
 
-    secHTML('⑥ 반별 × 과목별 평균'+EX.unit,'bar-chart-3')+'<div class="sub" style="margin-left:0;">'+EX.unit+' 평균(4개 항목이 모두 입력된 과목만 집계). <b>과목별로 평균이 높은(상위) 반일수록 파란색이 진하고, 가장 낮은 반은 흰색</b>입니다. 반 간 격차는 반편성에 따른 자연 변동일 수 있습니다.</div>'+
+    secHTML('⑥ 반별 × 과목별 평균'+EX.unit,'bar-chart-3')+'<div class="sub" style="margin-left:0;">'+EX.unit+' 평균(4개 항목이 모두 입력된 과목만 집계). <b>색은 그 과목 학년 평균과 견준 것입니다 — <span style="color:#2563eb">평균보다 높으면 파랑</span> · <span style="color:#dc2626">낮으면 빨강</span>, 차이가 클수록 진합니다</b> (평균과 같으면 흰색). 반 간 격차는 반편성에 따른 자연 변동일 수 있습니다.</div>'+
     '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+NS(sem).map(subj=>'<th>'+subj+'</th>').join('')+'<th>전체</th></tr></thead><tbody>'+csRows+csTotal+'</tbody></table></div>'+
 
     // ⑦ 은 그대로 · ⑧ 은 「상위권 1등급 추이」 로 바꿈 (2026.10.01) — 칸이 많아 둘 다 한 줄을 다 씁니다
@@ -4660,7 +4715,7 @@ function renderGradeNaesin(){
   bindGradeNaesinSeg();
   const dst=document.getElementById('gNaesinDistSubjTab');
   if(dst)dst.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gNaesinDistSubj=b.getAttribute('data-subj');document.getElementById('gNaesinDistBlock').innerHTML=buildNaesinDistBySubj(arr,sem,bans,gNaesinDistSubj,GF,gradeNaesinExam);[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x.getAttribute('data-subj')===gNaesinDistSubj));});
-  drawGradeNaesinCharts(arr,sem,bans,classGradeAvg);
+  drawGradeNaesinCharts(arr,sem,bans,classGradeAvg,allG.length?allG.reduce((a,b)=>a+b,0)/allG.length:null);
   icons();
 }
 function bindGradeNaesinSeg(){
@@ -4689,12 +4744,12 @@ function buildNaesinDistBySubj(arr,sem,bans,subj,gf,exam){
   return '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+[1,2,3,4,5].map(g=>'<th>'+g+'등급</th>').join('')+'<th>인원</th></tr></thead><tbody>'+rows+totalRow+'</tbody></table></div>';
 }
 
-function drawGradeNaesinCharts(arr,sem,bans,classGradeAvg){
+function drawGradeNaesinCharts(arr,sem,bans,classGradeAvg,gradeAll){
   if(typeof Chart==='undefined')return;
   // ③ 반별 평균등급 — 선그래프 (reverse: 1등급이 위 → 위로 갈수록 우수)
   const ctx2=document.getElementById('gNaesinClass');
   if(ctx2){if(charts.gnClass)charts.gnClass.destroy();
-    charts.gnClass=new Chart(ctx2,{type:'line',data:{labels:bans.map(b=>b+'반'),datasets:[{label:'반 평균등급',data:bans.map(b=>classGradeAvg(b)),borderColor:'#4f46e5',backgroundColor:'rgba(79,70,229,.12)',borderWidth:2.5,tension:.3,pointRadius:5,fill:true}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{reverse:true,min:1,max:5,ticks:{stepSize:1,font:{family:'Pretendard'}}},x:{ticks:{font:{family:'Pretendard'}}}}}});
+    charts.gnClass=classDiffChart(ctx2,bans,bans.map(b=>classGradeAvg(b)),gradeAll);
   }
 }
 
@@ -4746,8 +4801,7 @@ function renderGradeMock(){
 
   // ⑤ 반별 × 과목별 평균점수 (과목 열별 히트맵: 상위 반 진함)
   const mClassAvg={};MOCK_SUBJECTS.forEach(u=>{mClassAvg[u.key]={};bans.forEach(b=>{const v=arr.filter(s=>s.ban===b).map(s=>s.mock[mk][u.key]).filter(o=>o&&o.raw!=null).map(o=>o.raw);mClassAvg[u.key][b]=v.length?v.reduce((a,x)=>a+x,0)/v.length:null;});});
-  const mMM={};MOCK_SUBJECTS.forEach(u=>{const vs=bans.map(b=>mClassAvg[u.key][b]).filter(x=>x!=null);mMM[u.key]=vs.length?{min:Math.min(...vs),max:Math.max(...vs)}:{min:null,max:null};});
-  let csRows=bans.map(b=>{let c=MOCK_SUBJECTS.map(u=>{const m=mClassAvg[u.key][b];const mm=mMM[u.key];return '<td'+heatStyle(m,mm.min,mm.max)+'>'+fmt(m,1)+'</td>';}).join('');return '<tr><td class="name">'+b+'반</td>'+c+'</tr>';}).join('');
+  let csRows=bans.map(b=>{let c=MOCK_SUBJECTS.map(u=>{const m=mClassAvg[u.key][b];const mid=subjAvg(u.key);return '<td'+heatDiv(m,mid,spreadOf(bans.map(x=>mClassAvg[u.key][x]),mid))+'>'+fmt(m,1)+'</td>';}).join('');return '<tr><td class="name">'+b+'반</td>'+c+'</tr>';}).join('');
   let csTotal='<tr style="border-top:2px solid var(--border);font-weight:700;"><td class="name">전체</td>'+MOCK_SUBJECTS.map(u=>'<td class="raw">'+fmt(subjAvg(u.key),1)+'</td>').join('')+'</tr>';
 
   document.getElementById('gradeReport').innerHTML=monthSeg+'<div class="panel glass">'+
@@ -4765,13 +4819,13 @@ function renderGradeMock(){
 
     '<div class="twocol" style="margin-top:6px;">'+
       '<div>'+'<div class="sec"><span class="ico"><i data-lucide="pie-chart"></i></span><h2>② 국·수·영 등급 분포</h2><span class="seg sm" id="gMockDistSeg" style="margin-left:auto;">'+MOCK_MONTHS.filter(mm=>mockMonthHasAny(mm.key)).map(mm=>'<button data-m="'+mm.key+'"'+(gradeMockDistMonth===mm.key?' class="on"':'')+'>'+mm.label+'</button>').join('')+'</span></div>'+'<div class="chartbox"><canvas id="gMockDist"></canvas></div></div>'+
-      '<div>'+secHTML('③ 반별 평균등급','users')+'<div class="chartbox"><canvas id="gMockClass"></canvas></div></div>'+
+      '<div>'+secHTML('③ 반별 평균등급','users')+'<div class="hint">학년 평균과 견준 차이 — <b style="color:#2563eb">위(파랑) = 좋음</b> · <b style="color:#dc2626">아래(빨강) = 낮음</b></div><div class="chartbox"><canvas id="gMockClass"></canvas></div></div>'+
     '</div>'+
 
     secHTML('④ 과목별 등급 인원 (9등급)','table')+'<div class="sub" style="margin-left:0;">인원 (비율)</div>'+
     '<div class="tscroll"><table><thead><tr><th class="name">과목</th>'+[1,2,3,4,5,6,7,8,9].map(g=>'<th>'+g+'등급</th>').join('')+'</tr></thead><tbody>'+gRows+'</tbody></table></div>'+
 
-    secHTML('⑤ 반별 × 과목별 평균점수','bar-chart-3')+'<div class="sub" style="margin-left:0;">원점수 평균. 국·수·영 100점, 통합사회·통합과학·한국사 50점 만점입니다. <b>과목별로 평균이 높은(상위) 반일수록 파란색이 진하고, 가장 낮은 반은 흰색</b>입니다.</div>'+
+    secHTML('⑤ 반별 × 과목별 평균점수','bar-chart-3')+'<div class="sub" style="margin-left:0;">원점수 평균. 국·수·영 100점, 통합사회·통합과학·한국사 50점 만점입니다. <b>색은 그 과목 학년 평균과 견준 것입니다 — <span style="color:#2563eb">평균보다 높으면 파랑</span> · <span style="color:#dc2626">낮으면 빨강</span>, 차이가 클수록 진합니다</b> (평균과 같으면 흰색).</div>'+
     '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+MOCK_SUBJECTS.map(u=>'<th>'+u.key+'<span class="mut">/'+u.max+'</span></th>').join('')+'</tr></thead><tbody>'+csRows+csTotal+'</tbody></table></div>'+
 
     '<div class="disc">※ 모의고사 표준점수·백분위·등급은 학년 전체 분포 기반 추정치이며 정식 발표 후 확정됩니다. 9·10월은 미실시 시 "대기"로 표시되며 입력 시 자동 분석됩니다.</div></div>';
@@ -4780,12 +4834,12 @@ function renderGradeMock(){
   // dist 토글
   const distSeg=document.getElementById('gMockDistSeg');if(distSeg)distSeg.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeMockDistMonth=b.getAttribute('data-m');renderGrade();});
   // 차트
-  drawGradeMockCharts(arr,bans,gcount,classGradeAvg);
+  drawGradeMockCharts(arr,bans,gcount,classGradeAvg,gradeMean);
   icons();
 }
 function bindGradeMockSeg(){const el=document.getElementById('gMockSeg');if(el)el.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeMockMonth=b.getAttribute('data-m');if(gradeMockMonth!=='all')gradeMockDistMonth=gradeMockMonth;renderGrade();});}
 
-function drawGradeMockCharts(arr,bans,gcount,classGradeAvg){
+function drawGradeMockCharts(arr,bans,gcount,classGradeAvg,gradeMean){
   if(typeof Chart==='undefined')return;
   // ② 국수영 등급 분포 (선택 월)
   const dm=mockMonthHasAny(gradeMockDistMonth)?gradeMockDistMonth:gradeMockMonth;
@@ -4802,7 +4856,7 @@ function drawGradeMockCharts(arr,bans,gcount,classGradeAvg){
   // ③ 반별 평균등급 — 선그래프
   const ctx2=document.getElementById('gMockClass');
   if(ctx2){if(charts.gmClass)charts.gmClass.destroy();
-    charts.gmClass=new Chart(ctx2,{type:'line',data:{labels:bans.map(b=>b+'반'),datasets:[{label:'반 평균등급',data:bans.map(b=>classGradeAvg(b)),borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.12)',borderWidth:2.5,tension:.3,pointRadius:5,fill:true}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{reverse:true,min:1,max:9,ticks:{stepSize:1,font:{family:'Pretendard'}}},x:{ticks:{font:{family:'Pretendard'}}}}}});
+    charts.gmClass=classDiffChart(ctx2,bans,bans.map(b=>classGradeAvg(b)),gradeMean);
   }
 }
 
@@ -4880,7 +4934,7 @@ function renderGradeMockAll(monthSeg){
     '<tr>'+MOCK_SUBJECTS.map(()=>MM.map(mo=>'<th>'+mo.label+'</th>').join('')).join('')+'</tr></thead>';
   let rows5=bans.map(b=>'<tr><td class="name">'+b+'반</td>'+
     MOCK_SUBJECTS.map(u=>MM.map(mo=>{const k=u.key+'|'+mo.key,r=cellR[k];
-      return '<td'+heatStyle(cellV[k][b],r.min,r.max)+'>'+fmt(cellV[k][b],1)+'</td>';}).join('')).join('')+'</tr>').join('');
+      const mid=rawAvg(mo.key,u.key);return '<td'+heatDiv(cellV[k][b],mid,spreadOf(bans.map(x=>cellV[k][x]),mid))+'>'+fmt(cellV[k][b],1)+'</td>';}).join('')).join('')+'</tr>').join('');
   let tot5='<tr style="border-top:2px solid var(--border);font-weight:700;"><td class="name">전체</td>'+
     MOCK_SUBJECTS.map(u=>MM.map(mo=>'<td class="raw">'+fmt(rawAvg(mo.key,u.key),1)+'</td>').join('')).join('')+'</tr>';
 
@@ -4912,7 +4966,7 @@ function renderGradeMockAll(monthSeg){
       [1,2,3,4,5,6,7,8,9].map(g=>'<th>'+g+'등급</th>').join('')+'</tr></thead><tbody>'+rows4+'</tbody></table></div>'+
 
     secHTML('⑤ 반별 × 과목별 평균점수','bar-chart-3')+
-    '<div class="sub" style="margin-left:0;">원점수 평균. 국·수·영 100점, 통합사회·통합과학·한국사 50점 만점입니다. <b>색은 과목별·회차별로 따로 매깁니다</b> — 그 과목 그 달에 평균이 가장 높은 반이 가장 진하고, 가장 낮은 반이 흰색입니다.</div>'+
+    '<div class="sub" style="margin-left:0;">원점수 평균. 국·수·영 100점, 통합사회·통합과학·한국사 50점 만점입니다. <b>색은 그 과목 그 달의 학년 평균과 견준 것입니다 — <span style="color:#2563eb">높으면 파랑</span> · <span style="color:#dc2626">낮으면 빨강</span>, 차이가 클수록 진합니다.</b></div>'+
     '<div class="tscroll"><table>'+head5+'<tbody>'+rows5+tot5+'</tbody></table></div>'+
 
     '<div class="disc">※ 모의고사 표준점수·백분위·등급은 학년 전체 분포 기반 추정치이며 정식 발표 후 확정됩니다. 아직 실시하지 않은 회차는 "대기"로 표시되며, 시트에 점수가 들어오면 자동으로 이 표와 그래프에 반영됩니다.</div></div>';
@@ -4932,26 +4986,29 @@ function drawGradeMockAllCharts(arr,bans){
   const c1=document.getElementById('gMockAllDist');
   if(c1){if(charts.gmaDist)charts.gmaDist.destroy();
     const S=[['국어','#2563eb'],['수학','#dc2626'],['영어','#16a34a']];
-    charts.gmaDist=new Chart(c1,{type:'line',data:{labels,datasets:S.map(([k,col])=>({
-      label:k,data:MM.map(mm=>gradeAvg(mm.key,k)),borderColor:col,backgroundColor:col,
+    const D2=S.map(([k])=>MM.map(mm=>gradeAvg(mm.key,k))), Z2=zoomRange([].concat(...D2),1,9,0.6,0.2);
+    charts.gmaDist=new Chart(c1,{type:'line',plugins:[pointLabels(v=>v.toFixed(2))],data:{labels,datasets:S.map(([k,col],si)=>({
+      label:k,data:D2[si],borderColor:col,backgroundColor:col,
       borderWidth:2.5,tension:.25,spanGaps:false,pointRadius:5}))},
       options:{responsive:true,maintainAspectRatio:false,
-        plugins:{title:{display:true,text:'회차별 평균등급 (위로 갈수록 우수)',font:{family:'Pretendard',size:13}},
+        layout:{padding:{top:14}},
+        plugins:{title:{display:true,text:'회차별 평균등급 (위로 갈수록 우수 · 세로축은 값이 있는 범위만)',font:{family:'Pretendard',size:13}},
                  legend:{labels:{font:{family:'Pretendard',size:10},boxWidth:10}}},
-        scales:{y:{reverse:true,min:1,max:9,ticks:{stepSize:1,font:{family:'Pretendard'}}},x:{ticks:{font:{family:'Pretendard'}}}}}});
+        scales:{y:{reverse:true,min:Z2.min,max:Z2.max,ticks:{stepSize:0.2,font:{family:'Pretendard'},callback:v=>(+v).toFixed(1)}},x:{ticks:{font:{family:'Pretendard'}}}}}});
   }
 
   // ③ 반별 평균등급 변화 (반마다 선 하나)
   const c2=document.getElementById('gMockAllClass');
   if(c2){if(charts.gmaClass)charts.gmaClass.destroy();
     const BC=['#2563eb','#dc2626','#16a34a','#ea580c','#7c3aed','#0891b2','#d97706','#64748b','#b91c1c','#0d9488'];
+    const D3=bans.map(b=>MM.map(mm=>classAvg(mm.key,b))), Z3=zoomRange([].concat(...D3),1,9,0.4,0.2);
     charts.gmaClass=new Chart(c2,{type:'line',data:{labels,datasets:bans.map((b,i)=>({
-      label:b+'반',data:MM.map(mm=>classAvg(mm.key,b)),borderColor:BC[i%BC.length],backgroundColor:BC[i%BC.length],
+      label:b+'반',data:D3[i],borderColor:BC[i%BC.length],backgroundColor:BC[i%BC.length],
       borderWidth:2,tension:.25,spanGaps:false,pointRadius:4}))},
       options:{responsive:true,maintainAspectRatio:false,
-        plugins:{title:{display:true,text:'반별 평균등급 (위로 갈수록 우수)',font:{family:'Pretendard',size:13}},
+        plugins:{title:{display:true,text:'반별 평균등급 (위로 갈수록 우수 · 세로축은 값이 있는 범위만)',font:{family:'Pretendard',size:13}},
                  legend:{labels:{font:{family:'Pretendard',size:10},boxWidth:10}}},
-        scales:{y:{reverse:true,min:1,max:9,ticks:{stepSize:1,font:{family:'Pretendard'}}},x:{ticks:{font:{family:'Pretendard'}}}}}});
+        scales:{y:{reverse:true,min:Z3.min,max:Z3.max,ticks:{stepSize:0.2,font:{family:'Pretendard'},callback:v=>(+v).toFixed(1)}},x:{ticks:{font:{family:'Pretendard'}}}}}});
   }
 }
 
@@ -5288,38 +5345,44 @@ function renderMockCharts(mockExams) {
         return isNaN(v) ? null : v;
     };
 
+    // 2026.10.02 사용자 요청 「변화의 폭이 한눈에」 — 세로축을 그 학생 값이 있는 범위로 (등급은 정수칸 유지)
+    const gData = subjects.map(s => months.map(m => pick(m.key, s, 'grade')));
+    const gZ = zoomRange([].concat(...gData), 1, 9, 2);
+    const pSubs = subjects.filter(s => s !== '영어' && s !== '한국사');
+    const pData = pSubs.map(s => months.map(m => pick(m.key, s, 'percent')));
+    const pZ = zoomRange([].concat(...pData), 0, 100, 10);
     drawChart('chart-mock-grade', {
-        type: 'line',
+        type: 'line', plugins: [pointLabels(v => String(v))],
         data: {
             labels: months.map(m => m.label),
             datasets: subjects.map((s, i) => ({
                 label: s,
-                data: months.map(m => pick(m.key, s, 'grade')),
+                data: gData[i],
                 borderColor: SUBJ_COLORS[i], backgroundColor: SUBJ_COLORS[i],
                 tension: 0.3, spanGaps: true
             }))
         },
         options: {
-            responsive: true, maintainAspectRatio: false,
-            scales: { y: { reverse: true, min: 1, max: 9, ticks: { stepSize: 1 } } },
+            responsive: true, maintainAspectRatio: false, layout: { padding: { top: 14, right: 12 } },
+            scales: { y: { reverse: true, min: Math.max(1, Math.floor(gZ.min)), max: Math.min(9, Math.ceil(gZ.max)), ticks: { stepSize: 1 } } },
             plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } }
         }
     });
 
     drawChart('chart-mock-pct', {
-        type: 'line',
+        type: 'line', plugins: [pointLabels(v => String(Math.round(v * 10) / 10))],
         data: {
             labels: months.map(m => m.label),
-            datasets: subjects.filter(s => s !== '영어' && s !== '한국사').map((s, i) => ({
+            datasets: pSubs.map((s, i) => ({
                 label: s,
-                data: months.map(m => pick(m.key, s, 'percent')),
+                data: pData[i],
                 borderColor: SUBJ_COLORS[i], backgroundColor: SUBJ_COLORS[i],
                 tension: 0.3, spanGaps: true
             }))
         },
         options: {
-            responsive: true, maintainAspectRatio: false,
-            scales: { y: { min: 0, max: 100, title: { display: true, text: '백분위' } } },
+            responsive: true, maintainAspectRatio: false, layout: { padding: { top: 14, right: 12 } },
+            scales: { y: { min: Math.max(0, Math.floor(pZ.min / 5) * 5), max: Math.min(100, Math.ceil(pZ.max / 5) * 5), title: { display: true, text: '백분위' } } },
             plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } }
         }
     });
