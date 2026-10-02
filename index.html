@@ -4304,8 +4304,10 @@ function yearGradeAvg(s){
    학기·차수 버튼과 상관없이 지금까지 본 시험을 차례로 놓고 합쳐 봅니다.
    · 다음 학기 점수가 들어온 학기 → 「학기말 최종」 하나 (지금 1학기)
    · 아직 진행 중인 학기         → 「1차」 · 「2차」 따로 (지금 2학기 — 2차가 들어오면 저절로 한 칸 늘어남)
-   · 합산 평균 = 그 칸들의 과목 등급을 모두 모아 낸 평균 → 상위 50명 (2026.10.02 사용자 요청 — 처음엔 30명)
+   · 합산 평균 = 그 칸들의 과목 등급(5등급)을 모두 모아 낸 평균
    · 이름 옆 = 같은 시험·과목의 **9등급 환산 평균** (서버가 보낸 d 의 9등급 · 2026.10.02 사용자 요청)
+   · 차례 = **9등급 평균이 좋은 순** → 상위 50명 (2026.10.02 사용자 요청 — 처음엔 5등급 합산 평균 순 30명)
+     9등급이 같으면 5등급 합산 평균 → 1등급 수. 9등급 평균이 없는 학생(과목 수가 안 맞음)은 맨 뒤
    · 1등급 유지 = 과목마다 본 시험에서 **계속** 1등급
    · 1등급으로 올라감 = 바로 앞 시험에서 2등급 이하였다가 **가장 최근** 시험에서 1등급 (2026.10.01 사용자 요청)
    · 1등급에서 떨어짐 = 1등급이었다가 **가장 최근** 시험에서 내려감
@@ -4381,7 +4383,7 @@ function top1Html(){
   if(!slots.length)return '<div class="mut">아직 성적이 없습니다.</div>';
   const cuts=top1Cuts(slots);
   const rows=[...students.values()].map(s=>({s:s,i:top1Info(s,slots,cuts)})).filter(x=>x.i)
-    .sort((a,b)=>a.i.avg-b.i.avg||b.i.ones-a.i.ones).slice(0,TOP1_N);
+    .sort((a,b)=>((a.i.avg9==null)-(b.i.avg9==null))||((a.i.avg9||0)-(b.i.avg9||0))||a.i.avg-b.i.avg||b.i.ones-a.i.ones).slice(0,TOP1_N);
   const head='<tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th>'+
     slots.map(sl=>'<th>'+sl.label+'<br><span class="mut">평균 (1등급 수)</span></th>').join('')+
     '<th>합산 평균</th><th class="name">1등급 유지</th><th class="name">1등급으로 올라감</th><th class="name">1등급에서 떨어짐</th></tr>';
@@ -4393,7 +4395,7 @@ function top1Html(){
     '<td class="name" style="color:#16a34a;font-weight:700">'+(x.i.up.length?x.i.up.join(' · '):'<span class="mut">-</span>')+'</td>'+
     '<td class="name" style="color:var(--down);font-weight:700">'+(x.i.drop.length?x.i.drop.join(' · '):'<span class="mut">-</span>')+'</td></tr>').join('');
   return '<div class="sub" style="margin-left:0;">학기·차수 버튼과 상관없이 <b>'+slots.map(sl=>sl.label).join(' + ')+'</b> 를 합쳐 봅니다 '+
-    '(2학기 2차고사 점수가 들어오면 그 칸이 저절로 더해집니다). 합산 평균등급이 좋은 '+TOP1_N+'명. '+
+    '(2학기 2차고사 점수가 들어오면 그 칸이 저절로 더해집니다). <b>9등급 평균이 좋은 순</b>으로 '+TOP1_N+'명. '+
     '<b>1등급 유지</b> = 본 시험마다 계속 1등급인 과목 · <b>1등급으로 올라감</b> = 바로 앞 시험보다 올라 가장 최근 시험에서 1등급인 과목 · <b>1등급에서 떨어짐</b> = 1등급이었다가 가장 최근 시험에서 내려간 과목. '+
     '괄호 = 가장 최근 시험의 <b>1등급 컷</b>과의 점수 차이 (<b>−</b> 컷까지 모자란 점수 · <b>+</b> 컷보다 높은 점수 · 학기말은 환산총점 기준). '+
     '이름 옆 <b>(9등급 …)</b> = 같은 시험·과목의 9등급 환산 평균.</div>'+
@@ -4541,7 +4543,7 @@ function renderGradeNaesin(){
 
     // ⑦ 은 그대로 · ⑧ 은 「상위권 1등급 추이」 로 바꿈 (2026.10.01) — 칸이 많아 둘 다 한 줄을 다 씁니다
     secHTML('⑦ 최우수 그룹 (등급평균 상위 15)','star')+'<div class="tscroll tall"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th><th>등급평균</th><th>1등급</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
-    secHTML('⑧ 상위권 1등급 추이 (지금까지 합산 · 상위 '+TOP1_N+')','trending-up')+top1Html()+
+    secHTML('⑧ 상위권 1등급 추이 (9등급 평균 순 · 상위 '+TOP1_N+')','trending-up')+top1Html()+
 
     secHTML('⑨ '+iLabel+' 학생 명단','alert-triangle')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 40점 미만(I) — 최우선 지도 대상</div>'+
     '<div class="tscroll tall"><table><thead><tr><th class="name">학번 (이름)</th><th>반</th><th>I 과목</th></tr></thead><tbody>'+
