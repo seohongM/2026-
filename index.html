@@ -4216,15 +4216,9 @@ function numOrNull(v){if(v==null)return null;const t=(''+v).trim();if(t===''||t=
 function strOrNull(v){if(v==null)return null;const t=(''+v).trim();return (t===''||t==='-')?null:t;}
 function gColor(g){return {1:'var(--g1)',2:'var(--g2)',3:'var(--g3)',4:'var(--g4)',5:'var(--g5)',6:'var(--g6)',7:'var(--g7)',8:'var(--g8)',9:'var(--g9)'}[g]||'var(--g0)';}
 function gb(g){return g==null?'<span class="mut">-</span>':'<span class="gb" style="background:'+gColor(g)+'">'+g+'</span>';}
-/* 셀 배경 히트맵: 값이 높을수록(=상위 반) 진한 파랑, 낮을수록 흰색. 열 단위 min~max 정규화 */
-function heatStyle(val,min,max){
-  if(val==null||min==null||max==null||max===min)return '';
-  let t=(val-min)/(max-min);if(t<0)t=0;if(t>1)t=1;
-  const a=(t*0.55).toFixed(3);
-  return ' style="background:rgba(37,99,235,'+a+')"';
-}
 // 반×과목 평균 표의 색 (2026.10.02 사용자 요청) — 학년 평균을 가운데(흰색)로, 높으면 파랑 · 낮으면 빨강.
-//   spread = 그 열에서 학년 평균과 가장 먼 차이 → 그 반이 가장 진함. 점수가 높을수록 좋은 표에만 씁니다.
+//   spread = 그 열에서 학년 평균과 가장 먼 차이 → 그 반이 가장 진함.
+//   ② 등급 인원 표도 같은 색 (그 등급 비율이 학년보다 많으면 파랑 · 적으면 빨강).
 function heatDiv(val,mid,spread){
   if(val==null||mid==null||!spread)return '';
   let t=(val-mid)/spread;if(t>1)t=1;if(t<-1)t=-1;
@@ -4679,7 +4673,7 @@ function renderGradeNaesin(){
     secHTML('① 과목별 전체 통계 요약','bar-chart-2')+'<div class="sub" style="margin-left:0;">'+EX.lab+' '+EX.unit+EX.max+' 기준. 표준편차가 클수록 점수 분산이 큰(변별력 있는) 과목입니다. <b>Q1</b>=하위 25% 지점(이 점수 이하가 1/4), <b>Q3</b>=상위 25% 지점(이 점수 이상이 1/4). 가운데 절반(50%)의 학생이 Q1~Q3 사이에 분포합니다.</div>'+
     '<div class="tscroll"><table><thead><tr><th class="name">과목</th><th>평균</th><th>중앙값</th><th>최고</th><th>최저</th><th>표준편차</th><th>Q1<br><span class="mut">하위25%</span></th><th>Q3<br><span class="mut">상위25%</span></th></tr></thead><tbody>'+statRows+'</tbody></table></div>'+
 
-    secHTML('② 과목별 · 반별 등급 인원','grid-3x3')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 등급 기준. 과목을 선택하면 반별로 1~5등급 인원 분포를 볼 수 있습니다. <b>각 등급 칸은 그 등급 인원이 많은 반일수록 파란색이 진해집니다.</b></div>'+
+    secHTML('② 과목별 · 반별 등급 인원','grid-3x3')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 등급 기준. 과목을 선택하면 반별로 1~5등급 인원 분포를 볼 수 있습니다. <b>색은 그 등급 비율(반 인원 대비)을 학년 비율과 견준 것입니다 — 학년보다 많으면 파랑 · 적으면 빨강, 차이가 클수록 진합니다</b> (학년과 같으면 흰색).</div>'+
     '<div style="margin:2px 0 12px;"><span class="seg sm" id="gNaesinDistSubjTab">'+NS(sem).map((subj)=>'<button data-subj="'+subj+'"'+(gNaesinDistSubj===subj?' class="on"':'')+'>'+subj+'</button>').join('')+'</span></div>'+
     '<div id="gNaesinDistBlock">'+buildNaesinDistBySubj(arr,sem,bans,gNaesinDistSubj,GF,gradeNaesinExam)+'</div>'+
 
@@ -4723,15 +4717,18 @@ function buildNaesinDistBySubj(arr,sem,bans,subj,gf,exam){
   const inc=o=>o&&(exam==='최종'?subjFinalComplete(o):o[sf]!=null);
   // 반별 등급 인원 매트릭스
   const mat={};bans.forEach(b=>{const d=Array(6).fill(0);arr.filter(s=>s.ban===b).forEach(s=>{const o=s.naesin[sem][subj];if(inc(o)&&o[gf]>=1&&o[gf]<=5)d[o[gf]]++;});mat[b]=d;});
-  // 등급 열별 min/max (인원수 기준)
-  const mm={};for(let g=1;g<=5;g++){const vs=bans.map(b=>mat[b][g]);mm[g]={min:Math.min(...vs),max:Math.max(...vs)};}
-  let rows=bans.map(b=>{
-    const d=mat[b];const tot=d[1]+d[2]+d[3]+d[4]+d[5];
-    let c='';for(let g=1;g<=5;g++)c+='<td'+heatStyle(d[g],mm[g].min,mm[g].max)+'>'+d[g]+'</td>';
-    return '<tr><td class="name">'+b+'반</td>'+c+'<td class="raw">'+tot+'</td></tr>';
-  }).join('');
   const dAll=Array(6).fill(0);arr.forEach(s=>{const o=s.naesin[sem][subj];if(inc(o)&&o[gf]>=1&&o[gf]<=5)dAll[o[gf]]++;});
   const totAll=dAll.slice(1,6).reduce((a,b)=>a+b,0);
+  // 색 (2026.10.02 사용자 요청 — ⑥ 처럼 두 가지 색) : 그 등급 비율(반 인원 대비)을 학년 비율과 견줌.
+  //   학년보다 많으면 파랑 · 적으면 빨강 · 같으면 흰색. 반마다 인원이 달라 인원 수가 아니라 비율로 견줍니다.
+  const tots={};bans.forEach(b=>{const d=mat[b];tots[b]=d[1]+d[2]+d[3]+d[4]+d[5];});
+  const rat=(b,g)=>tots[b]?mat[b][g]/tots[b]:null;
+  const midG={},sprG={};for(let g=1;g<=5;g++){midG[g]=totAll?dAll[g]/totAll:null;sprG[g]=spreadOf(bans.map(b=>rat(b,g)),midG[g]);}
+  let rows=bans.map(b=>{
+    const d=mat[b];const tot=tots[b];
+    let c='';for(let g=1;g<=5;g++)c+='<td'+heatDiv(rat(b,g),midG[g],sprG[g])+'>'+d[g]+'</td>';
+    return '<tr><td class="name">'+b+'반</td>'+c+'<td class="raw">'+tot+'</td></tr>';
+  }).join('');
   let allc='';for(let g=1;g<=5;g++)allc+='<td class="raw">'+dAll[g]+pctOf(dAll[g],totAll)+'</td>';
   const totalRow='<tr style="border-top:2px solid var(--border);font-weight:700;"><td class="name">전체</td>'+allc+'<td class="raw">'+totAll+'</td></tr>';
   return '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+[1,2,3,4,5].map(g=>'<th>'+g+'등급</th>').join('')+'<th>인원</th></tr></thead><tbody>'+rows+totalRow+'</tbody></table></div>';
