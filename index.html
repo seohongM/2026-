@@ -123,6 +123,11 @@
 #view-stats tbody tr:hover{background:#f8fafc;}
 #view-stats td.name, #view-stats th.name{font-weight:700;text-align:left;position:sticky;left:0;background:#fff;z-index:1;color:var(--ink);}
 #view-stats tbody tr:hover td.name{background:#f8fafc;}
+/* 머리글의 이름 칸은 위·왼쪽 둘 다 붙어 있으므로 몸통의 이름 칸(z-index 1)보다 위에 둡니다.
+   (2026.10.02 사용자 신고 — 표를 내리면 몸통 이름이 머리글 자리를 덮어 「깨져」 보였음) */
+#view-stats thead th.name{background:#f8fafc;z-index:3;}
+/* 왼쪽 정렬만 필요한 글자 칸 — .name 은 왼쪽에 붙는(sticky) 칸이라 표마다 하나만 씁니다 */
+#view-stats th.txt, #view-stats td.txt{text-align:left;}
 #view-stats .grp th{background:#f1f5f9;font-size:11px;color:var(--ink2);}
 #view-stats .raw{font-weight:700;color:var(--ink);}
 #view-stats .mut{color:var(--muted);font-size:11px;}
@@ -4386,14 +4391,14 @@ function top1Html(){
     .sort((a,b)=>((a.i.avg9==null)-(b.i.avg9==null))||((a.i.avg9||0)-(b.i.avg9||0))||a.i.avg-b.i.avg||b.i.ones-a.i.ones).slice(0,TOP1_N);
   const head='<tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th>'+
     slots.map(sl=>'<th>'+sl.label+'<br><span class="mut">평균 (1등급 수)</span></th>').join('')+
-    '<th>합산 평균</th><th class="name">1등급 유지</th><th class="name">1등급으로 올라감</th><th class="name">1등급에서 떨어짐</th></tr>';
+    '<th>합산 평균</th><th class="txt">1등급 유지</th><th class="txt">1등급으로 올라감</th><th class="txt">1등급에서 떨어짐</th></tr>';
   const body=rows.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+
     (x.i.avg9!=null?' <span style="color:#7c3aed;font-weight:700">(9등급 '+x.i.avg9.toFixed(2)+')</span>':'')+'</td><td>'+x.s.ban+'반</td>'+
     x.i.per.map(p=>'<td>'+(p?'<span class="raw">'+p.avg.toFixed(2)+'</span> <span class="mut">('+p.ones+')</span>':'<span class="mut">-</span>')+'</td>').join('')+
     '<td class="raw">'+x.i.avg.toFixed(2)+'</td>'+
-    '<td class="name" style="color:#2563eb;font-weight:700">'+(x.i.keep.length?x.i.keep.join(' · '):'<span class="mut">-</span>')+'</td>'+
-    '<td class="name" style="color:#16a34a;font-weight:700">'+(x.i.up.length?x.i.up.join(' · '):'<span class="mut">-</span>')+'</td>'+
-    '<td class="name" style="color:var(--down);font-weight:700">'+(x.i.drop.length?x.i.drop.join(' · '):'<span class="mut">-</span>')+'</td></tr>').join('');
+    '<td class="txt" style="color:#2563eb;font-weight:700">'+(x.i.keep.length?x.i.keep.join(' · '):'<span class="mut">-</span>')+'</td>'+
+    '<td class="txt" style="color:#16a34a;font-weight:700">'+(x.i.up.length?x.i.up.join(' · '):'<span class="mut">-</span>')+'</td>'+
+    '<td class="txt" style="color:var(--down);font-weight:700">'+(x.i.drop.length?x.i.drop.join(' · '):'<span class="mut">-</span>')+'</td></tr>').join('');
   return '<div class="sub" style="margin-left:0;">학기·차수 버튼과 상관없이 <b>'+slots.map(sl=>sl.label).join(' + ')+'</b> 를 합쳐 봅니다 '+
     '(2학기 2차고사 점수가 들어오면 그 칸이 저절로 더해집니다). <b>9등급 평균이 좋은 순</b>으로 '+TOP1_N+'명. '+
     '<b>1등급 유지</b> = 본 시험마다 계속 1등급인 과목 · <b>1등급으로 올라감</b> = 바로 앞 시험보다 올라 가장 최근 시험에서 1등급인 과목 · <b>1등급에서 떨어짐</b> = 1등급이었다가 가장 최근 시험에서 내려간 과목. '+
@@ -4479,7 +4484,8 @@ function renderGradeNaesin(){
   let iStudents=arr.filter(s=>NS(sem).some(subj=>{const o=s.naesin[sem][subj];return inc(o)&&o[AF]==='I';}));
   const nStu=arr.filter(s=>naesinExamHas(s,sem,gradeNaesinExam)).length;
 
-  const stuGradeAvg=s=>{let g=[];NS(sem).forEach(subj=>{const o=s.naesin[sem][subj];if(inc(o)&&o[GF]!=null)g.push(o[GF]);});return g.length?{avg:g.reduce((a,b)=>a+b,0)/g.length,ones:g.filter(x=>x===1).length,low:g.filter(x=>x>=4).length,cnt:g.length}:null;};
+  // g9 = 같은 과목의 9등급 환산 (서버 계산값) — 5등급과 과목 수가 같을 때만 avg9 를 냅니다
+  const stuGradeAvg=s=>{let g=[],g9=[];NS(sem).forEach(subj=>{const o=s.naesin[sem][subj];if(inc(o)&&o[GF]!=null){g.push(o[GF]);if(o._g9&&o._g9[gradeNaesinExam]!=null)g9.push(o._g9[gradeNaesinExam]);}});return g.length?{avg:g.reduce((a,b)=>a+b,0)/g.length,avg9:g9.length===g.length?g9.reduce((a,b)=>a+b,0)/g9.length:null,ones:g.filter(x=>x===1).length,low:g.filter(x=>x>=4).length,cnt:g.length}:null;};
 
   // ① 통계 요약
   let statRows=NS(sem).map((subj,i)=>{
@@ -4507,8 +4513,12 @@ function renderGradeNaesin(){
 
   // ⑦⑧ 학생 그룹
   const withAvg=arr.filter(s=>naesinExamHas(s,sem,gradeNaesinExam)).map(s=>({s,...stuGradeAvg(s)})).filter(x=>x.avg!=null);
-  const topStu=withAvg.slice().sort((a,b)=>a.avg-b.avg||b.ones-a.ones).slice(0,15);
-  let topRows=topStu.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+'</td><td>'+x.s.ban+'반</td><td class="raw">'+x.avg.toFixed(2)+'</td><td>'+x.ones+'개</td></tr>').join('');
+  // ⑦ 최우수 그룹 — 9등급 평균이 좋은 순 50명 (2026.10.02 사용자 요청 · 위 학기·차수 버튼 기준)
+  //    9등급이 같으면 5등급 평균 → 1등급 수. 9등급 평균이 없는 학생(과목 수가 안 맞음)은 맨 뒤
+  const TOP_N=50;
+  const topStu=withAvg.slice().sort((a,b)=>((a.avg9==null)-(b.avg9==null))||((a.avg9||0)-(b.avg9||0))||a.avg-b.avg||b.ones-a.ones).slice(0,TOP_N);
+  let topRows=topStu.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+
+    (x.avg9!=null?' <span style="color:#7c3aed;font-weight:700">(9등급 '+x.avg9.toFixed(2)+')</span>':'')+'</td><td>'+x.s.ban+'반</td><td class="raw">'+x.avg.toFixed(2)+'</td><td>'+x.ones+'개</td></tr>').join('');
 
   const iLabel=gradeNaesinExam==='최종'?'미이수(I)':EX.lab+' I(40점 미만)';
 
@@ -4542,7 +4552,7 @@ function renderGradeNaesin(){
     '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+NS(sem).map(subj=>'<th>'+subj+'</th>').join('')+'<th>전체</th></tr></thead><tbody>'+csRows+csTotal+'</tbody></table></div>'+
 
     // ⑦ 은 그대로 · ⑧ 은 「상위권 1등급 추이」 로 바꿈 (2026.10.01) — 칸이 많아 둘 다 한 줄을 다 씁니다
-    secHTML('⑦ 최우수 그룹 (등급평균 상위 15)','star')+'<div class="tscroll tall"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th><th>등급평균</th><th>1등급</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
+    secHTML('⑦ 최우수 그룹 (9등급 평균 순 · 상위 '+TOP_N+')','star')+'<div class="sub" style="margin-left:0;">위에서 고른 학기·차수 기준. <b>이름 옆 (9등급 …)</b> = 같은 과목의 9등급 환산 평균 · 이 값이 좋은 순서로 줄 세웁니다. 「등급평균」 은 지금 5등급제 평균입니다.</div><div class="tscroll tall"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th><th>등급평균 (5등급)</th><th>1등급</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
     secHTML('⑧ 상위권 1등급 추이 (9등급 평균 순 · 상위 '+TOP1_N+')','trending-up')+top1Html()+
 
     secHTML('⑨ '+iLabel+' 학생 명단','alert-triangle')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 40점 미만(I) — 최우선 지도 대상</div>'+
