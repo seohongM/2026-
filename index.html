@@ -3413,14 +3413,7 @@ function renderSchoolGrades(grades, summary) {
     // 이전 학교 성적은 표에는 보이지만 평균에는 안 들어갑니다 — 왜 과목 수가 다른지 밝혀 둡니다
     const prevCount = grades.filter(x => x.prevSchool).length;
 
-    // 평균 점수 칸 — 학기말 최종이면 환산총점 평균, 1차 고사면 1차시험 평균,
-    // 1·2차 고사면 1·2차 변환점 평균(반영비율대로), 기준이 섞이면 비움
-    const SCORE_NAME = { 2: '1차 점수', 4: '1·2차 변환점' };
-    const scoreCell = (v, k) => !has(v) ? '-'
-        : (k === 1 || k === 0) ? String(v)
-        : SCORE_NAME[k] ? `${v}<span class="block text-[9px] font-medium text-slate-600">${SCORE_NAME[k]}</span>`
-        : '-';
-    // note = 화면 설명 / notePrint = 인쇄용 짧은 설명 / pct = 석차백분율 평균
+    // 옛 서버(학기별 평균 s[5] 없음)일 때만 쓰는 한 줄. note = 화면 설명 / notePrint = 인쇄용 / pct = 석차백분율 평균
     // 인쇄할 때만 설명을 짧게 하고 석차 평균은 맨 오른쪽(성취도) 칸으로 옮깁니다 (2026.10.01 사용자 요청 —
     // 인쇄물에서 설명이 두 줄로 접혀서). 화면은 그대로입니다. foot-scr / foot-prt 는 위 CSS 참고.
     const footRow = (label, note, score, a5, a9, first, strong, notePrint, pct) => `
@@ -3435,23 +3428,6 @@ function renderSchoolGrades(grades, summary) {
             <td class="p-1 text-slate-400 text-[10px]"><span class="foot-scr">-</span><span class="foot-prt">${has(pct) ? '상위 ' + pct + '%' : '-'}</span></td>
         </tr>`;
     const fx = v => has(v) ? Number(v).toFixed(2) : '';
-    // 가장 잘 본 / 못 본 과목 · 석차백분율 평균 (2026.10.01 사용자 요청) — 과목이 하나면 한 번만
-    const pickNote = (best, worst, pct) => [
-            best ? '가장 잘 본 과목 <b class="text-slate-800">' + pickText(best) + '</b>' : '',
-            (worst && (!best || worst.name !== best.name)) ? '가장 못 본 과목 <b class="text-slate-800">' + pickText(worst) + '</b>' : '',
-            has(pct) ? '전교 석차백분율 평균 상위 ' + pct + '%' : ''
-        ].filter(Boolean).join(' · ');
-    // 인쇄용 짧은 말 — 「최고 공통수학1 2등급(19.9%) · 최저 통합사회1 4등급(70.2%)」
-    // 기준(1차 고사 등)은 옆 점수 칸 아래 「1차 점수」 로 이미 찍히므로 인쇄 설명에서는 뺍니다.
-    const shortPick = p => escapeHtml(p.name) + (p.grade != null ? ' ' + p.grade + '등급' : '') +
-                           (p.pct != null ? '(' + p.pct + '%)' : '');
-    const pickPrint = (best, worst) => [
-            best ? '최고 <b>' + shortPick(best) + '</b>' : '',
-            (worst && (!best || worst.name !== best.name)) ? '최저 <b>' + shortPick(worst) + '</b>' : ''
-        ].filter(Boolean).join(' · ');
-    // 「N과목 · 」 / 「성적이 입력된 N과목 기준 · 」 은 줄이 길어 뺐습니다 (2026.10.01 사용자 요청)
-    const allNote = [pickNote(s.best, s.worst, s.avgPct),
-                     prevCount ? '이전 학교 ' + prevCount + '과목은 평균에서 제외' : ''].filter(Boolean).join(' · ');
 
     // 🎯 등급 상승 목표 — 평균 줄 맨 위 (2026.10.02 사용자 요청 : 「1학기 평균」 을 빼고 그 자리에)
     const up = upliftParts(grades);
@@ -3464,27 +3440,25 @@ function renderSchoolGrades(grades, summary) {
                 <span class="foot-prt">${up.notePrint}</span>
             </td>
         </tr>`;
-    // 끝난 학기의 평균 줄은 뺍니다 (2026.10.02 사용자 요청 — 지금 「1학기 평균」).
-    // 끝난 학기 = 그보다 늦은 학기에 우리 학교 시험 점수가 들어온 학기. 「전체 평균」 에는 그대로 들어갑니다.
-    const curSem = lastExamSem(grades);
-    const semRows = (s.sems || []).filter(x => !curSem || x.sem >= curSem);
+    // 학기 평균을 **한 줄 · 6칸**으로 (2026.10.02 사용자 요청 — 「2학기 평균」 · 「전체 평균」 두 줄을 합침)
+    //   1학기 평균 | 5등급 | 9등급 | 2학기 평균 | 5등급 | 9등급
+    // 가장 잘 본·못 본 과목 · 석차백분율 · 평균 점수 설명은 사용자가 「모두 빼기」 를 골라 뺐습니다.
+    // 전체 평균은 표 제목 옆 배지(전체 5등급제 · 9등급제 평균)에 그대로 남아 있습니다.
+    // 칸 너비 : 표 10칸을 2·2·1 / 2·2·1 로 나눠 씁니다.
+    const semCell = (label, x, first) => {
+        const v5 = x && x.subjectCount ? fx(x.avg5) : '', v9 = x && x.subjectCount ? fx(x.avg9) : '';
+        return `
+            <td class="sem-avg-label p-1 font-bold ${first ? '' : 'border-l-2 border-slate-300'} border-r border-slate-300 bg-slate-100" colspan="2">${label}</td>
+            <td class="p-1 border-r border-slate-300 bg-slate-50" colspan="2"><span class="text-[10px] text-slate-600">5등급</span> <b class="text-slate-900">${v5 || '-'}</b></td>
+            <td class="p-1 border-r border-slate-300 bg-blue-50"><span class="text-[10px] text-blue-700">9등급</span> <b class="text-blue-800">${v9 || '-'}</b></td>`;
+    };
 
     if (s.sems && s.sems.length) {
-        // 학기 · 전체 를 한 줄씩 (2026.09.30 · 10.01 사용자 요청)
-        // 학기 단계(1차 고사 → 1·2차 고사 → 학기말 최종)는 서버가 과목마다 정해 보냅니다.
-        const rowsHtml = upRow + semRows.map((x, i) => footRow(
-            x.sem + '학기 평균',
-            x.subjectCount
-                ? ['<b class="text-slate-800">' + (basisTag(x.basis) || '학기말 최종') + '</b>',
-                   pickNote(x.best, x.worst, x.avgPct)].filter(Boolean).join(' · ')
-                : '아직 성적 없음',
-            scoreCell(x.avgScore, x.basis), fx(x.avg5), fx(x.avg9), i === 0 && !upRow, false,
-            x.subjectCount ? pickPrint(x.best, x.worst) : '아직 성적 없음', x.avgPct)).join('');
-        tfoot.innerHTML = rowsHtml + footRow('전체 평균',
-            allNote + ((s.basis & 6) ? ' · 학기말 성적이 아직인 과목은 시험 점수 기준' : ''),
-            scoreCell(s.avgScore, s.basis), avg5, avg9, false, true,
-            [pickPrint(s.best, s.worst), prevCount ? '이전 학교 ' + prevCount + '과목 제외' : ''].filter(Boolean).join(' · '),
-            s.avgPct);
+        const bySem = k => s.sems.filter(x => Number(x.sem) === k)[0] || null;
+        tfoot.innerHTML = upRow + `
+        <tr class="sem-avg-row ${upRow ? 'border-t border-slate-300' : 'border-t-2 border-slate-400'}">
+            ${semCell('1학기 평균', bySem(1), true)}${semCell('2학기 평균', bySem(2), false)}
+        </tr>`;
     } else {
         tfoot.innerHTML = upRow + footRow('평균', [`성적이 입력된 ${has(s.subjectCount) ? s.subjectCount : 0}과목 기준`,
                 prevCount ? '이전 학교 ' + prevCount + '과목은 평균에서 제외' : '',
