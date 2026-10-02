@@ -4581,8 +4581,10 @@ function renderGradeNaesin(){
     if(!(inc(o)&&o[GF]!=null))return '<td class="mut">-</td>';
     const g9=o._g9&&o._g9[gradeNaesinExam]!=null?o._g9[gradeNaesinExam]:null;
     return '<td'+(o[GF]===1?' style="font-weight:800;color:#1d4ed8"':'')+'>'+o[GF]+(g9!=null?'<span class="mut">('+g9+')</span>':'')+'</td>';};
+  // 이름 옆에 5등급 · 9등급 평균 둘 다 (2026.10.02 사용자 요청)
   let topRows=topStu.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+
-    (x.avg9!=null?' <span style="color:#7c3aed;font-weight:700">(9등급 '+x.avg9.toFixed(2)+')</span>':'')+'</td><td>'+x.s.ban+'반</td>'+
+    ' <span style="font-weight:700">(<span style="color:#0f172a">5등급 '+x.avg.toFixed(2)+'</span>'+
+    (x.avg9!=null?' · <span style="color:#7c3aed">9등급 '+x.avg9.toFixed(2)+'</span>':'')+')</span></td><td>'+x.s.ban+'반</td>'+
     NS(sem).map(subj=>subjCell(x.s,subj)).join('')+
     '<td class="raw">'+x.avg.toFixed(2)+'</td><td>'+x.ones+'개</td></tr>').join('');
 
@@ -4618,7 +4620,7 @@ function renderGradeNaesin(){
     '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+NS(sem).map(subj=>'<th>'+subj+'</th>').join('')+'<th>전체</th></tr></thead><tbody>'+csRows+csTotal+'</tbody></table></div>'+
 
     // ⑦ 은 그대로 · ⑧ 은 「상위권 1등급 추이」 로 바꿈 (2026.10.01) — 칸이 많아 둘 다 한 줄을 다 씁니다
-    secHTML('⑦ 최우수 그룹 (5등급 평균 순 · 상위 '+TOP_N+')','star')+'<div class="sub" style="margin-left:0;">위에서 고른 학기·차수 기준. <b>「등급평균」(5등급) 이 좋은 순서</b>로 줄 세우고, 5등급 평균이 같으면 <b>이름 옆 (9등급 …)</b> 이 좋은 학생이 앞입니다. 과목 칸 = <b>5등급(9등급)</b>. 「등급평균」 은 지금 5등급제 평균입니다.</div><div class="tscroll tall"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th>'+NS(sem).map(subj=>'<th>'+top1Short(subj)+'<br><span class="mut">5(9)</span></th>').join('')+'<th>등급평균 (5등급)</th><th>1등급</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
+    secHTML('⑦ 최우수 그룹 (5등급 평균 순 · 상위 '+TOP_N+')','star')+'<div class="sub" style="margin-left:0;">위에서 고른 학기·차수 기준. <b>「등급평균」(5등급) 이 좋은 순서</b>로 줄 세우고, 5등급 평균이 같으면 <b>9등급 평균</b>이 좋은 학생이 앞입니다. 이름 옆 = <b>(5등급 평균 · 9등급 평균)</b>. 과목 칸 = <b>5등급(9등급)</b>. 「등급평균」 은 지금 5등급제 평균입니다.</div><div class="tscroll tall"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th>'+NS(sem).map(subj=>'<th>'+top1Short(subj)+'<br><span class="mut">5(9)</span></th>').join('')+'<th>등급평균 (5등급)</th><th>1등급</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
     secHTML('⑧ 상위권 1등급 추이 (9등급 평균 순 · 상위 '+TOP1_N+')','trending-up')+top1Html()+
 
     secHTML('⑨ '+iLabel+' 학생 명단','alert-triangle')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 40점 미만(I) — 최우선 지도 대상</div>'+
