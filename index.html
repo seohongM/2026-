@@ -123,6 +123,11 @@
 #view-stats tbody tr:hover{background:#f8fafc;}
 #view-stats td.name, #view-stats th.name{font-weight:700;text-align:left;position:sticky;left:0;background:#fff;z-index:1;color:var(--ink);}
 #view-stats tbody tr:hover td.name{background:#f8fafc;}
+/* 머리글의 이름 칸은 위·왼쪽 둘 다 붙어 있으므로 몸통의 이름 칸(z-index 1)보다 위에 둡니다.
+   (2026.10.02 사용자 신고 — 표를 내리면 몸통 이름이 머리글 자리를 덮어 「깨져」 보였음) */
+#view-stats thead th.name{background:#f8fafc;z-index:3;}
+/* 왼쪽 정렬만 필요한 글자 칸 — .name 은 왼쪽에 붙는(sticky) 칸이라 표마다 하나만 씁니다 */
+#view-stats th.txt, #view-stats td.txt{text-align:left;}
 #view-stats .grp th{background:#f1f5f9;font-size:11px;color:var(--ink2);}
 #view-stats .raw{font-weight:700;color:var(--ink);}
 #view-stats .mut{color:var(--muted);font-size:11px;}
@@ -4386,14 +4391,14 @@ function top1Html(){
     .sort((a,b)=>((a.i.avg9==null)-(b.i.avg9==null))||((a.i.avg9||0)-(b.i.avg9||0))||a.i.avg-b.i.avg||b.i.ones-a.i.ones).slice(0,TOP1_N);
   const head='<tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th>'+
     slots.map(sl=>'<th>'+sl.label+'<br><span class="mut">평균 (1등급 수)</span></th>').join('')+
-    '<th>합산 평균</th><th class="name">1등급 유지</th><th class="name">1등급으로 올라감</th><th class="name">1등급에서 떨어짐</th></tr>';
+    '<th>합산 평균</th><th class="txt">1등급 유지</th><th class="txt">1등급으로 올라감</th><th class="txt">1등급에서 떨어짐</th></tr>';
   const body=rows.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+
     (x.i.avg9!=null?' <span style="color:#7c3aed;font-weight:700">(9등급 '+x.i.avg9.toFixed(2)+')</span>':'')+'</td><td>'+x.s.ban+'반</td>'+
     x.i.per.map(p=>'<td>'+(p?'<span class="raw">'+p.avg.toFixed(2)+'</span> <span class="mut">('+p.ones+')</span>':'<span class="mut">-</span>')+'</td>').join('')+
     '<td class="raw">'+x.i.avg.toFixed(2)+'</td>'+
-    '<td class="name" style="color:#2563eb;font-weight:700">'+(x.i.keep.length?x.i.keep.join(' · '):'<span class="mut">-</span>')+'</td>'+
-    '<td class="name" style="color:#16a34a;font-weight:700">'+(x.i.up.length?x.i.up.join(' · '):'<span class="mut">-</span>')+'</td>'+
-    '<td class="name" style="color:var(--down);font-weight:700">'+(x.i.drop.length?x.i.drop.join(' · '):'<span class="mut">-</span>')+'</td></tr>').join('');
+    '<td class="txt" style="color:#2563eb;font-weight:700">'+(x.i.keep.length?x.i.keep.join(' · '):'<span class="mut">-</span>')+'</td>'+
+    '<td class="txt" style="color:#16a34a;font-weight:700">'+(x.i.up.length?x.i.up.join(' · '):'<span class="mut">-</span>')+'</td>'+
+    '<td class="txt" style="color:var(--down);font-weight:700">'+(x.i.drop.length?x.i.drop.join(' · '):'<span class="mut">-</span>')+'</td></tr>').join('');
   return '<div class="sub" style="margin-left:0;">학기·차수 버튼과 상관없이 <b>'+slots.map(sl=>sl.label).join(' + ')+'</b> 를 합쳐 봅니다 '+
     '(2학기 2차고사 점수가 들어오면 그 칸이 저절로 더해집니다). <b>9등급 평균이 좋은 순</b>으로 '+TOP1_N+'명. '+
     '<b>1등급 유지</b> = 본 시험마다 계속 1등급인 과목 · <b>1등급으로 올라감</b> = 바로 앞 시험보다 올라 가장 최근 시험에서 1등급인 과목 · <b>1등급에서 떨어짐</b> = 1등급이었다가 가장 최근 시험에서 내려간 과목. '+
