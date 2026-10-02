@@ -4982,7 +4982,14 @@ function dataGetVal(s,key){
   if(key==='avgG_1cha'){let g=[];NS(dataNaesinSem).forEach(subj=>{const o=s.naesin[dataNaesinSem][subj];if(o&&o['1차등급']!=null)g.push(o['1차등급']);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
   if(key==='avgG_2cha'){let g=[];NS(dataNaesinSem).forEach(subj=>{const o=s.naesin[dataNaesinSem][subj];const gg=o?o['2차등급']:null;if(gg!=null)g.push(gg);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
   if(key==='avgG_final'){let g=[];NS(dataNaesinSem).forEach(subj=>{const o=s.naesin[dataNaesinSem][subj];if(subjFinalComplete(o)&&o['최종등급']!=null)g.push(o['최종등급']);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
+  // 9등급 (2026.10.02 사용자 요청 — 성적 데이터 열람에서 5등급 옆에 9등급 · 따로 정렬)
+  //   값은 서버가 계산한 9등급 환산(o._g9). 그 시험 점수가 있어야만 (학기말은 1·2차 시험 + 1·2차 수행 넷 다)
+  if(key.indexOf('avg9_')===0){const ex=key.slice(5);let g=[];NS(dataNaesinSem).forEach(subj=>{const v=dataGetVal(s,'naesin9|'+subj+'|'+ex);if(v!=null)g.push(v);});return g.length?g.reduce((a,b)=>a+b,0)/g.length:null;}
   const t=key.split('|');  // type|subj|field
+  if(t[0]==='naesin9'){const o=s.naesin[dataNaesinSem][t[1]];if(!o||!o._g9)return null;
+    if(t[2]==='최종'){if(!subjFinalComplete(o))return null;}else if(o[t[2]+'시험']==null)return null;
+    return o._g9[t[2]]!=null?o._g9[t[2]]:null;
+  }
   if(t[0]==='naesin'){const o=s.naesin[dataNaesinSem][t[1]];if(!o)return null;
     if(NAESIN_FINAL_FIELDS.includes(t[2])&&!subjFinalComplete(o))return null; // 미완(대기)은 정렬 맨 뒤
     const v=o[t[2]];if(v==null)return null;
@@ -5020,21 +5027,26 @@ function renderDataTable(){
   if(dataTab==='naesin'){
     const sem=dataNaesinSem,view=dataNaesinView;
     const avgGcell=v=>v==null?'<span class="mut">-</span>':'<span class="raw">'+v.toFixed(2)+'</span>';
+    // 9등급 칸 — ⑦·⑧ 과 같은 보라 글씨
+    const g9cell=v=>v==null?'<td class="mut">-</td>':'<td style="color:#7c3aed;font-weight:700">'+v+'</td>';
+    const avg9cell=v=>v==null?'<span class="mut">-</span>':'<span class="raw" style="color:#7c3aed">'+v.toFixed(2)+'</span>';
+    const g9v=(s,subj,ex)=>g9cell(dataGetVal(s,'naesin9|'+subj+'|'+ex));
+    const avgTh=(k,lab)=>'<th rowspan="2" class="sortable'+(SS.key===k?' sorted':'')+'" data-sort="'+k+'">'+lab+(SS.key===k?aw(k):'')+'</th>';
     if(view==='최종'){
       // 환산·등급·성취 + 전체 과목 평균등급 (변경13)
-      h+='<thead><tr class="grp">'+nameTh+NS(sem).map(subj=>'<th colspan="3">'+subj+'</th>').join('')+'<th rowspan="2" class="sortable'+(SS.key==='avgG_final'?' sorted':'')+'" data-sort="avgG_final">전체<br>평균등급'+(SS.key==='avgG_final'?aw('avgG_final'):'')+'</th></tr><tr>'+
-        NS(sem).map(subj=>sth('환산','naesin|'+subj+'|환산총점')+sth('등급','naesin|'+subj+'|최종등급')+sth('성취','naesin|'+subj+'|최종성취도')).join('')+'</tr></thead><tbody>';
-      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};if(!subjFinalComplete(o))return '<td class="mut">대기</td><td class="mut">-</td><td class="mut">-</td>';return '<td class="raw">'+fmt(o['환산총점'],1)+'</td><td>'+gb(o['최종등급'])+'</td><td>'+ach(o['최종성취도'])+'</td>';}).join('')+'<td>'+avgGcell(dataGetVal(s,'avgG_final'))+'</td></tr>';});
+      h+='<thead><tr class="grp">'+nameTh+NS(sem).map(subj=>'<th colspan="4">'+subj+'</th>').join('')+avgTh('avgG_final','전체 평균<br>5등급')+avgTh('avg9_최종','전체 평균<br>9등급')+'</tr><tr>'+
+        NS(sem).map(subj=>sth('환산','naesin|'+subj+'|환산총점')+sth('5등급','naesin|'+subj+'|최종등급')+sth('9등급','naesin9|'+subj+'|최종')+sth('성취','naesin|'+subj+'|최종성취도')).join('')+'</tr></thead><tbody>';
+      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};if(!subjFinalComplete(o))return '<td class="mut">대기</td><td class="mut">-</td><td class="mut">-</td><td class="mut">-</td>';return '<td class="raw">'+fmt(o['환산총점'],1)+'</td><td>'+gb(o['최종등급'])+'</td>'+g9v(s,subj,'최종')+'<td>'+ach(o['최종성취도'])+'</td>';}).join('')+'<td>'+avgGcell(dataGetVal(s,'avgG_final'))+'</td><td>'+avg9cell(dataGetVal(s,'avg9_최종'))+'</td></tr>';});
     }else if(view==='1차'){
       // 1차 시험점수 + 1차등급 + 전체 과목 평균등급
-      h+='<thead><tr class="grp">'+nameTh+NS(sem).map(subj=>'<th colspan="2">'+subj+'</th>').join('')+'<th rowspan="2" class="sortable'+(SS.key==='avgG_1cha'?' sorted':'')+'" data-sort="avgG_1cha">전체<br>평균등급'+(SS.key==='avgG_1cha'?aw('avgG_1cha'):'')+'</th></tr><tr>'+
-        NS(sem).map(subj=>sth('1차점수','naesin|'+subj+'|1차시험')+sth('1차등급','naesin|'+subj+'|1차등급')).join('')+'</tr></thead><tbody>';
-      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};return '<td class="raw">'+fmt(o['1차시험'])+'</td><td>'+gb(o['1차등급'])+'</td>';}).join('')+'<td>'+avgGcell(dataGetVal(s,'avgG_1cha'))+'</td></tr>';});
+      h+='<thead><tr class="grp">'+nameTh+NS(sem).map(subj=>'<th colspan="3">'+subj+'</th>').join('')+avgTh('avgG_1cha','전체 평균<br>5등급')+avgTh('avg9_1차','전체 평균<br>9등급')+'</tr><tr>'+
+        NS(sem).map(subj=>sth('1차점수','naesin|'+subj+'|1차시험')+sth('5등급','naesin|'+subj+'|1차등급')+sth('9등급','naesin9|'+subj+'|1차')).join('')+'</tr></thead><tbody>';
+      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};return '<td class="raw">'+fmt(o['1차시험'])+'</td><td>'+gb(o['1차등급'])+'</td>'+g9v(s,subj,'1차');}).join('')+'<td>'+avgGcell(dataGetVal(s,'avgG_1cha'))+'</td><td>'+avg9cell(dataGetVal(s,'avg9_1차'))+'</td></tr>';});
     }else{
       // 2차: 2차점수 + 2차등급 + 전체 평균등급 (시트 실값)
-      h+='<thead><tr class="grp">'+nameTh+NS(sem).map(subj=>'<th colspan="2">'+subj+'</th>').join('')+'<th rowspan="2" class="sortable'+(SS.key==='avgG_2cha'?' sorted':'')+'" data-sort="avgG_2cha">전체<br>평균등급'+(SS.key==='avgG_2cha'?aw('avgG_2cha'):'')+'</th></tr><tr>'+
-        NS(sem).map(subj=>sth('2차점수','naesin|'+subj+'|2차시험')+sth('2차등급','naesin|'+subj+'|2차등급')).join('')+'</tr></thead><tbody>';
-      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};return '<td class="raw">'+fmt(o['2차시험'])+'</td><td>'+gb(o['2차등급'])+'</td>';}).join('')+'<td>'+avgGcell(dataGetVal(s,'avgG_2cha'))+'</td></tr>';});
+      h+='<thead><tr class="grp">'+nameTh+NS(sem).map(subj=>'<th colspan="3">'+subj+'</th>').join('')+avgTh('avgG_2cha','전체 평균<br>5등급')+avgTh('avg9_2차','전체 평균<br>9등급')+'</tr><tr>'+
+        NS(sem).map(subj=>sth('2차점수','naesin|'+subj+'|2차시험')+sth('5등급','naesin|'+subj+'|2차등급')+sth('9등급','naesin9|'+subj+'|2차')).join('')+'</tr></thead><tbody>';
+      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};return '<td class="raw">'+fmt(o['2차시험'])+'</td><td>'+gb(o['2차등급'])+'</td>'+g9v(s,subj,'2차');}).join('')+'<td>'+avgGcell(dataGetVal(s,'avgG_2cha'))+'</td><td>'+avg9cell(dataGetVal(s,'avg9_2차'))+'</td></tr>';});
     }
     h+='</tbody>';
   }else{
@@ -5046,7 +5058,7 @@ function renderDataTable(){
     h+='</tbody>';
   }
   const ctx=dataTab==='naesin'?(SEMESTERS.find(x=>x.key===dataNaesinSem).label+' '+dataNaesinView):MOCK_MONTHS.find(x=>x.key===dataMockMonth).label;
-  h+='</table></div><div class="sub" style="margin:8px 0 0;">표시 '+arr.length+'명'+(dataBan?' · '+dataBan+'반':'')+(dataSearch?' · "'+esc(dataSearch)+'"':'')+' · '+ctx+' · 열 제목을 누르면 정렬됩니다</div></div>';
+  h+='</table></div><div class="sub" style="margin:8px 0 0;">표시 '+arr.length+'명'+(dataBan?' · '+dataBan+'반':'')+(dataSearch?' · "'+esc(dataSearch)+'"':'')+' · '+ctx+' · 열 제목을 한 번 누르면 <b>오름차순 ▲</b>, 한 번 더 누르면 <b>내림차순 ▼</b> (5등급 · 9등급 칸을 각각 눌러 정렬)</div></div>';
   box.innerHTML=h;
 
   box.querySelector('table').addEventListener('click',e=>{const th=e.target.closest('th[data-sort]');if(!th)return;const k=th.getAttribute('data-sort');if(dataSort.key===k)dataSort.dir*=-1;else{dataSort.key=k;dataSort.dir=1;}renderDataTable();});
