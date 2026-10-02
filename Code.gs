@@ -668,13 +668,23 @@ function apiLogin_(req) {
   var data = sheet.getDataRange().getValues();
   var target = hashPw_(pw);
 
-  for (var i = 1; i < data.length; i++) {
-    var row = data[i];
-    if (String(row[ACC.hash] || '') !== target) continue;
+  // ⚠️ 2026.10.02 부터 신청할 때 본인이 비밀번호를 정하므로, 「대기」 줄에도 비밀번호가 들어 있습니다.
+  //    같은 비밀번호의 줄이 여럿이면 **승인된 줄을 먼저** 씁니다 (대기 줄 때문에 로그인이 막히지 않게).
+  var found = -1, firstStatus = '';
+  for (var j = 1; j < data.length; j++) {
+    if (String(data[j][ACC.hash] || '') !== target) continue;
+    var stj = String(data[j][ACC.status] || '').trim();
+    if (!firstStatus) firstStatus = stj;
+    if (stj === '승인') { found = j; break; }
+  }
+  if (found < 0 && firstStatus) {
+    if (firstStatus === '정지') return err_('사용이 중지된 계정입니다. 관리자에게 문의해 주세요.');
+    return err_('아직 승인되지 않은 계정입니다.');
+  }
 
-    var status = String(row[ACC.status] || '').trim();
-    if (status === '정지') return err_('사용이 중지된 계정입니다. 관리자에게 문의해 주세요.');
-    if (status !== '승인') return err_('아직 승인되지 않은 계정입니다.');
+  if (found >= 0) {
+    var i = found;
+    var row = data[i];
 
     var user = {
       name: String(row[ACC.name] || '선생님').trim(),
@@ -719,9 +729,15 @@ function apiRequestAccount_(req) {
   var name  = String((req && req.name)  || '').trim();
   var cls   = toInt_(req && req.classNum);
   var memo  = String((req && req.memo)  || '').trim();
+  // 본인이 정한 비밀번호 (2026.10.02 사용자 요청). 옛 화면은 안 보내므로 없으면 예전처럼 승인 때 발급합니다.
+  var pw    = String((req && req.password) || '').trim();
 
   if (!name) return err_('이름을 입력해 주세요.');
   if (isNaN(cls)) return err_('담당 반을 선택해 주세요.');
+  if (pw) {
+    var bad = pwRuleError_(pw);
+    if (bad) return err_(bad);
+  }
 
   var ss = getSpreadsheet_();
   var sheet = ensureAccountSheet_(ss);
@@ -746,10 +762,32 @@ function apiRequestAccount_(req) {
   newRow[ACC.status]  = '대기';
   newRow[ACC.applied] = nowStr_();
   newRow[ACC.memo]    = memo;
+  // ⚠️ 다른 계정과 같은 비밀번호인지 **여기서는 알려 주지 않습니다.**
+  //    「이미 쓰는 비밀번호입니다」 라고 하면 그 말로 남의 비밀번호를 알아낼 수 있기 때문입니다.
+  //    겹치는지는 관리자가 승인할 때(approveRow_) 확인하고, 겹치면 새 비밀번호를 만들어 드립니다.
+  if (pw) newRow[ACC.hash] = hashPw_(pw);
 
   sheet.appendRow(newRow);
 
+  if (pw) {
+    return ok_({ pwSet: true,
+                 message: '신청이 접수되었습니다. 관리자가 승인하면 정하신 비밀번호로 로그인하실 수 있습니다.' });
+  }
   return ok_({ message: '신청이 접수되었습니다. 관리자 승인 후 비밀번호가 발급됩니다.' });
+}
+
+/**
+ * 신청할 때 정하는 비밀번호의 조건 (2026.10.02 사용자 결정 「8자 이상 + 숫자 포함」).
+ * 영어·숫자·기호 무엇이든 됩니다. 앞뒤 빈칸은 로그인할 때도 지우므로 쓸 수 없습니다.
+ * 맞으면 '' , 아니면 안내 글.
+ */
+var PW_MIN_LEN = 8;
+function pwRuleError_(pw) {
+  pw = String(pw || '');
+  if (pw.length < PW_MIN_LEN) return '비밀번호는 ' + PW_MIN_LEN + '자 이상으로 정해 주세요.';
+  if (pw.length > 50)         return '비밀번호는 50자 이하로 정해 주세요.';
+  if (!/[0-9]/.test(pw))      return '비밀번호에 숫자를 하나 이상 넣어 주세요.';
+  return '';
 }
 
 
@@ -2117,7 +2155,7 @@ var SUSI_JH_MAX_ = 8;
 /* 이 Code.gs 의 버전. 화면(index.html)의 PAGE_VER 와 짝이 맞아야 합니다.
    「고쳤는데 화면이 그대로다」 의 원인은 거의 늘 새 버전 배포를 안 한 것이라,
    ping 응답에 실어 보내 화면이 스스로 알아채게 합니다. */
-var APP_VER = '2026-10-01';
+var APP_VER = '2026-10-02';
 
 /**
  * 아무 칸에서나 4자리 연도를 뽑아냅니다.
@@ -2491,13 +2529,8 @@ function menuApproveSelected() {
   var name = String(sheet.getRange(row, ACC.name + 1).getValue() || '').trim();
   if (!name) { ui.alert('빈 줄입니다. 이름이 있는 줄을 클릭해 주세요.'); return; }
 
-  var pw = approveRow_(sheet, row);
-  showMsg_('승인 완료',
-      '<b>' + name + '</b> 선생님의 비밀번호가 발급되었습니다.<br><br>' +
-      '<div style="font-size:22px;font-weight:800;letter-spacing:2px;' +
-      'background:#eff6ff;border:2px solid #3b82f6;border-radius:10px;' +
-      'padding:14px;text-align:center;margin:10px 0">' + pw + '</div>' +
-      '⚠️ 이 비밀번호는 <b>지금만</b> 볼 수 있습니다.<br>본인에게 직접 전달해 주세요.');
+  var res = approveRow_(sheet, row);
+  showMsg_('승인 완료', '<b>' + name + '</b> 선생님을 승인했습니다.<br><br>' + approveText_(res));
 }
 
 function menuApproveAllPending() {
@@ -2508,11 +2541,13 @@ function menuApproveAllPending() {
   var results = [];
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][ACC.status] || '').trim() !== '대기') continue;
-    var pw = approveRow_(sheet, i + 1);
+    var res = approveRow_(sheet, i + 1);
     results.push({
       name: String(data[i][ACC.name] || '').trim(),
       cls:  data[i][ACC.cls],
-      pw:   pw
+      pw:   res.own ? '' : res.pw,
+      own:  res.own,
+      clash: res.clash
     });
   }
 
@@ -2526,16 +2561,43 @@ function menuApproveAllPending() {
     html += '<tr><td style="padding:6px;border:1px solid #cbd5e1">' + r.name + '</td>' +
             '<td style="padding:6px;border:1px solid #cbd5e1;text-align:center">' + r.cls + '반</td>' +
             '<td style="padding:6px;border:1px solid #cbd5e1;text-align:center;' +
-            'font-weight:800;letter-spacing:1px">' + r.pw + '</td></tr>';
+            (r.own ? 'color:#047857;font-weight:700">본인이 정함 (전달 필요 없음)'
+                   : 'font-weight:800;letter-spacing:1px">' + r.pw +
+                     (r.clash ? '<br><span style="font-size:11px;color:#b91c1c;font-weight:600">정한 비밀번호가 겹쳐 새로 만듦</span>' : '')) +
+            '</td></tr>';
   });
-  html += '</table><br>⚠️ 이 비밀번호들은 <b>지금만</b> 볼 수 있습니다. 메모 후 각자에게 전달해 주세요.';
+  html += '</table><br>⚠️ 새로 만든 비밀번호는 <b>지금만</b> 볼 수 있습니다. 메모 후 각자에게 전달해 주세요.';
 
   showMsg_(results.length + '명 승인 완료', html);
 }
 
-function approveRow_(sheet, row) {
-  var pw = makePassword_();
-  sheet.getRange(row, ACC.hash + 1).setValue(hashPw_(pw));
+/**
+ * 한 줄을 승인합니다. 돌려주는 것 : { pw: 새로 만든 비밀번호 | '' , own: 본인이 정한 것을 그대로 씀, clash: 겹쳐서 새로 만듦 }
+ *
+ * 2026.10.02 부터 신청할 때 본인이 비밀번호를 정합니다.
+ *   · 대기 줄에 비밀번호가 들어 있고 **다른 줄과 겹치지 않으면** → 그대로 승인 (새로 만들지 않음)
+ *   · 다른 줄과 **겹치면** → 예전처럼 새 비밀번호를 만들어 관리자에게 보여 줌
+ *     (로그인이 비밀번호만으로 사람을 찾으므로 두 사람이 같은 비밀번호를 쓸 수 없습니다)
+ *   · 비밀번호 없이 신청했거나(옛 화면) · 재발급(forceNew) → 새로 만듦
+ */
+function approveRow_(sheet, row, forceNew) {
+  var cur = String(sheet.getRange(row, ACC.hash + 1).getValue() || '').trim();
+  var st  = String(sheet.getRange(row, ACC.status + 1).getValue() || '').trim();
+  var res = { pw: '', own: false, clash: false };
+
+  if (!forceNew && cur && st === '대기') {
+    var all = sheet.getDataRange().getValues();
+    for (var i = 1; i < all.length; i++) {
+      if (i + 1 === row) continue;
+      if (String(all[i][ACC.hash] || '').trim() === cur) { res.clash = true; break; }
+    }
+    if (!res.clash) res.own = true;
+  }
+
+  if (!res.own) {
+    res.pw = makePassword_();
+    sheet.getRange(row, ACC.hash + 1).setValue(hashPw_(res.pw));
+  }
   sheet.getRange(row, ACC.status + 1).setValue('승인');
   sheet.getRange(row, ACC.ok + 1).setValue(nowStr_());
   if (!String(sheet.getRange(row, ACC.role + 1).getValue() || '').trim()) {
@@ -2544,7 +2606,18 @@ function approveRow_(sheet, row) {
   if (!String(sheet.getRange(row, ACC.grade + 1).getValue() || '').trim()) {
     sheet.getRange(row, ACC.grade + 1).setValue(GRADE_LABEL);
   }
-  return pw;
+  return res;
+}
+
+/** 승인 결과를 관리자에게 보여 줄 글 */
+function approveText_(res) {
+  if (res.own) return '본인이 신청할 때 정한 비밀번호를 그대로 씁니다. <b>따로 전달할 것이 없습니다.</b>';
+  var box = '<div style="font-size:22px;font-weight:800;letter-spacing:2px;' +
+            'background:#eff6ff;border:2px solid #3b82f6;border-radius:10px;' +
+            'padding:14px;text-align:center;margin:10px 0">' + res.pw + '</div>';
+  return (res.clash
+      ? '<span style="color:#b91c1c">신청할 때 정한 비밀번호가 다른 계정과 같아 쓸 수 없어, 새로 만들었습니다.</span><br>' : '') +
+      box + '⚠️ 이 비밀번호는 <b>지금만</b> 볼 수 있습니다.<br>본인에게 직접 전달해 주세요.';
 }
 
 function menuResetSelected() {
@@ -2561,7 +2634,7 @@ function menuResetSelected() {
   var name = String(sheet.getRange(row, ACC.name + 1).getValue() || '').trim();
   if (!name) { ui.alert('빈 줄입니다.'); return; }
 
-  var pw = approveRow_(sheet, row);
+  var pw = approveRow_(sheet, row, true).pw;
   showMsg_('비밀번호 재발급',
       '<b>' + name + '</b> 선생님의 새 비밀번호입니다.<br>' +
       '<span style="color:#b91c1c">이전 비밀번호는 더 이상 쓸 수 없습니다.</span><br><br>' +

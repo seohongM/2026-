@@ -24,7 +24,7 @@
 
     /* 이 index.html 의 버전. Apps Script 의 APP_VER 와 짝이 맞아야 합니다.
        다르면 [🔧 연결 상태 확인] 과 수시 패널이 알려 줍니다. */
-    const PAGE_VER = '2026-10-01';
+    const PAGE_VER = '2026-10-02';
 
     </script>
 
@@ -51,7 +51,11 @@
         .sem-avg-grid > .sem-avg-lab { font-weight: 800; font-size: 12px; }
         .sem-avg-grid > .sem-avg-lab:not(:first-child) { border-left: 2px solid #94a3b8; }
         .sem-avg-val b { font-size: 14px; font-weight: 800; }
-        .sem-avg-cap { font-size: 10px; color: #64748b; font-weight: 600; }
+        .sem-avg-cap { font-size: 10px; color: #475569; font-weight: 600; }
+        .sem-avg-grid > .sem-avg-s1  { background: #e0f2fe; color: #0c4a6e; }   /* 1학기 — 하늘 */
+        .sem-avg-grid > .sem-avg-s2  { background: #dcfce7; color: #14532d; }   /* 2학기 — 연두 */
+        .sem-avg-grid > .sem-avg-all { background: #e0e7ff; color: #312e81; }   /* 전체  — 남색 */
+        @media print { .sem-avg-grid > div { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
         @media print {
             .sem-avg-grid > div { padding: 1px 2px !important; gap: 3px !important; }
             .print-table tfoot .sem-avg-grid .sem-avg-lab, .print-table tfoot .sem-avg-val b { font-size: 6pt !important; }
@@ -446,8 +450,8 @@
         <div id="request-box" class="hidden bg-white rounded-2xl shadow-2xl p-6">
             <h2 class="font-extrabold text-slate-900 mb-1">계정 신청</h2>
             <p class="text-xs text-slate-500 mb-4 leading-relaxed">
-                신청하시면 관리자가 확인한 뒤 비밀번호를 발급해 드립니다.<br>
-                발급 전까지는 접속할 수 없습니다.
+                사용하실 비밀번호를 직접 정해 신청하시면, 관리자가 승인한 뒤부터 그 비밀번호로 로그인하실 수 있습니다.<br>
+                승인 전까지는 접속할 수 없습니다.
             </p>
 
             <label class="block text-xs font-bold text-slate-500 mb-1.5">선생님 성함</label>
@@ -457,6 +461,13 @@
             <label class="block text-xs font-bold text-slate-500 mb-1.5">담당 반</label>
             <select id="req-class"
                     class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none mb-3 bg-white"></select>
+
+            <!-- 본인이 정하는 비밀번호 (2026.10.02 사용자 요청 — 발급 비밀번호가 너무 복잡해서) -->
+            <label class="block text-xs font-bold text-slate-500 mb-1.5">사용할 비밀번호 <span class="font-normal text-slate-400">(8자 이상 · 숫자 1개 이상 · 영어·숫자·기호 모두 가능)</span></label>
+            <input type="password" id="req-pw" placeholder="예: school2026" autocomplete="new-password"
+                   class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none mb-2">
+            <input type="password" id="req-pw2" placeholder="비밀번호를 한 번 더 입력" autocomplete="new-password"
+                   class="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none mb-3">
 
             <label class="block text-xs font-bold text-slate-500 mb-1.5">전달 사항 <span class="font-normal text-slate-400">(선택)</span></label>
             <input type="text" id="req-memo" placeholder="예: 3월부터 3반 담임입니다"
@@ -1105,27 +1116,39 @@ async function doRequestAccount() {
     const name = document.getElementById('req-name').value.trim();
     const cls = document.getElementById('req-class').value;
     const memo = document.getElementById('req-memo').value.trim();
+    const pw = document.getElementById('req-pw').value;
+    const pw2 = document.getElementById('req-pw2').value;
     const btn = document.getElementById('req-btn');
     const msg = document.getElementById('req-msg');
 
     msg.classList.add('hidden');
-    if (!name) {
-        msg.textContent = '성함을 입력해 주세요.';
+    const fail = t => {
+        msg.textContent = t;
         msg.className = 'mt-3 text-xs font-semibold rounded-lg p-2.5 text-rose-600 bg-rose-50 border border-rose-200';
         msg.classList.remove('hidden');
-        return;
-    }
+    };
+    if (!name) return fail('성함을 입력해 주세요.');
+    // 비밀번호 조건 — 서버(pwRuleError_)와 같은 규칙 : 8자 이상 · 숫자 1개 이상 (2026.10.02 사용자 결정)
+    if (pw !== pw.trim()) return fail('비밀번호 앞뒤에 빈칸을 넣을 수 없습니다.');
+    if (pw.length < 8) return fail('비밀번호는 8자 이상으로 정해 주세요.');
+    if (pw.length > 50) return fail('비밀번호는 50자 이하로 정해 주세요.');
+    if (!/[0-9]/.test(pw)) return fail('비밀번호에 숫자를 하나 이상 넣어 주세요.');
+    if (pw !== pw2) return fail('두 번 입력한 비밀번호가 서로 다릅니다.');
 
     btn.disabled = true;
     btn.textContent = '보내는 중…';
 
     try {
-        const data = await api('requestAccount', { name: name, classNum: cls, memo: memo });
-        msg.textContent = '✓ ' + (data.message || '신청이 접수되었습니다.');
+        const data = await api('requestAccount', { name: name, classNum: cls, memo: memo, password: pw });
+        // 서버가 옛 버전이면 정한 비밀번호를 저장하지 못합니다 (pwSet 이 없음) — 그 사실을 알립니다.
+        msg.textContent = '✓ ' + (data.message || '신청이 접수되었습니다.') +
+            (data.pwSet ? '' : ' (서버가 아직 옛 버전이라 정하신 비밀번호는 저장되지 않았습니다. 승인 때 관리자가 비밀번호를 따로 알려 드립니다.)');
         msg.className = 'mt-3 text-xs font-semibold rounded-lg p-2.5 text-emerald-700 bg-emerald-50 border border-emerald-200';
         msg.classList.remove('hidden');
         document.getElementById('req-name').value = '';
         document.getElementById('req-memo').value = '';
+        document.getElementById('req-pw').value = '';
+        document.getElementById('req-pw2').value = '';
     } catch (e) {
         msg.textContent = e.message || '신청하지 못했습니다.';
         msg.className = 'mt-3 text-xs font-semibold rounded-lg p-2.5 text-rose-600 bg-rose-50 border border-rose-200';
@@ -3489,10 +3512,11 @@ function renderSchoolGrades(grades, summary) {
     //   1학기 평균 | 5등급 | 9등급 ┃ 2학기 평균 | 5등급 | 9등급 ┃ 전체 평균 | 5등급 | 9등급
     // 표의 10칸과 상관없이 **세 묶음을 같은 너비**로 보이게, 칸 하나(colspan 10) 안에 격자로 그립니다.
     // 가장 잘 본·못 본 과목 · 석차백분율 · 평균 점수 설명은 사용자가 「모두 빼기」 를 골라 뺐습니다.
-    const avgGroup = (label, a5v, a9v, total) => `
-        <div class="sem-avg-lab ${total ? 'bg-indigo-100 text-indigo-900' : 'bg-slate-100 text-slate-800'}">${label}</div>
-        <div class="sem-avg-val bg-white"><span class="sem-avg-cap">5등급</span><b class="text-slate-900">${a5v || '-'}</b></div>
-        <div class="sem-avg-val bg-blue-50"><span class="sem-avg-cap text-blue-700">9등급</span><b class="text-blue-800">${a9v || '-'}</b></div>`;
+    // 묶음마다 세 칸을 **같은 바탕색**으로 (2026.10.02 사용자 요청) — 1학기 하늘 · 2학기 연두 · 전체 남색
+    const avgGroup = (label, a5v, a9v, tone) => `
+        <div class="sem-avg-lab sem-avg-${tone}">${label}</div>
+        <div class="sem-avg-val sem-avg-${tone}"><span class="sem-avg-cap">5등급</span><b class="text-slate-900">${a5v || '-'}</b></div>
+        <div class="sem-avg-val sem-avg-${tone}"><span class="sem-avg-cap">9등급</span><b class="text-blue-800">${a9v || '-'}</b></div>`;
     const semOf = x => x && x.subjectCount ? [fx(x.avg5), fx(x.avg9)] : ['', ''];
 
     if (s.sems && s.sems.length) {
@@ -3501,7 +3525,7 @@ function renderSchoolGrades(grades, summary) {
         tfoot.innerHTML = upRow + `
         <tr class="sem-avg-row ${upRow ? 'border-t border-slate-300' : 'border-t-2 border-slate-400'}">
             <td class="p-0" colspan="10"><div class="sem-avg-grid">
-                ${avgGroup('1학기 평균', s1[0], s1[1])}${avgGroup('2학기 평균', s2[0], s2[1])}${avgGroup('전체 평균', avg5, avg9, true)}
+                ${avgGroup('1학기 평균', s1[0], s1[1], 's1')}${avgGroup('2학기 평균', s2[0], s2[1], 's2')}${avgGroup('전체 평균', avg5, avg9, 'all')}
             </div></td>
         </tr>`;
     } else {
@@ -4546,8 +4570,16 @@ function renderGradeNaesin(){
   //    9등급이 같으면 5등급 평균 → 1등급 수. 9등급 평균이 없는 학생(과목 수가 안 맞음)은 맨 뒤
   const TOP_N=50;
   const topStu=withAvg.slice().sort((a,b)=>((a.avg9==null)-(b.avg9==null))||((a.avg9||0)-(b.avg9||0))||a.avg-b.avg||b.ones-a.ones).slice(0,TOP_N);
+  // 과목마다 몇 등급인지 「5등급(9등급)」 으로 (2026.10.02 사용자 요청 — 그 학기 과목 전부, 2학기는 정보까지 7과목)
+  //    점수가 없는 과목(결시·미응시)은 「-」. 1등급은 굵게.
+  const subjCell=(s,subj)=>{const o=s.naesin[sem][subj];
+    if(!(inc(o)&&o[GF]!=null))return '<td class="mut">-</td>';
+    const g9=o._g9&&o._g9[gradeNaesinExam]!=null?o._g9[gradeNaesinExam]:null;
+    return '<td'+(o[GF]===1?' style="font-weight:800;color:#1d4ed8"':'')+'>'+o[GF]+(g9!=null?'<span class="mut">('+g9+')</span>':'')+'</td>';};
   let topRows=topStu.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+
-    (x.avg9!=null?' <span style="color:#7c3aed;font-weight:700">(9등급 '+x.avg9.toFixed(2)+')</span>':'')+'</td><td>'+x.s.ban+'반</td><td class="raw">'+x.avg.toFixed(2)+'</td><td>'+x.ones+'개</td></tr>').join('');
+    (x.avg9!=null?' <span style="color:#7c3aed;font-weight:700">(9등급 '+x.avg9.toFixed(2)+')</span>':'')+'</td><td>'+x.s.ban+'반</td>'+
+    NS(sem).map(subj=>subjCell(x.s,subj)).join('')+
+    '<td class="raw">'+x.avg.toFixed(2)+'</td><td>'+x.ones+'개</td></tr>').join('');
 
   const iLabel=gradeNaesinExam==='최종'?'미이수(I)':EX.lab+' I(40점 미만)';
 
@@ -4581,7 +4613,7 @@ function renderGradeNaesin(){
     '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+NS(sem).map(subj=>'<th>'+subj+'</th>').join('')+'<th>전체</th></tr></thead><tbody>'+csRows+csTotal+'</tbody></table></div>'+
 
     // ⑦ 은 그대로 · ⑧ 은 「상위권 1등급 추이」 로 바꿈 (2026.10.01) — 칸이 많아 둘 다 한 줄을 다 씁니다
-    secHTML('⑦ 최우수 그룹 (9등급 평균 순 · 상위 '+TOP_N+')','star')+'<div class="sub" style="margin-left:0;">위에서 고른 학기·차수 기준. <b>이름 옆 (9등급 …)</b> = 같은 과목의 9등급 환산 평균 · 이 값이 좋은 순서로 줄 세웁니다. 「등급평균」 은 지금 5등급제 평균입니다.</div><div class="tscroll tall"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th><th>등급평균 (5등급)</th><th>1등급</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
+    secHTML('⑦ 최우수 그룹 (9등급 평균 순 · 상위 '+TOP_N+')','star')+'<div class="sub" style="margin-left:0;">위에서 고른 학기·차수 기준. <b>이름 옆 (9등급 …)</b> = 같은 과목의 9등급 환산 평균 · 이 값이 좋은 순서로 줄 세웁니다. 과목 칸 = <b>5등급(9등급)</b>. 「등급평균」 은 지금 5등급제 평균입니다.</div><div class="tscroll tall"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th>'+NS(sem).map(subj=>'<th>'+top1Short(subj)+'<br><span class="mut">5(9)</span></th>').join('')+'<th>등급평균 (5등급)</th><th>1등급</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
     secHTML('⑧ 상위권 1등급 추이 (9등급 평균 순 · 상위 '+TOP1_N+')','trending-up')+top1Html()+
 
     secHTML('⑨ '+iLabel+' 학생 명단','alert-triangle')+'<div class="sub" style="margin-left:0;">'+EX.lab+' 40점 미만(I) — 최우선 지도 대상</div>'+
