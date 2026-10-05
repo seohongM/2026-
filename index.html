@@ -5382,7 +5382,8 @@ function renderMockCharts(mockExams) {
 function renderNaesinCharts(grades) {
     // 2026.10.05 사용자 요청 「내신 변화도 보여 줄 수 있는가」 → 시안을 보고 「내신 표 바로 아래 · 시험마다」 를 고름.
     //   모의고사 변화와 같은 모양 : 과목마다 작은 그래프 · 곧은 선 · 위로 갈수록 좋음
-    //   **9등급제로** 그립니다 (2026.10.05 사용자 지시 「그래프는 9등급제로」) — 세로축 1~9 · 점마다 「3등급」 = 9등급 환산
+    //   **9등급제로** 그립니다 (2026.10.05 사용자 지시 「그래프는 9등급제로」) — 선의 높이 · 세로축 1~9 = 9등급 환산
+    //   점 글씨는 「2등급 (6)」 = 5등급 (9등급) (같은 날 사용자 지시 「5등급(9등급)으로 표시」)
     //   점 = 1학기 1차 · 1학기 2차 · 2학기 1차 · 2학기 2차 중 **그 과목에 시험 점수가 있는 것** (사용자 지시 —
     //   한 학기에만 있는 과목(정보)은 그 학기 칸만). 1·2학기 과목은 학기 표시를 뗀 이름으로 한 그래프에 잇습니다.
     const box = document.getElementById('naesin-change');
@@ -5418,7 +5419,7 @@ function renderNaesinCharts(grades) {
     }
     box.innerHTML = bases.map((b, i) =>
         '<div class="bg-white border border-slate-200 rounded-xl p-3"><h3 class="text-xs font-extrabold text-slate-800 mb-1">' + b +
-        ' <span class="font-medium text-[10px] text-slate-400">9등급 · 위로 갈수록 좋음</span></h3>' +
+        ' <span class="font-medium text-[10px] text-slate-400">5등급 (9등급) · 선은 9등급 · 위로 갈수록 좋음</span></h3>' +
         '<div style="height:120px"><canvas id="naesin-chg-' + i + '"></canvas></div></div>').join('');
     bases.forEach((b, i) => {
         const pt = all[i], el = document.getElementById('naesin-chg-' + i);
@@ -5426,7 +5427,7 @@ function renderNaesinCharts(grades) {
         const g = pt.map(x => x[2]);
         const lbl = { id: 'naesinChgLbl', afterDatasetsDraw(c) {
             const x = c.ctx; x.save(); x.font = '700 11px Pretendard, sans-serif'; x.textAlign = 'center'; x.fillStyle = '#334155';
-            c.getDatasetMeta(0).data.forEach((e, j) => x.fillText(pt[j][2] + '등급', e.x, e.y - 8));
+            c.getDatasetMeta(0).data.forEach((e, j) => x.fillText(pt[j][1] + '등급 (' + pt[j][2] + ')', e.x, e.y - 8));
             x.restore(); } };
         drawChart('naesin-chg-' + i, {
             type: 'line', plugins: [lbl],
