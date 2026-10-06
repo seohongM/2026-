@@ -1784,41 +1784,59 @@ function mvCommonKeys(maps) {
  * 학생 = **그 과목을 모두 본 학생만** (2026.10.06 사용자 결정) — 결시자처럼 몇 과목만 본 학생이
  *        1~2과목 평균으로 줄 세워져 석차가 크게 출렁이던 문제(127위 → 5위)를 막습니다. 인정점이 들어오면 저절로 들어옵니다.
  */
+/**
+ * 시험 하나(sl)의 학년 석차 — **석차백분율 평균** 순 (2026.10.06 사용자 결정 「둘 다 석차백분율 · 시험끼리」).
+ *   과목 = 그 시험을 학생 절반 이상이 본 과목 (`mvCommonKeys`) · 학생 = 그 과목을 **모두 본** 학생끼리.
+ *   과목마다 점수가 있는 학생끼리 석차백분율 = (석차 + (동석차 - 1) ÷ 2) ÷ 인원 × 100 → 과목 평균이 작을수록 앞.
+ *   오른·내린 학생 칸과 개별 상담 평균 줄 아랫줄이 **이 값 하나**를 같이 씁니다 (두 곳 숫자가 늘 같게).
+ * 돌려주는 것 : { maps(학생마다 과목 점수), ks(과목), by{학생 차례: {rank, p}}, total(줄 세운 학생 수) }
+ */
+function mvExamRank(sl) {
+    const rows = (ALL && ALL.students) || [];
+    if (!sl) return null;
+    const maps = rows.map(r => mvExamScores(r, sl));
+    const ks = mvCommonKeys(maps);
+    if (!ks.length) return null;
+    const pf = {};
+    ks.forEach(k => {
+        const vs = maps.map(m => m[k] ? m[k][0] : null).filter(v => v !== null);
+        pf[k] = v => { let hi = 0, eq = 0; vs.forEach(x => { if (x > v) hi++; else if (x === v) eq++; });
+                       return (hi + 1 + (eq - 1) / 2) / vs.length * 100; };
+    });
+    const pop = [];
+    maps.forEach((m, i) => {
+        if (!ks.every(k => m[k])) return;
+        // 소수 끝자리 찌꺼기로 같은 평균이 다른 등수가 되지 않게 6자리에서 반올림
+        pop.push({ i: i, p: Math.round(ks.reduce((a, k) => a + pf[k](m[k][0]), 0) / ks.length * 1e6) / 1e6 });
+    });
+    mvRank(pop, r => -r.p, 'rank');
+    const by = {}; pop.forEach(r => { by[r.i] = r; });
+    return { maps: maps, ks: ks, by: by, total: pop.length };
+}
+
+/**
+ * 내신 : 직전 시험(A) **전체 과목** → 최근 시험(B) **전체 과목** (2026.10.06 사용자 요청)
+ *   예) 1학기 2차 6과목 → 2학기 1차 과목 (정보처럼 한 학기에만 있는 과목도 그 시험에 들어갑니다)
+ *   예전에는 두 시험의 **같은 이름 과목끼리만** 짝지어 정보가 빠졌습니다.
+ * 학년 석차 = 시험마다 `mvExamRank` (석차백분율 평균 순). 명단 = 두 시험의 과목을 **모두 본** 학생만
+ *   (결시자처럼 몇 과목만 본 학생이 127위 → 5위 처럼 「오른 학생」 맨 위에 오르던 문제를 막음).
+ * 줄의 「평균점수」 는 참고용 원점수 평균입니다.
+ */
 function mvNaesinAll(A, B) {
     const rows = (ALL && ALL.students) || [];
     const recs = [];
-    if (!A || !B) return recs;
-    const ma = rows.map(r => mvExamScores(r, A)), mb = rows.map(r => mvExamScores(r, B));
-    const ka = mvCommonKeys(ma), kb = mvCommonKeys(mb);
-    if (!ka.length || !kb.length) return recs;
+    const EA = mvExamRank(A), EB = mvExamRank(B);
+    if (!EA || !EB) return recs;
     const avg = (m, ks, i) => { const v = ks.map(k => m[k][i]); return v.some(x => x === null) ? null : v.reduce((a, b) => a + b, 0) / v.length; };
-    // 학년 석차 = **석차백분율 평균** 순 (2026.10.06 사용자 결정 「둘 다 석차백분율 · 시험끼리」 — 개별 상담 평균 줄과 같은 잣대).
-    //   과목마다 그 시험 점수가 있는 학생끼리 석차백분율 = (석차 + (동석차 - 1) ÷ 2) ÷ 인원 × 100 → 과목 평균이 작을수록 앞.
-    //   예전엔 원점수 평균 순이라 어려운 과목을 잘 본 학생이 손해를 봤습니다.
-    //   석차는 시험마다 **그 시험 과목을 모두 본 학생끼리** 매깁니다 (명단에는 두 시험을 다 본 학생만).
-    const pctOf = (maps, ks) => {
-        const out = {};
-        ks.forEach(k => {
-            const vs = maps.map(m => m[k] ? m[k][0] : null).filter(v => v !== null);
-            out[k] = v => { let hi = 0, eq = 0; vs.forEach(x => { if (x > v) hi++; else if (x === v) eq++; });
-                            return (hi + 1 + (eq - 1) / 2) / vs.length * 100; };
-        });
-        return out;
-    };
-    const examRank = (maps, ks) => {
-        const pf = pctOf(maps, ks), pop = [];
-        maps.forEach((m, i) => { if (ks.every(k => m[k])) pop.push({ i: i, p: Math.round(ks.reduce((a, k) => a + pf[k](m[k][0]), 0) / ks.length * 1e6) / 1e6 }); });   // 소수 끝자리 찌꺼기로 같은 평균이 다른 등수가 되지 않게
-        mvRank(pop, r => -r.p, 'rank');
-        const by = {}; pop.forEach(r => { by[r.i] = r; }); return by;
-    };
-    const ra = examRank(ma, ka), rb = examRank(mb, kb);
     rows.forEach((row, i) => {
-        if (!ra[i] || !rb[i]) return;                       // 두 시험의 과목을 모두 본 학생만
-        const mv = { n1: ka.length, n2: kb.length,
-                     score1: avg(ma[i], ka, 0), score2: avg(mb[i], kb, 0),
-                     grade1: avg(ma[i], ka, 1), grade2: avg(mb[i], kb, 1),
-                     pct1: ra[i].p, pct2: rb[i].p };
-        recs.push({ c: Number(row.c), n: Number(row.n), nm: row.nm || '', mv: mv, rank1: ra[i].rank, rank2: rb[i].rank });
+        const a = EA.by[i], b = EB.by[i];
+        if (!a || !b) return;                               // 두 시험의 과목을 모두 본 학생만
+        const ma = EA.maps[i], mb = EB.maps[i];
+        const mv = { n1: EA.ks.length, n2: EB.ks.length,
+                     score1: avg(ma, EA.ks, 0), score2: avg(mb, EB.ks, 0),
+                     grade1: avg(ma, EA.ks, 1), grade2: avg(mb, EB.ks, 1),
+                     pct1: a.p, pct2: b.p };
+        recs.push({ c: Number(row.c), n: Number(row.n), nm: row.nm || '', mv: mv, rank1: a.rank, rank2: b.rank });
     });
     recs.forEach(r => {
         r.dGrade = (r.mv.grade1 === null || r.mv.grade2 === null) ? 0 : r.mv.grade1 - r.mv.grade2;   // 등급은 낮을수록 좋으므로 (전 - 후)
@@ -1828,13 +1846,28 @@ function mvNaesinAll(A, B) {
     return recs;
 }
 
-/** 그 학생의 직전 시험 → 최근 시험 학년 석차 (오른·내린 학생 칸과 같은 값) — 개별 상담 평균 줄의 ▲▼ 에 씁니다 */
-function mvStudentMove(c, n) {
-    const s = mvExamSlots();
-    if (s.length < 2) return null;
-    const A = s[s.length - 2], B = s[s.length - 1];
-    const r = mvNaesinAll(A, B).filter(x => x.c === Number(c) && x.n === Number(n))[0];
-    return r ? { A: A, B: B, rank1: r.rank1, rank2: r.rank2, d: r.dRank } : null;
+/**
+ * 개별 상담 평균 줄 아랫줄 (2026.10.06 사용자 결정 「평균 줄에 시험 석차를 보이기」) — 오른·내린 학생 칸과 **같은 숫자**.
+ *   학기마다 그 학기의 **가장 최근 시험** 석차 { sem: {label, rank, total} } +
+ *   최근 시험 학기에는 직전 시험 대비 변동 d (직전 석차 − 최근 석차, + 가 올라감).
+ */
+function mvStudentExamRanks(c, n) {
+    const rows = (ALL && ALL.students) || [];
+    const idx = rows.findIndex(r => Number(r.c) === Number(c) && Number(r.n) === Number(n));
+    const slots = mvExamSlots(), out = {};
+    if (idx < 0 || !slots.length) return out;
+    const rankAt = sl => { const E = mvExamRank(sl); const r = E && E.by[idx]; return r ? { label: sl.label, rank: r.rank, total: E.total } : null; };
+    [...new Set(slots.map(s => s.sem))].forEach(sem => {
+        const last = slots.filter(s => s.sem === sem).pop();
+        const r = rankAt(last);
+        out[sem] = r || { label: last.label, rank: null, total: null };
+    });
+    if (slots.length >= 2) {
+        const A = slots[slots.length - 2], B = slots[slots.length - 1];
+        const ra = rankAt(A), rb = rankAt(B);
+        if (ra && rb && out[B.sem]) { out[B.sem].d = ra.rank - rb.rank; out[B.sem].prev = ra; }
+    }
+    return out;
 }
 
 // 모의고사에서 총점에 넣는 과목 (2026.09 사용자 결정 — 한국사는 뺍니다)
@@ -3592,21 +3625,26 @@ function renderSchoolGrades(grades, summary) {
     // 묶음마다 세 칸을 **같은 바탕색**으로 (2026.10.02 사용자 요청) — 1학기 하늘 · 2학기 연두 · 전체 남색
     // 묶음마다 **아랫줄에 학년 석차** (2026.10.06 사용자 요청 「석차 변동도 나오면 좋겠다」 — 인쇄에도 나옴)
     //   처음엔 묶음 끝에 네 번째 칸으로 넣었으나 12칸이 되어 5등급·9등급 칸이 좁아져 두 줄로 접혔음 → 아랫줄로
-    //   석차 = 석차백분율 평균으로 줄 세운 등수 / 그 값이 있는 학생 수
-    //   (▲▼) = 1학기 대비가 아니라 **직전 시험 → 최근 시험** 변동 (2026.10.06 — 오른·내린 학생 칸과 같은 값)
+    //   전체 묶음만 학기 평균 석차백분율 순(`semRanks`) — 1학기·2학기 묶음은 아래 시험 석차
     const rk = semRanks(selectedStudent && selectedStudent.classNum, selectedStudent && selectedStudent.number);
-    // ▲▼ = **직전 시험 → 최근 시험** 학년 석차 변동 (2026.10.06 사용자 결정 — 오른·내린 학생 칸과 같은 숫자). 최근 시험의 학기 묶음에 붙입니다.
-    const mvMe = ALL ? mvStudentMove(selectedStudent && selectedStudent.classNum, selectedStudent && selectedStudent.number) : null;
-    const rankCell = (r, sem, tone) => {
+    // 아랫줄 (2026.10.06 사용자 결정 「평균 줄에 시험 석차를 보이기」) — 오른·내린 학생 칸과 **같은 숫자**.
+    //   1학기·2학기 묶음 = 그 학기 **가장 최근 시험**의 학년 석차 (석차백분율 평균 순 · 그 시험 과목을 모두 본 학생끼리)
+    //   최근 시험의 학기 묶음에는 직전 시험 대비 ▲▼ · 전체 묶음 = 전체 평균 석차(학기 평균 석차백분율 순) 그대로
+    const ex = ALL ? mvStudentExamRanks(selectedStudent && selectedStudent.classNum, selectedStudent && selectedStudent.number) : {};
+    const examCell = (sem, tone) => {
+        const r = ex[sem];
+        if (!r) return `<div class="sem-avg-val sem-avg-rank sem-avg-${tone}"><span class="sem-avg-cap">학년 석차</span><b class="text-slate-900">-</b></div>`;
         let chg = '';
-        if (r && mvMe && mvMe.B.sem === sem) {
-            const d = mvMe.d, tip = mvMe.A.label + ' ' + mvMe.rank1 + '위 → ' + mvMe.B.label + ' ' + mvMe.rank2 + '위 (시험끼리 석차백분율 평균 순)';
-            chg = d > 0 ? `<span class="sem-avg-chg text-blue-700" title="${tip}">(직전 시험 대비 ▲${d})</span>`
-                : d < 0 ? `<span class="sem-avg-chg text-red-600" title="${tip}">(직전 시험 대비 ▼${-d})</span>`
+        if (r.d !== undefined) {
+            const tip = r.prev.label + ' ' + r.prev.rank + '위 → ' + r.label + ' ' + r.rank + '위';
+            chg = r.d > 0 ? `<span class="sem-avg-chg text-blue-700" title="${tip}">(직전 시험 대비 ▲${r.d})</span>`
+                : r.d < 0 ? `<span class="sem-avg-chg text-red-600" title="${tip}">(직전 시험 대비 ▼${-r.d})</span>`
                 : `<span class="sem-avg-chg text-slate-500" title="${tip}">(직전 시험 대비 ―)</span>`;
         }
-        return `<div class="sem-avg-val sem-avg-rank sem-avg-${tone}"><span class="sem-avg-cap">학년 석차</span><b class="text-slate-900">${r ? r.rank + '<span class="sem-avg-tot">/' + r.total + '</span>' : '-'}</b>${chg}</div>`;
+        return `<div class="sem-avg-val sem-avg-rank sem-avg-${tone}"><span class="sem-avg-cap">${r.label} 석차</span><b class="text-slate-900">${r.rank !== null ? r.rank + '<span class="sem-avg-tot">/' + r.total + '</span>' : '-'}</b>${chg}</div>`;
     };
+    const rankCell = (r, tone) =>
+        `<div class="sem-avg-val sem-avg-rank sem-avg-${tone}"><span class="sem-avg-cap">학년 석차</span><b class="text-slate-900">${r ? r.rank + '<span class="sem-avg-tot">/' + r.total + '</span>' : '-'}</b></div>`;
     const avgGroup = (label, a5v, a9v, tone) => `
         <div class="sem-avg-lab sem-avg-${tone}">${label}</div>
         <div class="sem-avg-val sem-avg-${tone}"><span class="sem-avg-cap">5등급</span><b class="text-slate-900">${a5v || '-'}</b></div>
@@ -3620,7 +3658,7 @@ function renderSchoolGrades(grades, summary) {
         <tr class="sem-avg-row ${upRow ? 'border-t border-slate-300' : 'border-t-2 border-slate-400'}">
             <td class="p-0" colspan="10"><div class="sem-avg-grid">
                 ${avgGroup('1학기 평균', s1[0], s1[1], 's1')}${avgGroup('2학기 평균', s2[0], s2[1], 's2')}${avgGroup('전체 평균', avg5, avg9, 'all')}
-                ${rankCell(rk[1], 1, 's1')}${rankCell(rk[2], 2, 's2')}${rankCell(rk.all, 0, 'all')}
+                ${examCell(1, 's1')}${examCell(2, 's2')}${rankCell(rk.all, 'all')}
             </div></td>
         </tr>`;
     } else {
