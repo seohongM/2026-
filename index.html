@@ -43,6 +43,13 @@
            ⚠️ 화면에서만 겁니다. 인쇄는 table-layout: fixed + keep-all 로 따로 맞춰 두었습니다. */
         @media screen { .subj-cell, #naesin-table-box thead th { white-space: nowrap; } }
 
+        /* 내신 표 — 지금 학기 줄 연두 바탕 + 왼쪽 초록 띠 · 끝난 학기 줄 글씨 연하게 (2026.10.06 · 화면만) */
+        @media screen {
+            #school-grades-tbody tr.sem-now > td { background-color: #f0fdf4; }
+            #school-grades-tbody tr.sem-now > td:first-child { box-shadow: inset 4px 0 0 #10b981; color: #065f46; font-weight: 800; }
+            #school-grades-tbody tr.sem-past > td { opacity: .45; }
+        }
+
         /* 내신 표 아래 평균 9칸 (2026.10.02) — 1학기 · 2학기 · 전체 세 묶음을 같은 너비로
            + 아랫줄에 묶음마다 학년 석차 한 칸 (2026.10.06 — 윗줄 9칸은 그대로) */
         .sem-avg-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr)); }
@@ -3435,17 +3442,18 @@ function showStudent(s) {
     switchView('counseling');
 }
 
-/** '2 → 3' 처럼 5등급과 9등급을 나란히 보여줍니다. */
+/** '2 → 3' 처럼 5등급과 9등급을 나란히 보여줍니다.
+ *  5등급 = 파랑 · 9등급 = 회색 (2026.10.06 사용자 요청 — 화면·인쇄 모두. 예전엔 5등급 회색 · 9등급 파랑) */
 function gradePair(g5, g9, strong) {
     const a = (g5 === undefined || g5 === null || g5 === '-') ? '' : String(g5);
     let b = (g9 === undefined || g9 === null || g9 === '-') ? '' : String(g9);
     // 9등급 `0` 은 뜻이 없는 값입니다. (자료가 어긋났을 때만 나옵니다)
     if (b && Number(b) === 0) b = '';
     if (!a && !b) return '';
-    if (!b) return `<span class="${strong ? 'font-extrabold' : 'font-bold'}">${escapeHtml(a)}</span>`;
-    return `<span class="${strong ? 'font-extrabold' : 'font-bold'} text-slate-600">${escapeHtml(a)}</span>`
+    if (!b) return `<span class="${strong ? 'font-extrabold' : 'font-bold'} text-blue-700">${escapeHtml(a)}</span>`;
+    return `<span class="${strong ? 'font-extrabold' : 'font-bold'} text-blue-700">${escapeHtml(a)}</span>`
          + `<span class="text-slate-300 mx-0.5">→</span>`
-         + `<span class="font-extrabold text-blue-700">${escapeHtml(b)}</span>`;
+         + `<span class="font-semibold text-slate-400">${escapeHtml(b)}</span>`;
 }
 
 /**
@@ -3578,6 +3586,9 @@ function renderSchoolGrades(grades, summary) {
     }
 
     const cell = v => (v === undefined || v === null || v === '-') ? '' : tidyNum(v);
+    // 지금 학기 줄 색칠 · 끝난 학기 줄 글씨 연하게 (2026.10.06 사용자 요청 「2학기 과목만 잘 보이게」 — 화면만, 인쇄는 그대로)
+    //   지금 학기 = 우리 학교 시험 점수가 들어온 가장 늦은 학기. 1학기뿐이면 아무것도 안 칠합니다.
+    const curSem = lastExamSem(grades);
 
     grades.forEach(g => {
         const tr = document.createElement('tr');
@@ -3588,6 +3599,7 @@ function renderSchoolGrades(grades, summary) {
         tr.className = hasData
             ? "border-b border-slate-200 hover:bg-slate-50"
             : "border-b border-slate-200 bg-slate-50/40";
+        if (curSem > 1 && g.sem) tr.className += g.sem === curSem ? ' sem-now' : g.sem < curSem ? ' sem-past' : '';
 
         // 전입생이 이전 학교에서 받아 온 성적 — 우리 학교 시험 점수가 아니라는 표시
         const prevTag = g.prevSchool
@@ -3674,8 +3686,8 @@ function renderSchoolGrades(grades, summary) {
         `<div class="sem-avg-val sem-avg-rank sem-avg-${tone}"><span class="sem-avg-cap">학년 석차</span><b class="text-slate-900">${r ? r.rank + '<span class="sem-avg-tot">/' + r.total + '</span>' : '-'}</b></div>`;
     const avgGroup = (label, a5v, a9v, tone) => `
         <div class="sem-avg-lab sem-avg-${tone}">${label}</div>
-        <div class="sem-avg-val sem-avg-${tone}"><span class="sem-avg-cap">5등급</span><b class="text-slate-900">${a5v || '-'}</b></div>
-        <div class="sem-avg-val sem-avg-${tone}"><span class="sem-avg-cap">9등급</span><b class="text-blue-800">${a9v || '-'}</b></div>`;
+        <div class="sem-avg-val sem-avg-${tone}"><span class="sem-avg-cap">5등급</span><b class="text-blue-700">${a5v || '-'}</b></div>
+        <div class="sem-avg-val sem-avg-${tone}"><span class="sem-avg-cap">9등급</span><b class="text-slate-400">${a9v || '-'}</b></div>`;
     const semOf = x => x && x.subjectCount ? [fx(x.avg5), fx(x.avg9)] : ['', ''];
 
     if (s.sems && s.sems.length) {
