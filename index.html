@@ -3693,6 +3693,12 @@ function renderSchoolGrades(grades, summary) {
     if (s.sems && s.sems.length) {
         const bySem = k => s.sems.filter(x => Number(x.sem) === k)[0] || null;
         const s1 = semOf(bySem(1)), s2 = semOf(bySem(2));
+        // 전학생 1학기 = 이전 학교 최종등급 평균 (2026.10.06 사용자 요청 「1학기 평균이 빈칸 · 나타나게 하라」 — 「5등급만, 표시 없이」 고름)
+        //   우리 학교 1학기 평균이 없을 때만 씁니다. 9등급은 우리 학교 석차가 없어 「-」. 전체 평균에는 그대로 안 넣습니다 (사용자 결정).
+        if (!s1[0]) {
+            const pv = grades.filter(x => x.prevSchool && x.sem === 1).map(x => parseFloat(x.finalGrade)).filter(v => v >= 1 && v <= 5);
+            if (pv.length) s1[0] = (pv.reduce((a, b) => a + b, 0) / pv.length).toFixed(2);
+        }
         tfoot.innerHTML = upRow + `
         <tr class="sem-avg-row ${upRow ? 'border-t border-slate-300' : 'border-t-2 border-slate-400'}">
             <td class="p-0" colspan="10"><div class="sem-avg-grid">
