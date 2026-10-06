@@ -43,12 +43,12 @@
            ⚠️ 화면에서만 겁니다. 인쇄는 table-layout: fixed + keep-all 로 따로 맞춰 두었습니다. */
         @media screen { .subj-cell, #naesin-table-box thead th { white-space: nowrap; } }
 
-        /* 내신 표 — 지금 학기 줄 연두 바탕 + 왼쪽 초록 띠 · 끝난 학기 줄 글씨 연하게 (2026.10.06 · 화면만) */
-        @media screen {
-            #school-grades-tbody tr.sem-now > td { background-color: #f0fdf4; }
-            #school-grades-tbody tr.sem-now > td:first-child { box-shadow: inset 4px 0 0 #10b981; color: #065f46; font-weight: 800; }
-            #school-grades-tbody tr.sem-past > td { opacity: .45; }
-        }
+        /* 내신 표 — 지금 학기 줄 연두 바탕 + 왼쪽 초록 띠 · 끝난 학기 줄 글씨 연하게 (2026.10.06)
+           처음엔 화면만이었으나 같은 날 사용자 요청 「인쇄 화면에도 2학기 강조처리 화면과 같이」 로 인쇄에도 */
+        #school-grades-tbody tr.sem-now > td { background-color: #f0fdf4; }
+        #school-grades-tbody tr.sem-now > td:first-child { box-shadow: inset 4px 0 0 #10b981; color: #065f46; font-weight: 800; }
+        #school-grades-tbody tr.sem-past > td { opacity: .45; }
+        @media print { #school-grades-tbody tr.sem-now > td, #school-grades-tbody tr.sem-past > td { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 
         /* 내신 표 아래 평균 9칸 (2026.10.02) — 1학기 · 2학기 · 전체 세 묶음을 같은 너비로
            + 아랫줄에 묶음마다 학년 석차 한 칸 (2026.10.06 — 윗줄 9칸은 그대로) */
