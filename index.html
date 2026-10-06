@@ -43,7 +43,8 @@
            ⚠️ 화면에서만 겁니다. 인쇄는 table-layout: fixed + keep-all 로 따로 맞춰 두었습니다. */
         @media screen { .subj-cell, #naesin-table-box thead th { white-space: nowrap; } }
 
-        /* 내신 표 아래 평균 한 줄 · 9칸 (2026.10.02) — 1학기 · 2학기 · 전체 세 묶음을 같은 너비로 */
+        /* 내신 표 아래 평균 9칸 (2026.10.02) — 1학기 · 2학기 · 전체 세 묶음을 같은 너비로
+           + 아랫줄에 묶음마다 학년 석차 한 칸 (2026.10.06 — 윗줄 9칸은 그대로) */
         .sem-avg-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr)); }
         .sem-avg-grid > div { padding: 5px 4px; text-align: center; border-left: 1px solid #cbd5e1; display: flex;
                               align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
@@ -52,6 +53,11 @@
         .sem-avg-grid > .sem-avg-lab:not(:first-child) { border-left: 2px solid #94a3b8; }
         .sem-avg-val b { font-size: 14px; font-weight: 800; }
         .sem-avg-cap { font-size: 10px; color: #475569; font-weight: 600; }
+        .sem-avg-tot { font-size: 10px; font-weight: 600; color: #475569; }
+        .sem-avg-chg { font-size: 11px; font-weight: 800; }
+        .sem-avg-grid > .sem-avg-rank { grid-column: span 3; border-top: 1px solid #cbd5e1; flex-wrap: wrap; row-gap: 0; }
+        .sem-avg-grid > .sem-avg-rank.sem-avg-s1 { border-left: 0; }
+        .sem-avg-grid > .sem-avg-rank:not(.sem-avg-s1) { border-left: 2px solid #94a3b8; }
         .sem-avg-grid > .sem-avg-s1  { background: #e0f2fe; color: #0c4a6e; }   /* 1학기 — 하늘 */
         .sem-avg-grid > .sem-avg-s2  { background: #dcfce7; color: #14532d; }   /* 2학기 — 연두 */
         .sem-avg-grid > .sem-avg-all { background: #e0e7ff; color: #312e81; }   /* 전체  — 남색 */
@@ -59,7 +65,7 @@
         @media print {
             .sem-avg-grid > div { padding: 1px 2px !important; gap: 3px !important; }
             .print-table tfoot .sem-avg-grid .sem-avg-lab, .print-table tfoot .sem-avg-val b { font-size: 6pt !important; }
-            .print-table tfoot .sem-avg-cap { font-size: 5pt !important; }
+            .print-table tfoot .sem-avg-cap, .print-table tfoot .sem-avg-tot, .print-table tfoot .sem-avg-chg { font-size: 5pt !important; }
         }
 
         /* 내신 표 평균 줄 — 화면용 설명(foot-scr) / 인쇄용 짧은 설명(foot-prt) (2026.10.01) */
@@ -3435,6 +3441,33 @@ async function saveGoalGrade(el) {
     }
 }
 
+/**
+ * 학기 평균 학년 석차 (2026.10.06 사용자 요청 「석차 변동도」 → 「학기 평균 석차 · 석차백분율 평균으로 줄 세움」 고름)
+ * 서버가 보낸 석차백분율 평균(학기별 s[5][i][6] · 전체 s[4])이 **작을수록 앞**. 같은 값은 같은 등수 (1·2·2·4).
+ * 분모 = 그 값이 있는 학생 수 (1학기는 전학생이 빠져 191 처럼 나옵니다). 서버를 더 부르지 않습니다.
+ */
+function semRanks(c, n) {
+    const rows = (ALL && ALL.students) || [];
+    const val = (row, key) => {
+        const s = row.s || [];
+        let v;
+        if (key === 'all') v = s[4];
+        else { const x = Array.isArray(s[5]) ? s[5].filter(y => Number(y[0]) === key)[0] : null; v = x ? x[6] : ''; }
+        const f = parseFloat(v);
+        return (v === '' || v == null || isNaN(f)) ? null : f;
+    };
+    const me = rows.filter(r => Number(r.c) === Number(c) && Number(r.n) === Number(n))[0];
+    const out = {};
+    if (!me) return out;
+    [1, 2, 'all'].forEach(key => {
+        const mine = val(me, key);
+        if (mine === null) return;
+        const vs = rows.map(r => val(r, key)).filter(v => v !== null);
+        out[key] = { rank: 1 + vs.filter(v => v < mine - 1e-9).length, total: vs.length };
+    });
+    return out;
+}
+
 function renderSchoolGrades(grades, summary) {
     const tbody = document.getElementById('school-grades-tbody');
     const tfoot = document.getElementById('school-grades-tfoot');
@@ -3521,7 +3554,21 @@ function renderSchoolGrades(grades, summary) {
     // 표의 10칸과 상관없이 **세 묶음을 같은 너비**로 보이게, 칸 하나(colspan 10) 안에 격자로 그립니다.
     // 가장 잘 본·못 본 과목 · 석차백분율 · 평균 점수 설명은 사용자가 「모두 빼기」 를 골라 뺐습니다.
     // 묶음마다 세 칸을 **같은 바탕색**으로 (2026.10.02 사용자 요청) — 1학기 하늘 · 2학기 연두 · 전체 남색
-    const avgGroup = (label, a5v, a9v, tone) => `
+    // 묶음마다 **아랫줄에 학년 석차** (2026.10.06 사용자 요청 「석차 변동도 나오면 좋겠다」 — 인쇄에도 나옴)
+    //   처음엔 묶음 끝에 네 번째 칸으로 넣었으나 12칸이 되어 5등급·9등급 칸이 좁아져 두 줄로 접혔음 → 아랫줄로
+    //   석차 = 석차백분율 평균으로 줄 세운 등수 / 그 값이 있는 학생 수 · 2학기 묶음에는 1학기 대비 변동 (▲ 올라감 · ▼ 내려감)
+    const rk = semRanks(selectedStudent && selectedStudent.classNum, selectedStudent && selectedStudent.number);
+    const rankCell = (r, prev, tone) => {
+        let chg = '';
+        if (r && prev) {
+            const d = prev.rank - r.rank;
+            chg = d > 0 ? `<span class="sem-avg-chg text-blue-700">(▲${d})</span>`
+                : d < 0 ? `<span class="sem-avg-chg text-red-600">(▼${-d})</span>`
+                : `<span class="sem-avg-chg text-slate-500">(―)</span>`;
+        }
+        return `<div class="sem-avg-val sem-avg-rank sem-avg-${tone}"><span class="sem-avg-cap">학년 석차</span><b class="text-slate-900">${r ? r.rank + '<span class="sem-avg-tot">/' + r.total + '</span>' : '-'}</b>${chg}</div>`;
+    };
+    const avgGroup = (label, a5v, a9v, tone, r, prev) => `
         <div class="sem-avg-lab sem-avg-${tone}">${label}</div>
         <div class="sem-avg-val sem-avg-${tone}"><span class="sem-avg-cap">5등급</span><b class="text-slate-900">${a5v || '-'}</b></div>
         <div class="sem-avg-val sem-avg-${tone}"><span class="sem-avg-cap">9등급</span><b class="text-blue-800">${a9v || '-'}</b></div>`;
@@ -3534,6 +3581,7 @@ function renderSchoolGrades(grades, summary) {
         <tr class="sem-avg-row ${upRow ? 'border-t border-slate-300' : 'border-t-2 border-slate-400'}">
             <td class="p-0" colspan="10"><div class="sem-avg-grid">
                 ${avgGroup('1학기 평균', s1[0], s1[1], 's1')}${avgGroup('2학기 평균', s2[0], s2[1], 's2')}${avgGroup('전체 평균', avg5, avg9, 'all')}
+                ${rankCell(rk[1], null, 's1')}${rankCell(rk[2], rk[1], 's2')}${rankCell(rk.all, null, 'all')}
             </div></td>
         </tr>`;
     } else {
