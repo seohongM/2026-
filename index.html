@@ -5276,6 +5276,29 @@ function dataGetVal(s,key){
   return null;
 }
 
+/**
+ * 같은 값끼리 줄 세울 두 번째 기준 — **작을수록 좋은 학생** (등급과 같은 방향).
+ *   과목 등급(5·9)·성취도 → 그 등급을 매긴 점수 (1차 → 1차시험 · 2차 → 2차시험 · 최종 → 환산총점), 높을수록 좋음 → 음수로
+ *   평균 5등급 ↔ 평균 9등급 · 학년 5 ↔ 9 · 모의 등급 → 원점수 · 모의 전체 등급 → 전체 백분위
+ *   (2026.10.06 사용자 신고 — 같은 등급 안에서 학번 차례로 서서 점수가 낮은 학생이 위에 있었음)
+ */
+function dataTieVal(s,key){
+  const neg=v=>(v==null||v===''||isNaN(+v))?null:-(+v);
+  if(key.indexOf('yr|')===0){const t=key.split('|');t[t.length-1]=t[t.length-1]==='9'?'5':'9';return dataGetVal(s,t.join('|'));}
+  if(key.indexOf('avgG_')===0)return dataGetVal(s,'avg9_'+({'1cha':'1차','2cha':'2차','final':'최종'})[key.slice(5)]);
+  if(key.indexOf('avg9_')===0)return dataGetVal(s,'avgG_'+({'1차':'1cha','2차':'2cha','최종':'final'})[key.slice(5)]);
+  const t=key.split('|');
+  if(t[0]==='naesin'||t[0]==='naesin9'){const o=s.naesin[dataNaesinSem]&&s.naesin[dataNaesinSem][t[1]];if(!o)return null;
+    const f=t[2];
+    if(f==='1차등급'||f==='1차'||f==='1차성취도')return neg(o['1차시험']);
+    if(f==='2차등급'||f==='2차'||f==='2차성취도')return neg(o['2차시험']);
+    if(f==='최종등급'||f==='최종'||f==='최종성취도')return neg(o['환산총점']);
+    return null;}
+  if(t[0]==='mock'&&t[2]==='grade'){const o=s.mock[dataMockMonth][t[1]];return o?neg(o.raw):null;}
+  if(t[0]==='mockAll'&&t[1]==='g')return neg(mockAll(s,dataMockMonth).p);
+  return null;
+}
+
 function renderDataTable(){
   let arr=allStudents();
   if(dataBan)arr=arr.filter(s=>s.ban==dataBan);
@@ -5296,7 +5319,11 @@ function renderDataTable(){
   //   정렬해도 위에서부터 1 로 「고정」. 이름 칸(왼쪽에 붙는 칸) 안에 같이 두어 옆으로 밀어도 보입니다.
   const snCell=i=>'<span class="sn">'+(i+1)+'</span> ';
   const SS=dataSort;
-  arr=arr.slice().sort((a,b)=>{const na=a.ban*1000+a.num,nb=b.ban*1000+b.num;let va=dataGetVal(a,SS.key),vb=dataGetVal(b,SS.key);if(va==null&&vb==null)return na-nb;if(va==null)return 1;if(vb==null)return -1;if(va===vb)return na-nb;return (va-vb)*SS.dir;});
+  // 같은 등급끼리는 **점수가 높은 학생이 앞** (2026.10.06 사용자 신고 「9등급 정렬에서 점수가 낮은 학생이 위에 있다」 —
+  //   예전엔 같은 등급이면 학번 차례라 같은 2등급 안에서 78.8점이 84.9점보다 위에 섰음). dataTieVal 참고.
+  arr=arr.slice().sort((a,b)=>{const na=a.ban*1000+a.num,nb=b.ban*1000+b.num;let va=dataGetVal(a,SS.key),vb=dataGetVal(b,SS.key);if(va==null&&vb==null)return na-nb;if(va==null)return 1;if(vb==null)return -1;
+    if(va===vb){const ta=dataTieVal(a,SS.key),tb=dataTieVal(b,SS.key);if(ta!=null&&tb!=null&&ta!==tb)return (ta-tb)*SS.dir;if(ta!=null&&tb==null)return -1;if(ta==null&&tb!=null)return 1;return na-nb;}
+    return (va-vb)*SS.dir;});
   const aw=k=>SS.key===k?(SS.dir===1?'<span class="arr">▲</span>':'<span class="arr">▼</span>'):'';
   const sth=(label,k)=>'<th class="sortable'+(SS.key===k?' sorted':'')+'" data-sort="'+k+'">'+label+aw(k)+'</th>';
   const nameTh='<th class="name sortable'+(SS.key==='name'?' sorted':'')+'" data-sort="name" rowspan="2"><span class="sn">연번</span> 학생'+aw('name')+'</th>';
