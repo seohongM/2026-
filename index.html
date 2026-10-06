@@ -1504,6 +1504,7 @@ function basisTag(k, short) {
 }
 
 /** 카드용 평균 세 줄 — 1학기 · 2학기 · 전체 (5등급 → 9등급) */
+// 카드의 「(1차 기준)」 은 자리가 모자라면 **잘리지 않고 다음 줄로** 내려갑니다 (2026.10.06 사용자 요청 — 예전엔 「(1차 기…」 로 잘렸음)
 function avgRowsHtml(sm) {
     const pair = (a5, a9) => (a5 == null && a9 == null)
         ? '<span class="text-slate-400">-</span>'
@@ -1514,10 +1515,9 @@ function avgRowsHtml(sm) {
         .concat([{ label: '전체', v: pair(sm.avg5, sm.avg9), tag: '', strong: true }]);
     return `<div class="flex items-start gap-1 text-xs text-slate-600 font-semibold" title="5등급제 평균 → 9등급제 평균">
                 <span>📊</span>
-                <div class="grid grid-cols-[auto_auto_1fr] gap-x-1.5 items-baseline min-w-0">
+                <div class="grid grid-cols-[auto_1fr] gap-x-1.5 items-baseline min-w-0">
                     ${rows.map(r => `<span class="${r.strong ? 'text-slate-800 font-bold' : 'text-slate-600'}">${r.label}</span>
-                        <span class="${r.strong ? 'font-bold' : ''}">${r.v}</span>
-                        <span class="text-[10px] text-slate-600 font-medium truncate">${r.tag ? '(' + r.tag + ')' : ''}</span>`).join('')}
+                        <span class="min-w-0"><span class="whitespace-nowrap ${r.strong ? 'font-bold' : ''}">${r.v}</span>${r.tag ? ` <span class="text-[10px] text-slate-600 font-medium whitespace-nowrap">(${r.tag})</span>` : ''}</span>`).join('')}
                 </div>
             </div>`;
 }
@@ -1748,63 +1748,81 @@ function mvExamSlots() {
         subjSem(INFO, si, n) === sl.sem && mvNum((row.g || [])[si * 11 + (sl.ex === 1 ? 0 : 2)]) !== null)));
 }
 
-/** 과목의 학기 표시 뗀 이름 (공통국어1 → 공통국어) — 1학기 과목과 2학기 과목을 짝짓는 데 씁니다 */
-function mvBase(INFO, si, name) {
-    if (INFO && INFO[si] && INFO[si].b) return String(INFO[si].b);
-    const m = /^(.+?)[12]$/.exec(String(name || ''));
-    return m ? m[1] : String(name || '');
-}
-
 /**
- * 내신 : 그 학생의 직전 시험(A) → 최근 시험(B) 평균 — **두 번 다 본 같은 과목만**.
- * 학기가 다르면 같은 이름의 과목끼리 짝짓습니다 (공통국어1 ↔ 공통국어2). 한 학기에만 있는 과목(정보)은 빠집니다.
- * 전입생이 이전 학교에서 받아 온 성적도 뺍니다.
+ * 내신 : 그 학생이 시험 하나(sl)에서 본 과목들 { 과목번호: [원점수, 5등급] }
+ * 시험 점수가 있는 과목만 · 전입생이 이전 학교에서 받아 온 성적은 뺍니다.
  */
-function mvNaesin(row, A, B) {
+function mvExamScores(row, sl) {
     const SUBJ = (ALL && ALL.subjects) ? ALL.subjects : [];
     const INFO = (ALL && ALL.subjectInfo) || null;
     const g = row.g || [], d = row.d || [];
     const STEP = (SUBJ.length && d.length) ? Math.round(d.length / SUBJ.length) : 10;
-    const isPrev = si => STEP >= 10 && d[si * STEP + 9];          // 이전 학교 성적인가
-    const pick = (sem, base) => SUBJ.findIndex((n, si) => subjSem(INFO, si, n) === sem && mvBase(INFO, si, n) === base);
-
-    let n = 0, s1 = 0, s2 = 0, ng = 0, a1 = 0, a2 = 0;
-    SUBJ.forEach((name, sa) => {
-        if (subjSem(INFO, sa, name) !== A.sem) return;
-        const sb = (A.sem === B.sem) ? sa : pick(B.sem, mvBase(INFO, sa, name));
-        if (sb < 0 || isPrev(sa) || isPrev(sb)) return;
-        const oa = A.ex === 1 ? 0 : 2, ob = B.ex === 1 ? 0 : 2;
-        const x1 = mvNum(g[sa * 11 + oa]), x2 = mvNum(g[sb * 11 + ob]);
-        if (x1 === null || x2 === null) return;                  // 두 시험을 다 본 과목만
-        n++; s1 += x1; s2 += x2;
-        const q1 = mvNum(g[sa * 11 + oa + 1]), q2 = mvNum(g[sb * 11 + ob + 1]);
-        if (q1 !== null && q2 !== null) { ng++; a1 += q1; a2 += q2; }
+    const off = sl.ex === 1 ? 0 : 2, out = {};
+    SUBJ.forEach((name, si) => {
+        if (subjSem(INFO, si, name) !== sl.sem) return;
+        if (STEP >= 10 && d[si * STEP + 9]) return;               // 이전 학교 성적
+        const x = mvNum(g[si * 11 + off]);
+        if (x === null) return;
+        out[si] = [x, mvNum(g[si * 11 + off + 1])];
     });
-    if (!n || !ng) return null;
-    return { n: n, score1: s1 / n, score2: s2 / n, grade1: a1 / ng, grade2: a2 / ng };
+    return out;
+}
+
+/** 여러 학생의 과목 묶음에서 「대부분이 본 과목」 만 — 절반 이상이 본 과목 (점수를 넣는 중인 과목은 빠짐) */
+function mvCommonKeys(maps) {
+    const has = maps.filter(m => Object.keys(m).length);
+    const cnt = {};
+    has.forEach(m => Object.keys(m).forEach(k => { cnt[k] = (cnt[k] || 0) + 1; }));
+    return Object.keys(cnt).filter(k => cnt[k] * 2 >= has.length);
+}
+
+/**
+ * 내신 : 직전 시험(A) **전체 과목** → 최근 시험(B) **전체 과목** (2026.10.06 사용자 요청)
+ *   예) 1학기 2차 6과목 평균 → 2학기 1차 과목 평균 (정보처럼 한 학기에만 있는 과목도 그 시험 평균에 들어갑니다)
+ *   예전에는 두 시험의 **같은 이름 과목끼리만** 짝지어 정보가 빠졌습니다.
+ * 과목 = 그 시험을 학생 절반 이상이 본 과목 (점수를 넣는 중인 과목은 빠짐).
+ * 학생 = **그 과목을 모두 본 학생만** (2026.10.06 사용자 결정) — 결시자처럼 몇 과목만 본 학생이
+ *        1~2과목 평균으로 줄 세워져 석차가 크게 출렁이던 문제(127위 → 5위)를 막습니다. 인정점이 들어오면 저절로 들어옵니다.
+ */
+function mvNaesinAll(A, B) {
+    const rows = (ALL && ALL.students) || [];
+    const recs = [];
+    if (!A || !B) return recs;
+    const ma = rows.map(r => mvExamScores(r, A)), mb = rows.map(r => mvExamScores(r, B));
+    const ka = mvCommonKeys(ma), kb = mvCommonKeys(mb);
+    if (!ka.length || !kb.length) return recs;
+    const avg = (m, ks, i) => { const v = ks.map(k => m[k][i]); return v.some(x => x === null) ? null : v.reduce((a, b) => a + b, 0) / v.length; };
+    rows.forEach((row, i) => {
+        if (!ka.every(k => ma[i][k]) || !kb.every(k => mb[i][k])) return;   // 모든 과목을 본 학생만
+        const mv = { n1: ka.length, n2: kb.length,
+                     score1: avg(ma[i], ka, 0), score2: avg(mb[i], kb, 0),
+                     grade1: avg(ma[i], ka, 1), grade2: avg(mb[i], kb, 1) };
+        recs.push({ c: Number(row.c), n: Number(row.n), nm: row.nm || '', mv: mv });
+    });
+    if (!recs.length) return [];
+    mvRank(recs, r => r.mv.score1, 'rank1');
+    mvRank(recs, r => r.mv.score2, 'rank2');
+    recs.forEach(r => {
+        r.dGrade = (r.mv.grade1 === null || r.mv.grade2 === null) ? 0 : r.mv.grade1 - r.mv.grade2;   // 등급은 낮을수록 좋으므로 (전 - 후)
+        r.dRank  = r.rank1 - r.rank2;           // 석차도 낮을수록 좋으므로 (전 - 후)
+        r.dScore = r.mv.score2 - r.mv.score1;
+    });
+    return recs;
 }
 
 // 모의고사에서 총점에 넣는 과목 (2026.09 사용자 결정 — 한국사는 뺍니다)
 const MV_MOCK_SUBS = ['국어', '수학', '영어', '통합사회', '통합과학'];
 
-/** 모의 : 그 학생의 직전 회차 → 최근 회차 **총점** (두 번 다 본 과목만) */
-function mvMock(row, prevKey, curKey) {
+/** 모의 : 그 학생이 한 회차에서 본 과목 { 과목번호: [원점수, 등급] } — 국·수·영·사·과만 */
+function mvMockScores(row, key) {
     const SUBS = (ALL && ALL.mockSubjects) || [];
-    const A = (row.m && row.m[prevKey]) || [];
-    const B = (row.m && row.m[curKey])  || [];
-
-    let n = 0, s1 = 0, s2 = 0, ng = 0, a1 = 0, a2 = 0;
-    for (let ui = 0; ui < SUBS.length; ui++) {
-        if (MV_MOCK_SUBS.indexOf(SUBS[ui]) < 0) continue;   // 국·수·영·사·과만
-        const x1 = mvNum(A[ui * 4 + 0]), x2 = mvNum(B[ui * 4 + 0]);
-        if (x1 === null || x2 === null) continue;
-        n++; s1 += x1; s2 += x2;                            // 평균이 아니라 **합계**
-        const q1 = mvNum(A[ui * 4 + 3]), q2 = mvNum(B[ui * 4 + 3]);
-        if (q1 !== null && q2 !== null) { ng++; a1 += q1; a2 += q2; }
-    }
-    if (!n) return null;
-    return { n: n, score1: s1, score2: s2,
-             grade1: ng ? a1 / ng : null, grade2: ng ? a2 / ng : null };
+    const M = (row.m && row.m[key]) || [], out = {};
+    SUBS.forEach((sub, ui) => {
+        if (MV_MOCK_SUBS.indexOf(sub) < 0) return;
+        const x = mvNum(M[ui * 4 + 0]);
+        if (x !== null) out[ui] = [x, mvNum(M[ui * 4 + 3])];
+    });
+    return out;
 }
 
 /** 점수가 높은 쪽이 1위. 동점이면 같은 등수 (1·2·2·4). */
@@ -1826,33 +1844,24 @@ function mvMockMonths() {
         rows.some(row => ((row.m && row.m[mm.key]) || []).some(v => mvNum(v) !== null)));
 }
 
-/** 내신 : 전교생을 계산하고 학년 석차까지 매깁니다. A → B = 직전 시험 → 최근 시험 */
-function mvNaesinAll(A, B) {
-    const rows = (ALL && ALL.students) || [];
-    const recs = [];
-    if (!A || !B) return recs;
-    rows.forEach(row => {
-        const mv = mvNaesin(row, A, B);
-        if (mv) recs.push({ c: Number(row.c), n: Number(row.n), nm: row.nm || '', mv: mv });
-    });
-    if (!recs.length) return [];
-    mvRank(recs, r => r.mv.score1, 'rank1');
-    mvRank(recs, r => r.mv.score2, 'rank2');
-    recs.forEach(r => {
-        r.dGrade = r.mv.grade1 - r.mv.grade2;   // 등급은 낮을수록 좋으므로 (전 - 후)
-        r.dRank  = r.rank1 - r.rank2;           // 석차도 낮을수록 좋으므로 (전 - 후)
-        r.dScore = r.mv.score2 - r.mv.score1;
-    });
-    return recs;
-}
-
-/** 모의 : 우리 반만 계산합니다 (석차는 내지 않습니다). */
+/**
+ * 모의 : 직전 회차 → 최근 회차 **총점** (석차는 내지 않습니다).
+ * 과목 = 두 회차 모두 학생 절반 이상이 본 과목 · 학생 = **그 과목을 두 회차 모두 본 학생만** (2026.10.06 사용자 결정 —
+ * 1과목만 본 학생이 총점 16 → 24 로 「오른 학생」 에 들어가던 문제).
+ */
 function mvMockAll(prevKey, curKey) {
     const rows = (ALL && ALL.students) || [];
     const recs = [];
-    rows.forEach(row => {
-        const mv = mvMock(row, prevKey, curKey);
-        if (!mv) return;
+    const ma = rows.map(r => mvMockScores(r, prevKey)), mb = rows.map(r => mvMockScores(r, curKey));
+    const ka = mvCommonKeys(ma), kb = mvCommonKeys(mb);
+    const ks = ka.filter(k => kb.indexOf(k) >= 0);              // 두 회차 모두 본 과목끼리 총점
+    if (!ks.length) return recs;
+    rows.forEach((row, i) => {
+        if (!ks.every(k => ma[i][k] && mb[i][k])) return;
+        const s1 = ks.reduce((a, k) => a + ma[i][k][0], 0), s2 = ks.reduce((a, k) => a + mb[i][k][0], 0);
+        const g1 = ks.map(k => ma[i][k][1]), g2 = ks.map(k => mb[i][k][1]);
+        const gAvg = v => v.some(x => x === null) ? null : v.reduce((a, b) => a + b, 0) / v.length;
+        const mv = { n: ks.length, score1: s1, score2: s2, grade1: gAvg(g1), grade2: gAvg(g2) };
         recs.push({
             c: Number(row.c), n: Number(row.n), nm: row.nm || '', mv: mv,
             dScore: mv.score2 - mv.score1,
@@ -1946,7 +1955,7 @@ function renderMovers() {
     const nMine = nAll.filter(r => r.c === cls);
     const nPair = nA ? nA.label + ' → ' + nB.label : '';
     const nSub  = nA ? nPair + ' 시험 · 학년 석차 순' : '직전 시험 → 최근 시험';
-    const nEmpty = nA ? '두 시험을 모두 본 과목이 아직 없습니다.' : '견줄 시험이 아직 두 번 없습니다.';
+    const nEmpty = nA ? '두 시험의 과목을 모두 본 학생이 아직 없습니다.' : '견줄 시험이 아직 두 번 없습니다.';
 
     // 몇 등 올랐나를 기준으로 줄 세웁니다.
     // (등급은 여섯 과목 평균이라 잘 안 움직여 순서를 가리기 어렵습니다)
@@ -1967,7 +1976,7 @@ function renderMovers() {
         headline: mvDelta(r.dRank, 0, '위'),
         detail: mvCell('학년석차', r.rank1, r.rank2, 0, '위') +
                 mvCell('평균점수', r.mv.score1, r.mv.score2, 1, '점') +
-                '<span class="text-slate-300">' + r.mv.n + '과목</span>'
+                '<span class="text-slate-300">' + (r.mv.n1 === r.mv.n2 ? r.mv.n1 + '과목' : r.mv.n1 + '→' + r.mv.n2 + '과목') + '</span>'
     });
 
     html += mvPanel('내신이 오른 학생 5명',   nSub, MV_UP,   nUp.map(nRow),   nEmpty);
