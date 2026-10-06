@@ -181,6 +181,8 @@
 #view-stats th .sbtn:hover{background:#eef2f6;color:var(--ink);}
 #view-stats th .sbtn.on{font-weight:800;}
 #view-stats td.g59{white-space:nowrap;}
+/* 성적 데이터 열람 — 이름 앞 연번 (2026.10.06) */
+#view-stats .sn{display:inline-block;min-width:26px;margin-right:2px;text-align:right;color:var(--muted);font-weight:600;font-size:12px;}
 /* 성적 데이터 열람(내신) 표만 칸을 좁게 — 2026.10.02 사용자 요청 「칸 넓이를 줄여 정보까지 한 화면에」 */
 #view-stats table.dtab th, #view-stats table.dtab td{padding:7px 4px;}
 #view-stats table.dtab td.name, #view-stats table.dtab th.name{padding-left:8px;padding-right:6px;}
@@ -4689,7 +4691,7 @@ function top1Html(){
     .sort((a,b)=>((a.i.avg9==null)-(b.i.avg9==null))||((a.i.avg9||0)-(b.i.avg9||0))||a.i.avg-b.i.avg||b.i.ones-a.i.ones).slice(0,TOP1_N);
   const head='<tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th>'+
     slots.map(sl=>'<th>'+sl.label+'<br><span class="mut">평균 (1등급 수)</span></th>').join('')+
-    '<th>합산 평균</th><th class="txt">1등급 유지</th><th class="txt">1등급으로 올라감</th><th class="txt">1등급에서 떨어짐</th></tr>';
+    '<th>합산 평균<br><span class="mut">(5등급)</span></th><th class="txt">1등급 유지</th><th class="txt">1등급으로 올라감</th><th class="txt">1등급에서 떨어짐</th></tr>';
   const body=rows.map((x,idx)=>'<tr><td>'+(idx+1)+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+
     (x.i.avg9!=null?' <span style="color:#7c3aed;font-weight:700">(9등급 '+x.i.avg9.toFixed(2)+')</span>':'')+'</td><td>'+x.s.ban+'반</td>'+
     x.i.per.map(p=>'<td>'+(p?'<span class="raw">'+p.avg.toFixed(2)+'</span> <span class="mut">('+p.ones+')</span>':'<span class="mut">-</span>')+'</td>').join('')+
@@ -5290,11 +5292,14 @@ function renderDataTable(){
   }
 
   // 정렬
+  // 연번 = 지금 보이는 차례 그대로 1, 2, 3 … (2026.10.06 사용자 요청 — 정렬하면 그 차례가 곧 석차로 읽히게)
+  //   정렬해도 위에서부터 1 로 「고정」. 이름 칸(왼쪽에 붙는 칸) 안에 같이 두어 옆으로 밀어도 보입니다.
+  const snCell=i=>'<span class="sn">'+(i+1)+'</span> ';
   const SS=dataSort;
   arr=arr.slice().sort((a,b)=>{const na=a.ban*1000+a.num,nb=b.ban*1000+b.num;let va=dataGetVal(a,SS.key),vb=dataGetVal(b,SS.key);if(va==null&&vb==null)return na-nb;if(va==null)return 1;if(vb==null)return -1;if(va===vb)return na-nb;return (va-vb)*SS.dir;});
   const aw=k=>SS.key===k?(SS.dir===1?'<span class="arr">▲</span>':'<span class="arr">▼</span>'):'';
   const sth=(label,k)=>'<th class="sortable'+(SS.key===k?' sorted':'')+'" data-sort="'+k+'">'+label+aw(k)+'</th>';
-  const nameTh='<th class="name sortable'+(SS.key==='name'?' sorted':'')+'" data-sort="name" rowspan="2">학생'+aw('name')+'</th>';
+  const nameTh='<th class="name sortable'+(SS.key==='name'?' sorted':'')+'" data-sort="name" rowspan="2"><span class="sn">연번</span> 학생'+aw('name')+'</th>';
 
   let h='<div class="panel glass"><div class="tscroll"><table class="dtab">';   // 내신·모의 둘 다 칸을 좁게 (2026.10.02 사용자 요청)
 
@@ -5324,24 +5329,24 @@ function renderDataTable(){
       const ya=(a5,a9)=>{if(a5==null&&a9==null)return '<td class="mut">-</td>';return '<td class="g59">'+(a5==null?'<span class="mut">-</span>':g5t(a5.toFixed(2)))+(a9==null?'':p9(a9.toFixed(2)))+'</td>';};
       const yTh=(k,pre)=>dualTh(k+'|5',k+'|9',pre,false);
       const YB=yrBases();
-      h+='<thead><tr><th class="name sortable'+(SS.key==='name'?' sorted':'')+'" data-sort="name">학생'+aw('name')+'</th>'+
+      h+='<thead><tr><th class="name sortable'+(SS.key==='name'?' sorted':'')+'" data-sort="name"><span class="sn">연번</span> 학생'+aw('name')+'</th>'+
         yTh('yr|all','학년 전체 평균<br>')+SEMESTERS.map(x=>yTh('yr|s'+x.key,x.label+' 평균<br>')).join('')+
         YB.map(bs=>yTh('yr|b|'+bs,esc(bs)+'<br>')).join('')+'</tr></thead><tbody>';
-      arr.forEach(s=>{const y=s.yr||{g5:[],g9:[],all:[null,null],sem:{}};
-        h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+ya(y.all[0],y.all[1])+
+      arr.forEach((s,ri)=>{const y=s.yr||{g5:[],g9:[],all:[null,null],sem:{}};
+        h+='<tr><td class="name">'+snCell(ri)+hak(s)+' '+esc(s.name)+'</td>'+ya(y.all[0],y.all[1])+
           SEMESTERS.map(x=>{const m=y.sem[x.key]||[null,null];return ya(m[0],m[1]);}).join('')+
           YB.map(bs=>{const v=yrBase(y,bs);return v.n>1?ya(v.g5,v.g9):yc(v.g5,v.g9);}).join('')+'</tr>';});
     }else if(view==='최종'){
       // 환산 · 5등급(9등급) · 성취
       h+='<thead><tr class="grp">'+nameTh+avgHead+NS(sem).map(subj=>'<th colspan="3">'+lab(subj)+'</th>').join('')+'</tr><tr>'+
         NS(sem).map(subj=>sth('환산','naesin|'+subj+'|환산총점')+dualTh('naesin|'+subj+'|최종등급','naesin9|'+subj+'|최종')+sth('성취','naesin|'+subj+'|최종성취도')).join('')+'</tr></thead><tbody>';
-      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+avgCell(s)+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};if(!subjFinalComplete(o))return '<td class="mut">대기</td><td class="mut">-</td><td class="mut">-</td>';return '<td class="raw">'+fmt(o['환산총점'],1)+'</td>'+g59(s,subj,dataGetVal(s,'naesin|'+subj+'|최종등급'),'최종')+'<td>'+ach(o['최종성취도'])+'</td>';}).join('')+'</tr>';});
+      arr.forEach((s,ri)=>{h+='<tr><td class="name">'+snCell(ri)+hak(s)+' '+esc(s.name)+'</td>'+avgCell(s)+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};if(!subjFinalComplete(o))return '<td class="mut">대기</td><td class="mut">-</td><td class="mut">-</td>';return '<td class="raw">'+fmt(o['환산총점'],1)+'</td>'+g59(s,subj,dataGetVal(s,'naesin|'+subj+'|최종등급'),'최종')+'<td>'+ach(o['최종성취도'])+'</td>';}).join('')+'</tr>';});
     }else{
       // 1차 / 2차 : 시험점수 · 5등급(9등급)
       const ex=view;
       h+='<thead><tr class="grp">'+nameTh+avgHead+NS(sem).map(subj=>'<th colspan="2">'+lab(subj)+'</th>').join('')+'</tr><tr>'+
         NS(sem).map(subj=>sth(ex+'점수','naesin|'+subj+'|'+ex+'시험')+dualTh('naesin|'+subj+'|'+ex+'등급','naesin9|'+subj+'|'+ex)).join('')+'</tr></thead><tbody>';
-      arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+avgCell(s)+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};return '<td class="raw">'+fmt(o[ex+'시험'])+'</td>'+g59(s,subj,dataGetVal(s,'naesin|'+subj+'|'+ex+'등급'),ex);}).join('')+'</tr>';});
+      arr.forEach((s,ri)=>{h+='<tr><td class="name">'+snCell(ri)+hak(s)+' '+esc(s.name)+'</td>'+avgCell(s)+NS(sem).map(subj=>{const o=s.naesin[sem][subj]||{};return '<td class="raw">'+fmt(o[ex+'시험'])+'</td>'+g59(s,subj,dataGetVal(s,'naesin|'+subj+'|'+ex+'등급'),ex);}).join('')+'</tr>';});
     }
     h+='</tbody>';
   }else{
@@ -5354,7 +5359,7 @@ function renderDataTable(){
       return '<td class="g59">'+(v.g==null?'<span class="mut">-</span>':'<b class="g5t">'+v.g.toFixed(2)+'</b>')+(v.p==null?'':' <span class="g9t">('+v.p.toFixed(2)+')</span>')+'</td>';};
     h+='<thead><tr class="grp">'+nameTh+allTh+MOCK_SUBJECTS.map(u=>'<th colspan="'+(u.rel?4:2)+'">'+u.key+'</th>').join('')+'</tr><tr>'+
       MOCK_SUBJECTS.map(u=>u.rel?(sth('원점','mock|'+u.key+'|raw')+sth('표준','mock|'+u.key+'|std')+sth('백분위','mock|'+u.key+'|pct')+sth('등급','mock|'+u.key+'|grade')):(sth('원점','mock|'+u.key+'|raw')+sth('등급','mock|'+u.key+'|grade'))).join('')+'</tr></thead><tbody>';
-    arr.forEach(s=>{h+='<tr><td class="name">'+hak(s)+' '+esc(s.name)+'</td>'+allTd(s)+MOCK_SUBJECTS.map(u=>{const o=s.mock[mk][u.key]||{};return u.rel?('<td class="raw">'+fmt(o.raw)+'</td><td class="mut">'+fmt(o.std)+'</td><td>'+fmt(o.pct)+'</td><td>'+gb(o.grade)+'</td>'):('<td class="raw">'+fmt(o.raw)+'</td><td>'+gb(o.grade)+'</td>');}).join('')+'</tr>';});
+    arr.forEach((s,ri)=>{h+='<tr><td class="name">'+snCell(ri)+hak(s)+' '+esc(s.name)+'</td>'+allTd(s)+MOCK_SUBJECTS.map(u=>{const o=s.mock[mk][u.key]||{};return u.rel?('<td class="raw">'+fmt(o.raw)+'</td><td class="mut">'+fmt(o.std)+'</td><td>'+fmt(o.pct)+'</td><td>'+gb(o.grade)+'</td>'):('<td class="raw">'+fmt(o.raw)+'</td><td>'+gb(o.grade)+'</td>');}).join('')+'</tr>';});
     h+='</tbody>';
   }
   const ctx=dataTab==='naesin'?(dataNaesinSem==='year'?'학년 (지금까지 본 내신을 합친 결과 · 과목마다 학기말이 끝났으면 최종등급, 진행 중이면 1차 고사 또는 1·2차 변환점 · 개별 상담의 「전체 평균」 과 같은 규칙)':(SEMESTERS.find(x=>x.key===dataNaesinSem).label+' '+dataNaesinView)):MOCK_MONTHS.find(x=>x.key===dataMockMonth).label;
