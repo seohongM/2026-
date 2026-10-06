@@ -5561,6 +5561,9 @@ function renderNaesinCharts(grades) {
     //   점 글씨는 「2등급 (6)」 = 5등급 (9등급) (같은 날 사용자 지시 「5등급(9등급)으로 표시」)
     //   점 = 1학기 1차 · 1학기 2차 · 2학기 1차 · 2학기 2차 중 **그 과목에 시험 점수가 있는 것** (사용자 지시 —
     //   한 학기에만 있는 과목(정보)은 그 학기 칸만). 1·2학기 과목은 학기 표시를 뗀 이름으로 한 그래프에 잇습니다.
+    //   ⚠️ 전학생 (2026.10.06 사용자 요청 「이전 학교 과목 등급에서 바뀌었다는 것을 보여 줘라」 → 시안 A 고름) :
+    //   맨 앞에 「1학기 (이전 학교)」 점(주황 빈 동그라미)을 두고 우리 학교 점까지 주황 점선으로 잇습니다.
+    //   이전 학교 성적은 5등급만 있어 9등급 선에 놓을 수 없으므로 **그 학생은 모든 그래프를 5등급 선으로** 그립니다.
     const box = document.getElementById('naesin-change');
     if (!box) return;
     const SUBJ = (ALL && ALL.subjects) ? ALL.subjects : [];
@@ -5572,8 +5575,13 @@ function renderNaesinCharts(grades) {
     const sg = grades || [];
     const num = v => { const x = parseFloat(v); return isNaN(x) || !x ? null : x; };
     // 그 과목의 시험마다 [이름, 5등급, 9등급] — 시험 점수와 9등급이 있을 때만 (수행만 적은 칸은 빠짐)
+    const prevOf = b => { const o = sg.filter(x => x && baseOf(x.index) === b && x.prevSchool && +x.sem === 1)[0];
+                          const g = o ? num(o.finalGrade) : null; return g != null && g >= 1 && g <= 5 ? g : null; };
+    const usePrev = bases.some(b => prevOf(b) != null);
+    // 그 과목의 점마다 [이름, 5등급, 9등급, 이전 학교인가]
     const points = b => {
         const out = [];
+        if (usePrev && prevOf(b) != null) out.push(['1학기 (이전 학교)', prevOf(b), null, true]);
         [1, 2].forEach(sem => {
             const o = sg.filter(x => x && baseOf(x.index) === b && +x.sem === sem && !x.prevSchool)[0];
             if (!o) return;
@@ -5582,7 +5590,7 @@ function renderNaesinCharts(grades) {
                 const g5 = num(ex === 1 ? o.grade1 : o.grade2);
                 const g9 = num(ex === 1 ? o.grade1_9 : o.grade2_9);
                 if (sc === '' || sc == null || g5 == null || g9 == null) return;
-                out.push([sem + '학기 ' + ex + '차', g5, g9]);
+                out.push([sem + '학기 ' + ex + '차', g5, g9, false]);
             });
         });
         return out;
@@ -5594,23 +5602,31 @@ function renderNaesinCharts(grades) {
     }
     box.innerHTML = bases.map((b, i) =>
         '<div class="bg-white border border-slate-200 rounded-xl p-3"><h3 class="text-xs font-extrabold text-slate-800 mb-1">' + b +
-        ' <span class="font-medium text-[10px] text-slate-400">5등급 (9등급) · 선은 9등급 · 위로 갈수록 좋음</span></h3>' +
+        ' <span class="font-medium text-[10px] text-slate-400">5등급 (9등급) · ' + (usePrev ? '선은 5등급 (이전 학교는 5등급만 있음)' : '선은 9등급') + ' · 위로 갈수록 좋음</span></h3>' +
         '<div style="height:120px"><canvas id="naesin-chg-' + i + '"></canvas></div></div>').join('');
     bases.forEach((b, i) => {
         const pt = all[i], el = document.getElementById('naesin-chg-' + i);
         if (!pt.length) { el.parentNode.innerHTML = '<p class="text-xs text-slate-400 pt-10 text-center">성적 없음</p>'; return; }
-        const g = pt.map(x => x[2]);
+        const g = pt.map(x => usePrev ? x[1] : x[2]), top = usePrev ? 5 : 9;
         const lbl = { id: 'naesinChgLbl', afterDatasetsDraw(c) {
-            const x = c.ctx; x.save(); x.font = '700 11px Pretendard, sans-serif'; x.textAlign = 'center'; x.fillStyle = '#334155';
-            c.getDatasetMeta(0).data.forEach((e, j) => x.fillText(pt[j][1] + '등급 (' + pt[j][2] + ')', e.x, e.y - 8));
+            const x = c.ctx; x.save(); x.font = '700 11px Pretendard, sans-serif';
+            c.getDatasetMeta(0).data.forEach((e, j) => {
+                const pv = pt[j][3];
+                x.fillStyle = pv ? '#b45309' : '#334155'; x.textAlign = pv ? 'left' : 'center';
+                x.fillText(pv ? '이전 학교 ' + pt[j][1] + '등급' : pt[j][1] + '등급 (' + pt[j][2] + ')', pv ? e.x + 6 : e.x, e.y - 8);
+            });
             x.restore(); } };
+        const ORANGE = '#d97706', GREEN = '#059669';
         drawChart('naesin-chg-' + i, {
             type: 'line', plugins: [lbl],
             data: { labels: pt.map(x => x[0]),
-                    datasets: [{ label: b, data: g, borderColor: '#059669', backgroundColor: '#059669', borderWidth: 2, tension: 0, pointRadius: 4 }] },
+                    datasets: [{ label: b, data: g, borderColor: GREEN, borderWidth: 2, tension: 0, pointRadius: 4,
+                                 backgroundColor: pt.map(x => x[3] ? '#fff' : GREEN), pointBorderColor: pt.map(x => x[3] ? ORANGE : GREEN), pointBorderWidth: 2,
+                                 segment: { borderDash: s => pt[s.p0DataIndex][3] ? [5, 4] : undefined,
+                                            borderColor: s => pt[s.p0DataIndex][3] ? ORANGE : GREEN } }] },
             options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18, left: 30, right: 40 } },
                 plugins: { legend: { display: false } },
-                scales: { y: { reverse: true, min: Math.max(1, Math.min(...g) - 1), max: Math.min(9, Math.max(...g) + 1), ticks: { stepSize: 1 } },
+                scales: { y: { reverse: true, min: Math.max(1, Math.min(...g) - 1), max: Math.min(top, Math.max(...g) + 1), ticks: { stepSize: 1 } },
                           x: { grid: { display: false }, offset: pt.length === 1 } } }   // 점이 하나(정보)면 가운데
         });
     });
