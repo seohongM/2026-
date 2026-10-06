@@ -2005,7 +2005,8 @@ function mvPanel(title, sub, side, rows, emptyMsg) {
     if (!rows.length) {
         body = '<div class="text-xs text-slate-400 py-4 text-center">' + escapeHtml(emptyMsg) + '</div>';
     } else {
-        body = '<ol class="space-y-1.5">' + rows.map((r, i) =>
+        // 줄이 5개를 넘으면 칸 높이는 5줄 그대로 두고 안에서 스크롤 (mvFitScroll 이 높이를 맞춤)
+        body = '<ol class="mv-list space-y-1.5' + (rows.length > MV_SHOW ? ' overflow-y-auto pr-1' : '') + '">' + rows.map((r, i) =>
             '<li class="rounded-lg border border-slate-100 ' + side.row + ' ' +
                 'transition cursor-pointer px-2.5 py-2" onclick="selectStudent(' + r.n + ')">' +
               '<div class="flex items-center gap-2">' +
@@ -2019,6 +2020,22 @@ function mvPanel(title, sub, side, rows, emptyMsg) {
             '</li>').join('') + '</ol>';
     }
     return '<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">' + head + body + '</div>';
+}
+
+/**
+ * 오른·내린 학생 칸 — 반 전체를 보여 주되 **칸 높이는 예전 5줄 그대로**, 넘치는 학생은 칸 안에서 스크롤
+ * (2026.10.06 사용자 요청 「5명씩만 나온다 · 스크롤 · 반 전체」 → 「지금 높이 그대로」 고름).
+ * 높이 = 1번째 줄 위 ~ 6번째 줄 위 (줄 사이 간격 하나는 뺌). 화면이 숨어 있어 잴 수 없으면 340px.
+ */
+const MV_SHOW = 5;
+function mvFitScroll() {
+    document.querySelectorAll('#movers ol.mv-list').forEach(ol => {
+        const li = ol.children;
+        if (li.length <= MV_SHOW) { ol.style.maxHeight = ''; return; }
+        const h = li[MV_SHOW].offsetTop - li[0].offsetTop - 6;
+        ol.style.maxHeight = (h > 0 ? h : 340) + 'px';
+        ol.dataset.fit = h > 0 ? '1' : '';
+    });
 }
 
 /** 한 칸 : 「이름표 전값 → 후값」 */
@@ -2056,16 +2073,13 @@ function renderMovers() {
     // 몇 등 올랐나를 기준으로 줄 세웁니다.
     // (등급은 여섯 과목 평균이라 잘 안 움직여 순서를 가리기 어렵습니다)
     const nUp = nMine.filter(r => r.dRank > 0)
-                     .sort((a, b) => (b.dRank - a.dRank) || (b.dGrade - a.dGrade) || (b.dScore - a.dScore))
-                     .slice(0, 5);
+                     .sort((a, b) => (b.dRank - a.dRank) || (b.dGrade - a.dGrade) || (b.dScore - a.dScore));
     const nDown = nMine.filter(r => r.dRank < 0)
-                       .sort((a, b) => (a.dRank - b.dRank) || (a.dGrade - b.dGrade) || (a.dScore - b.dScore))
-                       .slice(0, 5);
-    // 변화가 가장 적은 5명 — 오른쪽·왼쪽 어느 쪽도 아닌, 석차가 거의 그대로인 학생
+                       .sort((a, b) => (a.dRank - b.dRank) || (a.dGrade - b.dGrade) || (a.dScore - b.dScore));
+    // 변화가 적은 순 — 반 전체 (2026.10.06 사용자 요청 「5명이 아니라 반 전체 · 스크롤」)
     const nFlat = nMine.slice()
                        .sort((a, b) => (Math.abs(a.dRank) - Math.abs(b.dRank)) ||
-                                       (Math.abs(a.dScore) - Math.abs(b.dScore)))
-                       .slice(0, 5);
+                                       (Math.abs(a.dScore) - Math.abs(b.dScore)));
 
     const nRow = r => ({
         n: r.n, nm: r.nm,
@@ -2075,10 +2089,10 @@ function renderMovers() {
                 '<span class="text-slate-300">' + (r.mv.n1 === r.mv.n2 ? r.mv.n1 + '과목' : r.mv.n1 + '→' + r.mv.n2 + '과목') + '</span>'
     });
 
-    html += mvPanel('내신이 오른 학생 5명',   nSub, MV_UP,   nUp.map(nRow),   nEmpty);
-    html += mvPanel('내신이 내린 학생 5명',   nSub, MV_DOWN, nDown.map(nRow), nEmpty);
-    html += mvPanel('내신 변화가 적은 학생 5명',
-                    (nA ? nPair + ' 시험' : '직전 시험 → 최근 시험') + ' · 석차가 거의 그대로', MV_FLAT, nFlat.map(nRow), nEmpty);
+    html += mvPanel('내신이 오른 학생 ' + nUp.length + '명',   nSub, MV_UP,   nUp.map(nRow),   nEmpty);
+    html += mvPanel('내신이 내린 학생 ' + nDown.length + '명',   nSub, MV_DOWN, nDown.map(nRow), nEmpty);
+    html += mvPanel('내신 변화가 적은 순 ' + nFlat.length + '명',
+                    (nA ? nPair + ' 시험' : '직전 시험 → 최근 시험') + ' · 반 전체', MV_FLAT, nFlat.map(nRow), nEmpty);
 
     /* ── ② 모의고사 : 직전 회차 → 최근 회차 ── */
     const mm = mvMockMonths();
@@ -2095,16 +2109,13 @@ function renderMovers() {
         const mMine = mvMockAll(prev.key, cur.key).filter(r => r.c === cls);
 
         const mUp = mMine.filter(r => r.dScore > 0)
-                         .sort((a, b) => (b.dScore - a.dScore) || ((b.dGrade || 0) - (a.dGrade || 0)))
-                         .slice(0, 5);
+                         .sort((a, b) => (b.dScore - a.dScore) || ((b.dGrade || 0) - (a.dGrade || 0)));
         const mDown = mMine.filter(r => r.dScore < 0)
-                           .sort((a, b) => (a.dScore - b.dScore) || ((a.dGrade || 0) - (b.dGrade || 0)))
-                           .slice(0, 5);
-        // 총점이 거의 그대로인 5명
+                           .sort((a, b) => (a.dScore - b.dScore) || ((a.dGrade || 0) - (b.dGrade || 0)));
+        // 총점 변화가 적은 순 — 반 전체
         const mFlat = mMine.slice()
                            .sort((a, b) => (Math.abs(a.dScore) - Math.abs(b.dScore)) ||
-                                           (Math.abs(a.dGrade || 0) - Math.abs(b.dGrade || 0)))
-                           .slice(0, 5);
+                                           (Math.abs(a.dGrade || 0) - Math.abs(b.dGrade || 0)));
 
         const mRow = r => ({
             n: r.n, nm: r.nm,
@@ -2114,14 +2125,15 @@ function renderMovers() {
                     '<span class="text-slate-300">' + r.mv.n + '과목</span>'
         });
 
-        html += mvPanel('모의고사가 오른 학생 5명',   mSub, MV_UP,   mUp.map(mRow),   mEmpty);
-        html += mvPanel('모의고사가 내린 학생 5명',   mSub, MV_DOWN, mDown.map(mRow), mEmpty);
-        html += mvPanel('모의고사 변화가 적은 학생 5명',
-                        prev.label + ' → ' + cur.label + ' · 총점이 거의 그대로',
+        html += mvPanel('모의고사가 오른 학생 ' + mUp.length + '명',   mSub, MV_UP,   mUp.map(mRow),   mEmpty);
+        html += mvPanel('모의고사가 내린 학생 ' + mDown.length + '명',   mSub, MV_DOWN, mDown.map(mRow), mEmpty);
+        html += mvPanel('모의고사 변화가 적은 순 ' + mFlat.length + '명',
+                        prev.label + ' → ' + cur.label + ' · 반 전체',
                         MV_FLAT, mFlat.map(mRow), mEmpty);
     }
 
     box.innerHTML = html;
+    mvFitScroll();
 }
 
 
@@ -3976,6 +3988,7 @@ function switchView(view) {
     });
 
     if (view === 'stats') statsBoot(false);
+    if (view === 'home') mvFitScroll();      // 숨어 있을 때 그렸으면 높이를 다시 잼
     navRecord();
 }
 
