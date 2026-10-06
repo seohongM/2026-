@@ -1732,9 +1732,28 @@ function mvNum(v) {
 }
 
 /**
- * 내신 시험 차례 — 1학기 1차 · 1학기 2차 · 2학기 1차 · 2학기 2차 중 **점수가 들어온 것만** (차례대로).
- * 오른·내린 학생은 이 가운데 **마지막 둘**(직전 시험 → 최근 시험)을 견줍니다 (2026.10.01 사용자 요청).
- * 예) 지금 = 1학기 2차 → 2학기 1차 / 2학기 2차가 들어오면 저절로 2학기 1차 → 2학기 2차
+ * 시험 하나(sl)에서 그 과목의 [점수, 5등급] — 점수가 없으면 null
+ *   sl.ex = 1 → 1차시험 · 1차등급 / 2 → 2차시험 · 2차등급
+ *   sl.ex = 'final' → **학기말** : 1차시험·2차시험·1차수행·2차수행 **넷 다** 있을 때만 환산총점 · 최종등급
+ */
+function mvSlotScore(g, si, sl) {
+    const b = si * 11;
+    if (sl.ex === 'final') {
+        if ([0, 2, 4, 5].some(o => mvNum(g[b + o]) === null)) return null;
+        const x = mvNum(g[b + 6]);
+        return x === null ? null : [x, mvNum(g[b + 7])];
+    }
+    const off = sl.ex === 1 ? 0 : 2, x = mvNum(g[b + off]);
+    return x === null ? null : [x, mvNum(g[b + off + 1])];
+}
+
+/**
+ * 내신 시험 차례 — 오른·내린 학생 · 개별 상담 평균 줄 석차가 같이 씁니다. **점수가 들어온 것만** 차례대로.
+ *   다음 학기 점수가 들어온 학기 = **학기말** 한 칸 · 진행 중인 학기 = 1차 · 2차 따로
+ *   (2026.10.06 사용자 지시 「1학기 학기말과 2학기 1차시험을 비교하라」 — 예전엔 1학기 2차 → 2학기 1차였음.
+ *    통합 성적 관리 ⑧ 상위권 1등급 추이의 칸 나누기(`top1Slots`)와 같은 방식)
+ * 오른·내린 학생은 이 가운데 **마지막 둘**(직전 → 최근)을 견줍니다.
+ * 예) 지금 = 1학기 학기말 → 2학기 1차 / 2학기 2차가 들어오면 저절로 2학기 1차 → 2학기 2차
  */
 function mvExamSlots() {
     const SUBJ = (ALL && ALL.subjects) || [], INFO = (ALL && ALL.subjectInfo) || null;
@@ -1742,14 +1761,23 @@ function mvExamSlots() {
     const sems = [];
     SUBJ.forEach((n, si) => { const k = subjSem(INFO, si, n); if (k && sems.indexOf(k) < 0) sems.push(k); });
     sems.sort((a, b) => a - b);
+    const has = sl => rows.some(row => SUBJ.some((n, si) =>
+        subjSem(INFO, si, n) === sl.sem && mvSlotScore(row.g || [], si, sl) !== null));
+    const live = sems.filter(sem => has({ sem: sem, ex: 1 }) || has({ sem: sem, ex: 2 }));
     const slots = [];
-    sems.forEach(sem => [1, 2].forEach(ex => slots.push({ sem: sem, ex: ex, label: sem + '학기 ' + ex + '차' })));
-    return slots.filter(sl => rows.some(row => SUBJ.some((n, si) =>
-        subjSem(INFO, si, n) === sl.sem && mvNum((row.g || [])[si * 11 + (sl.ex === 1 ? 0 : 2)]) !== null)));
+    live.forEach((sem, i) => {
+        if (i < live.length - 1) {                                  // 다음 학기 점수가 들어온 학기 → 학기말
+            const fin = { sem: sem, ex: 'final', label: sem + '학기 학기말' };
+            if (has(fin)) slots.push(fin);
+        } else {
+            [1, 2].forEach(ex => { const sl = { sem: sem, ex: ex, label: sem + '학기 ' + ex + '차' }; if (has(sl)) slots.push(sl); });
+        }
+    });
+    return slots;
 }
 
 /**
- * 내신 : 그 학생이 시험 하나(sl)에서 본 과목들 { 과목번호: [원점수, 5등급] }
+ * 내신 : 그 학생이 시험 하나(sl)에서 본 과목들 { 과목번호: [점수, 5등급] } (학기말이면 환산총점 · 최종등급)
  * 시험 점수가 있는 과목만 · 전입생이 이전 학교에서 받아 온 성적은 뺍니다.
  */
 function mvExamScores(row, sl) {
@@ -1757,13 +1785,12 @@ function mvExamScores(row, sl) {
     const INFO = (ALL && ALL.subjectInfo) || null;
     const g = row.g || [], d = row.d || [];
     const STEP = (SUBJ.length && d.length) ? Math.round(d.length / SUBJ.length) : 10;
-    const off = sl.ex === 1 ? 0 : 2, out = {};
+    const out = {};
     SUBJ.forEach((name, si) => {
         if (subjSem(INFO, si, name) !== sl.sem) return;
         if (STEP >= 10 && d[si * STEP + 9]) return;               // 이전 학교 성적
-        const x = mvNum(g[si * 11 + off]);
-        if (x === null) return;
-        out[si] = [x, mvNum(g[si * 11 + off + 1])];
+        const v = mvSlotScore(g, si, sl);
+        if (v) out[si] = v;
     });
     return out;
 }
