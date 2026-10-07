@@ -2348,9 +2348,12 @@ function wishTop(picks, note, U, D, score, tail, tone) {
                    ' class="cursor-pointer flex items-center gap-2">' +
                  '<span class="w-3 shrink-0 text-[10px] font-black ' + c.num + '">' +
                    (goalHas(kind, x[0], x[1], x[6]) ? '✓' : '') + '</span>' +
-                 '<span class="min-w-0 flex-1 text-xs font-bold text-slate-900 truncate">' +
-                   escapeHtml(U[x[0]] || '') +
-                   ' <span class="font-medium text-slate-700">' + escapeHtml(D[x[1]] || '') + '</span>' +
+                 '<span class="min-w-0 flex-1">' +
+                   '<span class="block text-xs font-bold text-slate-900 truncate">' +
+                     escapeHtml(U[x[0]] || '') +
+                     ' <span class="font-medium text-slate-700">' + escapeHtml(D[x[1]] || '') + '</span>' +
+                   '</span>' +
+                   (kind === 'susi' ? susiJhLine(x) : '') +
                  '</span>' +
                  '<span class="shrink-0 text-sm font-extrabold ' + c.num + '">' + score(x) + '</span>' +
                  '<span class="shrink-0 text-[10px] text-slate-600 text-right whitespace-nowrap">' +
@@ -3141,6 +3144,17 @@ function susiTailText(x) {
     return (y && p) ? (y + ' · ' + p) : (y || p);
 }
 
+/**
+ * 위 칸(검색 결과 · 희망 진로 강조 칸)의 대학 이름 **아래 줄**에 붙일 전형 (2026.10.07 사용자 요청).
+ * 목록 줄과 같은 `susiJhText` — 세 개까지, 넘으면 「외 N개」 · 마우스를 올리면 전부.
+ * 인쇄에도 나옵니다 (2026.10.07 사용자 지시 「위 칸의 전형을 인쇄에도 넣어라」 — 처음엔 화면만이었음).
+ * `susi-jh` 는 시험·찾기용 이름표입니다 (모양 없음).
+ */
+function susiJhLine(x) {
+    return '<span class="susi-jh block text-[10px] font-normal text-slate-600 leading-tight truncate"' +
+             ' title="' + escapeHtml(susiJhList(x).join('\n')) + '">' + escapeHtml(susiJhText(x)) + '</span>';
+}
+
 /** 합격 연도 표시 — 한 해면 '2025', 여러 해면 '2023~2025'. 모르면 빈 글자 */
 function susiYearText(x) {
     const y0 = Number(x[5] || 0), y1 = Number(x[6] || 0);
@@ -3278,9 +3292,11 @@ function susiFilter() {
                     ? '<div class="mt-1.5 pt-1.5 border-t border-amber-200">' +
                         near.map(o =>
                           '<div class="flex items-center gap-2">' +
-                            '<span class="min-w-0 flex-1 text-xs truncate">' +
-                              '<span class="font-bold text-slate-800">' + escapeHtml(U[o.x[0]]) + '</span> ' +
-                              '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span>' +
+                            '<span class="min-w-0 flex-1">' +
+                              '<span class="block text-xs truncate">' +
+                                '<span class="font-bold text-slate-800">' + escapeHtml(U[o.x[0]]) + '</span> ' +
+                                '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span>' +
+                              '</span>' + susiJhLine(o.x) +
                             '</span>' +
                             '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
                             '<span class="shrink-0 text-[10px] text-slate-600 text-right leading-tight whitespace-nowrap">' +
@@ -3293,8 +3309,10 @@ function susiFilter() {
             top = '<div class="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-2 mb-2">' +
                   hit.slice(0, 4).map(x =>
                     '<div class="flex items-center gap-2">' +
-                      '<span class="min-w-0 flex-1 text-xs font-bold text-slate-800 truncate">' +
-                        escapeHtml(U[x[0]]) + ' <span class="font-medium text-slate-600">' + escapeHtml(D[x[1]]) + '</span>' +
+                      '<span class="min-w-0 flex-1">' +
+                        '<span class="block text-xs font-bold text-slate-800 truncate">' +
+                          escapeHtml(U[x[0]]) + ' <span class="font-medium text-slate-600">' + escapeHtml(D[x[1]]) + '</span>' +
+                        '</span>' + susiJhLine(x) +
                       '</span>' +
                       '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(x[2]).toFixed(2) + '</span>' +
                       '<span class="shrink-0 text-[10px] text-slate-600 text-right leading-tight whitespace-nowrap">' +
@@ -3348,9 +3366,11 @@ function susiFilter() {
                        ? '<div class="mt-1.5 pt-1.5 border-t border-amber-200">' +
                            near.map(o =>
                              '<div class="flex items-center gap-2">' +
-                               '<span class="min-w-0 flex-1 text-xs truncate">' +
-                                 '<span class="font-bold text-slate-800">' + escapeHtml(U[o.x[0]]) + '</span> ' +
-                                 '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span></span>' +
+                               '<span class="min-w-0 flex-1">' +
+                                 '<span class="block text-xs truncate">' +
+                                   '<span class="font-bold text-slate-800">' + escapeHtml(U[o.x[0]]) + '</span> ' +
+                                   '<span class="text-slate-600">' + escapeHtml(D[o.x[1]]) + '</span></span>' +
+                                 susiJhLine(o.x) + '</span>' +
                                '<span class="shrink-0 text-sm font-extrabold text-teal-700">' + Number(o.x[2]).toFixed(2) + '</span>' +
                                '<span class="shrink-0 text-[10px] text-slate-600">' + escapeHtml(susiTailText(o.x)) + '</span>' +
                              '</div>').join('') + '</div>'
