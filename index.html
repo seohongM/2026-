@@ -3147,10 +3147,11 @@ function susiTailText(x) {
 /**
  * 위 칸(검색 결과 · 희망 진로 강조 칸)의 대학 이름 **아래 줄**에 붙일 전형 (2026.10.07 사용자 요청).
  * 목록 줄과 같은 `susiJhText` — 세 개까지, 넘으면 「외 N개」 · 마우스를 올리면 전부.
- * ⚠️ **화면에만** 나옵니다 (`no-print`) — 인쇄 모양은 그대로 (절대 규칙 5).
+ * 인쇄에도 나옵니다 (2026.10.07 사용자 지시 「위 칸의 전형을 인쇄에도 넣어라」 — 처음엔 화면만이었음).
+ * `susi-jh` 는 시험·찾기용 이름표입니다 (모양 없음).
  */
 function susiJhLine(x) {
-    return '<span class="no-print block text-[10px] font-normal text-slate-600 leading-tight truncate"' +
+    return '<span class="susi-jh block text-[10px] font-normal text-slate-600 leading-tight truncate"' +
              ' title="' + escapeHtml(susiJhList(x).join('\n')) + '">' + escapeHtml(susiJhText(x)) + '</span>';
 }
 
