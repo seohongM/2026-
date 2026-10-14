@@ -2152,6 +2152,7 @@ function renderMovers() {
 let UNIV = null;             // 대학 자료 (로그인 뒤 뒤에서 받아 둡니다)
 let univPromise = null;
 let univShown = 30;          // 한 번에 보여 줄 개수
+let univUp = 0, univDown = 0; // 스크롤로 위·아래 끝에 닿아 더 붙인 줄 수 (edgeGrow)
 
 const UNIV_SUBS = ['국어', '수학', '통합사회', '통합과학'];
 
@@ -2520,12 +2521,57 @@ function pivotAt(rows, isReachable) {
 }
 
 /**
+ * 수시·정시 목록을 **스크롤만으로** 위·아래로 이어 봅니다 (2026.10.14 사용자 요청 「위로 올라가는 것도」 → 「스크롤하면 저절로」).
+ * 목록은 내 자리 앞뒤 30줄만 들어 있어서, 맨 위(아래)에 닿으면 그쪽으로 EDGE_ADD 줄을 더 붙이고
+ * **보던 줄이 그 자리에 그대로 있게** 스크롤을 맞춥니다 (위로 붙일 때 화면이 튀지 않게).
+ * 학생을 바꾸거나 검색칸을 고치면 처음(앞뒤 30줄)으로 돌아갑니다. [더 보기] 단추도 그대로 있습니다.
+ * 인쇄는 그대로 — 더 붙은 줄은 print-keep 이 아니라 인쇄에서 빠집니다.
+ */
+const EDGE_ADD = 30, EDGE_PX = 24;
+const LIST_SPAN = { univ: null, susi: null };       // 지금 그려 둔 구간 { start, end, n }
+const EDGE_HOLD = {};                               // bodyId → 붙이는 중 (scrollToPivot 을 잠깐 막음)
+// ⚠️ 목록을 새로 그리면(학생 바꿈·검색) 예전 스크롤 자리가 끝에 걸려 **저절로 생긴** scroll 이 올 수 있습니다.
+//    그걸 사람이 올린 것으로 보면 줄이 붙고 내 자리로 가는 스크롤까지 막히므로, 그린 직후 잠깐은 듣지 않습니다.
+const EDGE_QUIET = {};                              // bodyId → 이 시각(ms)까지 끝 닿음을 무시
+const EDGE_QUIET_MS = 300;
+function edgeGrow(kind, dir, body) {
+    // 보던 자리 : 지금 칸 위쪽에 걸친 첫 줄과 그 줄의 화면 위치
+    const top0 = body.getBoundingClientRect().top;
+    let anchor = null, off = 0;
+    for (const li of body.querySelectorAll('li[data-i]')) {
+        const r = li.getBoundingClientRect();
+        if (r.bottom > top0) { anchor = li.dataset.i; off = r.top - top0; break; }
+    }
+    if (kind === 'susi') { if (dir < 0) susiUp += EDGE_ADD; else susiDown += EDGE_ADD; }
+    else                 { if (dir < 0) univUp += EDGE_ADD; else univDown += EDGE_ADD; }
+    const keep = body.scrollTop;
+    EDGE_HOLD[body.id] = true;
+    if (kind === 'susi') susiFilter(); else univFilter();
+    const nb = document.getElementById(body.id) || body;
+    const li = anchor !== null ? nb.querySelector('li[data-i="' + anchor + '"]') : null;
+    nb.scrollTop = li ? (li.getBoundingClientRect().top - nb.getBoundingClientRect().top + nb.scrollTop - off) : keep;
+    setTimeout(function () { EDGE_HOLD[body.id] = false; }, 0);   // scrollToPivot 의 setTimeout 뒤에 풀림
+    EDGE_QUIET[body.id] = Date.now() + 120;                         // 맞춘 스크롤이 부르는 scroll 은 듣지 않음
+}
+document.addEventListener('scroll', function (e) {
+    const t = e.target;
+    const kind = t && t.id === 'susi-body' ? 'susi' : t && t.id === 'univ-body' ? 'univ' : '';
+    if (!kind || EDGE_HOLD[t.id] || Date.now() < (EDGE_QUIET[t.id] || 0)) return;
+    const sp = LIST_SPAN[kind];
+    if (!sp || !t.querySelector('li[data-i]')) return;
+    if (t.scrollTop <= EDGE_PX && sp.start > 0) edgeGrow(kind, -1, t);
+    else if (t.scrollTop + t.clientHeight >= t.scrollHeight - EDGE_PX && sp.end < sp.n) edgeGrow(kind, 1, t);
+}, true);   // scroll 은 거품이 안 올라오므로 붙잡기(capture)로 받습니다
+
+/**
  * 내 자리 줄이 칸 가운데에 오도록 스크롤합니다.
  * ⚠️ 화면을 아직 안 보여 준 상태(display:none)에서는 높이가 0 이라 스크롤이 먹히지 않습니다.
  *    그래서 **다음 차례**로 미뤄 둡니다 (화면 전환이 끝난 뒤에 실행되도록).
  */
 function scrollToPivot(bodyId, markId) {
+    if (!EDGE_HOLD[bodyId]) EDGE_QUIET[bodyId] = Date.now() + EDGE_QUIET_MS;   // 새로 그렸음 — 잠깐 끝 닿음 무시
     setTimeout(function () {
+        if (EDGE_HOLD[bodyId]) return;        // 스크롤로 줄을 더 붙이는 중 — 보던 자리를 지킵니다
         const body = document.getElementById(bodyId);
         const el   = document.getElementById(markId);
         if (!body || !el) return;
@@ -2745,6 +2791,10 @@ function univList(rows, headNote, markSet, pivot, myScore) {
         end   = Math.min(rows.length, start + univShown);
         start = Math.max(0, end - univShown);
     }
+    // 스크롤로 위·아래 끝에 닿아 더 붙인 줄 (edgeGrow)
+    start = Math.max(0, start - univUp);
+    end   = Math.min(rows.length, end + univDown);
+    LIST_SPAN.univ = { start: start, end: end, n: rows.length };
 
     let html = '<ol class="divide-y divide-slate-100">';
     for (let i = start; i < end; i++) {
@@ -2754,7 +2804,7 @@ function univList(rows, headNote, markSet, pivot, myScore) {
         // 누르면 모의고사 표 아래 「🎓 정시 목표 대학」 에 담깁니다 (2026.09 사용자 요청)
         const picked = goalHas('univ', x[0], x[1]);
         html +=
-          '<li onclick="goalToggle(\'univ\',' + x[0] + ',' + x[1] + ')"' +
+          '<li data-i="' + i + '" onclick="goalToggle(\'univ\',' + x[0] + ',' + x[1] + ')"' +
               ' title="누르면 아래 목표 대학에 담깁니다"' +
               ' class="cursor-pointer flex items-center gap-2 py-1.5 px-1' +
               (marked ? ' bg-amber-100 rounded' : '') +
@@ -2969,7 +3019,7 @@ function renderUnivMatch() {
     const box = document.getElementById('univ-panel');
     if (!box) return;
 
-    univShown = 30;
+    univShown = 30; univUp = univDown = 0;
     const pc = selectedStudent ? myPercentile(selectedStudent) : null;
 
     // 희망 대학·학과를 적어 두셨으면 검색칸을 그 값으로 채워 둡니다.
@@ -2993,6 +3043,7 @@ function renderUnivMatch() {
         if (pd.miss) wishMiss.push(wantD);
     }
 
+    const q = draftQuery('univ', wishU, wishD);   // 검색칸에 남겨 둔 글이 있으면 그것이 먼저
     const scoreLine = pc
         ? '<span class="text-[10px] text-slate-500">' + escapeHtml(pc.label) +
           ' 국·수·사·과 백분위 평균 <b class="text-sm text-indigo-700">' + pc.avg.toFixed(2) + '</b></span>'
@@ -3006,15 +3057,15 @@ function renderUnivMatch() {
           '</div>' +
           '<div class="flex gap-1.5 mb-2 panel-no-print">' +
             '<input id="univ-q-u" type="text" placeholder="대학 검색" oninput="univReset()" ' +
-                   'value="' + escapeHtml(wishU) + '" ' +
+                   'value="' + escapeHtml(q.u) + '" ' +
                    'class="flex-1 min-w-0 text-[11px] px-2 py-1 rounded border outline-none ' +
-                          'focus:border-indigo-500 ' + (wishU ? 'border-amber-300 bg-amber-50/50' : 'border-slate-300') + '">' +
+                          'focus:border-indigo-500 ' + (q.wish && wishU ? 'border-amber-300 bg-amber-50/50' : 'border-slate-300') + '">' +
             '<input id="univ-q-d" type="text" placeholder="학과 검색" oninput="univReset()" ' +
-                   'value="' + escapeHtml(wishD) + '" ' +
+                   'value="' + escapeHtml(q.d) + '" ' +
                    'class="flex-1 min-w-0 text-[11px] px-2 py-1 rounded border outline-none ' +
-                          'focus:border-indigo-500 ' + (wishD ? 'border-amber-300 bg-amber-50/50' : 'border-slate-300') + '">' +
+                          'focus:border-indigo-500 ' + (q.wish && wishD ? 'border-amber-300 bg-amber-50/50' : 'border-slate-300') + '">' +
           '</div>' +
-          ((wishU || wishD)
+          (q.wish && (wishU || wishD)
             ? '<div class="text-[10px] text-amber-700 -mt-1 mb-1.5 panel-no-print">🎯 희망 진로로 채워 두었습니다. 지우시면 내 점수로 갈 수 있는 곳이 나옵니다.</div>'
             : '') +
 
@@ -3027,7 +3078,7 @@ function renderUnivMatch() {
 }
 
 /** 검색칸을 고치면 처음 30곳부터 다시 셉니다. */
-function univReset() { univShown = 30; univFilter(); }
+function univReset() { univShown = 30; univUp = univDown = 0; draftSaveQuery('univ'); univFilter(); }
 
 
 /* ══════════════════════════════════════════════════════════
@@ -3047,6 +3098,7 @@ function univReset() { univShown = 30; univFilter(); }
 let SUSI = null;
 let susiPromise = null;
 let susiShown = 30;
+let susiUp = 0, susiDown = 0;   // 스크롤로 위·아래 끝에 닿아 더 붙인 줄 수 (edgeGrow)
 
 function loadSusi(force) {
     if (SUSI && !force) return Promise.resolve(SUSI);
@@ -3178,6 +3230,10 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
         end   = Math.min(rows.length, start + susiShown);
         start = Math.max(0, end - susiShown);
     }
+    // 스크롤로 위·아래 끝에 닿아 더 붙인 줄 (edgeGrow)
+    start = Math.max(0, start - susiUp);
+    end   = Math.min(rows.length, end + susiDown);
+    LIST_SPAN.susi = { start: start, end: end, n: rows.length };
 
     let html = '<ol class="divide-y divide-slate-100">';
     for (let i = start; i < end; i++) {
@@ -3187,7 +3243,7 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
         // 누르면 내신 표 아래 「🎒 수시 목표 대학」 에 담깁니다 (2026.09 사용자 요청)
         const picked = goalHas('susi', x[0], x[1], x[6]);
         html +=
-          '<li onclick="goalToggle(\'susi\',' + x[0] + ',' + x[1] + ',' + (Number(x[6]) || 0) + ')"' +
+          '<li data-i="' + i + '" onclick="goalToggle(\'susi\',' + x[0] + ',' + x[1] + ',' + (Number(x[6]) || 0) + ')"' +
               ' title="누르면 아래 목표 대학에 담깁니다"' +
               ' class="cursor-pointer flex items-center gap-2 py-1.5 px-1' +
               (marked ? ' bg-amber-100 rounded' : '') +
@@ -3233,7 +3289,7 @@ function susiList(rows, headNote, markSet, pivot, myScore) {
 }
 
 function susiMore() { susiShown += 30; susiFilter(); }
-function susiReset() { susiShown = 30; susiFilter(); }
+function susiReset() { susiShown = 30; susiUp = susiDown = 0; draftSaveQuery('susi'); susiFilter(); }
 
 function susiFilter() {
     const body = document.getElementById('susi-body');
@@ -3394,7 +3450,7 @@ function renderSusiMatch() {
     const box = document.getElementById('susi-panel');
     if (!box) return;
 
-    susiShown = 30;
+    susiShown = 30; susiUp = susiDown = 0;
     const g9 = selectedStudent ? my9Grade(selectedStudent) : null;
 
     // 희망 대학·학과 — 찾아지는 것만 채웁니다 (정시 패널과 같은 규칙)
@@ -3411,6 +3467,7 @@ function renderSusiMatch() {
         if (pd.miss) wishMiss.push(wantD);
     }
 
+    const q = draftQuery('susi', wishU, wishD);   // 검색칸에 남겨 둔 글이 있으면 그것이 먼저
     const scoreLine = (g9 !== null)
         ? '<span class="text-[10px] text-slate-500">9등급제 평균 ' +
           '<b class="text-sm text-teal-700">' + g9.toFixed(2) + '</b></span>'
@@ -3424,15 +3481,15 @@ function renderSusiMatch() {
           '</div>' +
           '<div class="flex gap-1.5 mb-2 panel-no-print">' +
             '<input id="susi-q-u" type="text" placeholder="대학 검색" oninput="susiReset()" ' +
-                   'value="' + escapeHtml(wishU) + '" ' +
+                   'value="' + escapeHtml(q.u) + '" ' +
                    'class="flex-1 min-w-0 text-[11px] px-2 py-1 rounded border outline-none focus:border-teal-500 ' +
-                          (wishU ? 'border-amber-300 bg-amber-50/50' : 'border-slate-300') + '">' +
+                          (q.wish && wishU ? 'border-amber-300 bg-amber-50/50' : 'border-slate-300') + '">' +
             '<input id="susi-q-d" type="text" placeholder="학과 검색" oninput="susiReset()" ' +
-                   'value="' + escapeHtml(wishD) + '" ' +
+                   'value="' + escapeHtml(q.d) + '" ' +
                    'class="flex-1 min-w-0 text-[11px] px-2 py-1 rounded border outline-none focus:border-teal-500 ' +
-                          (wishD ? 'border-amber-300 bg-amber-50/50' : 'border-slate-300') + '">' +
+                          (q.wish && wishD ? 'border-amber-300 bg-amber-50/50' : 'border-slate-300') + '">' +
           '</div>' +
-          ((wishU || wishD)
+          (q.wish && (wishU || wishD)
             ? '<div class="text-[10px] text-amber-700 -mt-1 mb-1.5 panel-no-print">🎯 희망 진로로 채워 두었습니다. 지우시면 내 등급으로 갈 수 있는 곳이 나옵니다.</div>'
             : '') +
 
@@ -3445,6 +3502,44 @@ function renderSusiMatch() {
 }
 
 /** 학생 한 명을 개별 상담 화면에 올립니다. */
+/* ── 저장 안 한 글 남겨 두기 ─────────────────────
+ * 2026.10.14 사용자 요청 「저장을 누르지 않아도 화면에 남아 있으면」 → 「창을 닫아도 남김」 고름.
+ * 개별 상담 종합 코멘트 · 희망 대학/학과 · 수시/정시 검색칸 네 개를 **학생마다** 이 컴퓨터 브라우저(localStorage)에 둡니다.
+ *   cm = 종합 코멘트 · tu/tm = 희망 대학/학과 · su/sd = 수시 검색 대학/학과 · uu/ud = 정시 검색 대학/학과
+ * 다른 학생·화면을 다녀와도, 새로고침·창을 닫아도 그대로 나옵니다. 시트에는 [저장] 을 눌러야 들어갑니다.
+ * 지우는 때 : 코멘트 저장 → cm / 목표 저장 → tu·tm + 검색칸 넷 (새 희망 진로로 검색칸을 다시 채우려고)
+ * ⚠️ 같은 컴퓨터를 쓰는 다른 선생님도 로그인하면 볼 수 있습니다 (사용자가 알고 고름). 시트·서버와는 상관없음.
+ * 브라우저가 막아 두면(사생활 보호 창 등) 조용히 예전처럼 동작합니다 (try/catch). */
+const DRAFT_PREFIX = 'draft:v1:';
+function draftKey(st) {
+    st = st || selectedStudent;
+    return st ? DRAFT_PREFIX + (st.classNum || currentClass) + '-' + st.number : '';
+}
+function draftGet(st) {
+    try { const k = draftKey(st); return (k && JSON.parse(localStorage.getItem(k) || 'null')) || {}; }
+    catch (e) { return {}; }
+}
+function draftSet(fields, st) {          // fields = { 이름: 값 } · 값이 null 이면 지움
+    try {
+        const k = draftKey(st); if (!k) return;
+        const d = draftGet(st);
+        Object.keys(fields).forEach(f => { if (fields[f] === null) delete d[f]; else d[f] = fields[f]; });
+        if (Object.keys(d).length) localStorage.setItem(k, JSON.stringify(d)); else localStorage.removeItem(k);
+    } catch (e) { /* 저장 못 해도 화면은 그대로 */ }
+}
+/** 검색칸 값 : 남겨 둔 글이 있으면 그것, 없으면 희망 진로로 채운 값 */
+function draftQuery(kind, wishU, wishD) {
+    const d = draftGet(), a = kind === 'susi' ? 'su' : 'uu', b = kind === 'susi' ? 'sd' : 'ud';
+    if (d[a] === undefined && d[b] === undefined) return { u: wishU, d: wishD, wish: true };
+    return { u: d[a] !== undefined ? d[a] : wishU, d: d[b] !== undefined ? d[b] : wishD, wish: false };
+}
+function draftSaveQuery(kind) {
+    const p = kind === 'susi' ? 'susi' : 'univ';
+    const u = document.getElementById(p + '-q-u'), d = document.getElementById(p + '-q-d');
+    if (!u || !d) return;
+    draftSet(kind === 'susi' ? { su: u.value, sd: d.value } : { uu: u.value, ud: d.value });
+}
+
 function showStudent(s) {
     selectedStudent = s;
     if (!selectedStudent) return;
@@ -3457,8 +3552,9 @@ function showStudent(s) {
         classLabel(selectedStudent.classNum || currentClass) + ' ' + selectedStudent.number + '번';
     document.getElementById('c-info-name').textContent = selectedStudent.name;
 
-    document.getElementById('input-target-uni').value = (selectedStudent.targetUni || '').trim();
-    document.getElementById('input-target-major').value = (selectedStudent.targetMajor || '').trim();
+    const dr = draftGet();                   // 저장 안 하고 남겨 둔 글 (있으면 그것이 먼저)
+    document.getElementById('input-target-uni').value   = dr.tu !== undefined ? dr.tu : (selectedStudent.targetUni || '').trim();
+    document.getElementById('input-target-major').value = dr.tm !== undefined ? dr.tm : (selectedStudent.targetMajor || '').trim();
     syncTargetPrint();
 
     renderSchoolGrades(selectedStudent.schoolGrades, selectedStudent.summary);   // 등급 상승 목표도 이 표 안에 그립니다
@@ -3470,8 +3566,8 @@ function showStudent(s) {
     renderMockCharts(selectedStudent.mockExams);
     renderHistory(selectedStudent);
 
-    document.getElementById('counsel-text').value = '';
-    document.getElementById('print-counsel-display').textContent = COUNSEL_EMPTY;
+    document.getElementById('counsel-text').value = dr.cm || '';
+    document.getElementById('print-counsel-display').textContent = dr.cm || COUNSEL_EMPTY;
 
     switchView('counseling');
 }
@@ -4167,6 +4263,7 @@ async function saveTargetToSheet() {
     const uni = document.getElementById('input-target-uni').value.trim();
     const major = document.getElementById('input-target-major').value.trim();
     const btn = document.getElementById('target-save-btn');
+    const who = selectedStudent;             // 저장하는 동안 학생을 바꿔도 그 학생 것만 지우게
 
     btn.disabled = true;
     btn.textContent = '저장 중…';
@@ -4181,6 +4278,8 @@ async function saveTargetToSheet() {
         });
         selectedStudent.targetUni = uni;
         selectedStudent.targetMajor = major;
+        // 저장했으니 남겨 둔 글은 지웁니다 (검색칸도 — 새 희망 진로로 다시 채우려고)
+        draftSet({ tu: null, tm: null, su: null, sd: null, uu: null, ud: null }, who);
         updateAllRow(selectedStudent.classNum, selectedStudent.number, r => { r.u = uni; r.mj = major; });
         syncTargetPrint();
         updateTargetCount();
@@ -4215,6 +4314,7 @@ async function saveCounselingToSheet() {
     const timeStr = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
     const btn = document.getElementById('save-btn');
+    const who = selectedStudent;
     btn.disabled = true;
     btn.textContent = '저장 중…';
 
@@ -4226,6 +4326,7 @@ async function saveCounselingToSheet() {
             text: text,
             timeStr: timeStr
         });
+        draftSet({ cm: null }, who);         // 시트에 들어갔으니 남겨 둔 글은 지움
         // 저장된 칸 번호를 받아 둡니다 — 나중에 그 기록을 고치거나 지울 때 씁니다
         applySaveResult(`[${timeStr}]\n${text}`, timeStr, text, saved && saved.column);
     } catch (e) {
@@ -5732,11 +5833,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         textarea.addEventListener('input', (e) => {
             document.getElementById('print-counsel-display').textContent =
                 e.target.value || COUNSEL_EMPTY;
+            draftSet({ cm: e.target.value ? e.target.value : null });   // 저장 안 해도 남김
         });
     }
     ['input-target-uni', 'input-target-major'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('input', syncTargetPrint);
+        // 저장 안 해도 남김 — 시트 값과 같아지면 지움
+        if (el) el.addEventListener('input', () => {
+            if (!selectedStudent) return;
+            const f = id === 'input-target-uni' ? 'tu' : 'tm';
+            const saved = ((f === 'tu' ? selectedStudent.targetUni : selectedStudent.targetMajor) || '').trim();
+            draftSet({ [f]: el.value === saved ? null : el.value });
+        });
     });
 
     // 새로고침해도 로그인이 유지되도록 확인합니다.
