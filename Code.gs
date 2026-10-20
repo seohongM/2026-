@@ -2465,6 +2465,8 @@ function onOpen() {
         .addSeparator()
         .addItem('⑥ 시트 연결 상태 점검', 'menuCheckSetup')
         .addItem('⑦ 전체 점검 (문제 생겼을 때)', '연결테스트')
+        .addSeparator()
+        .addItem('⑧ 모의고사 예상 등급컷 칸 만들기', 'menuMockCuts')
         .addToUi();
   } catch (e) { /* 메뉴를 못 만들어도 무시 */ }
 }
@@ -3692,6 +3694,131 @@ function checkMockSheets() {
       Logger.log(v[info.startRow].slice(0, 25).join(' | '));
     }
   });
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   모의고사 예상 등급컷 (2026.10.20 사용자 요청)
+
+   가채점 때는 시트에 원점수만 있고 정식 등급은 한 달 뒤에 나옵니다.
+   그 사이 **예상 등급컷**을 적으면 등급 칸이 저절로 채워지도록 합니다.
+
+   · 각 모의고사 탭의 **학생 표 오른쪽**(한 칸 띄우고)에 작은 표를 만듭니다.
+       ▼ 예상 등급컷 (그 등급 최저 원점수)
+       과목 | 1등급 | 2등급 | … | 8등급
+       국어 / 수학 / 영어 / 통합사회 / 통합과학 / 한국사
+     숫자 = **그 등급의 최저 원점수** (88 이면 88점 이상이 1등급) · 8등급 컷보다 낮으면 9등급.
+   · 영어·한국사는 절대평가라 컷이 정해져 있어 **미리 채워 둡니다** (사용자 결정).
+   · **등급 칸이 통째로 비어 있는 과목에만** 수식을 넣습니다 — 값이 하나라도 있는 열(정식 등급 등)은 절대 건드리지 않습니다.
+       =IF(AND(ISNUMBER(원점수), COUNT(컷 8칸)=8), COUNTIF(컷 8칸, ">"&원점수)+1, "")
+     원점수가 비면(결시) 등급도 빈칸 · 컷을 8칸 다 안 적으면 등급 칸도 빈칸.
+   · 정식 등급이 나오면 등급 칸에 그대로 덮어 적으면 됩니다 (수식은 그 칸만 사라짐).
+   · 여러 번 실행해도 안전합니다 — 표가 이미 있으면 그대로 두고, 우리 수식이 든 열은 다시 써도 결과가 같습니다.
+   · 홈페이지는 이 표를 읽지 않습니다 (등급 칸의 계산된 값만 읽음). 표 맨 위 칸에 글이 있어
+     analyzeMockSheet_ 의 머리글 이어 붙이기가 한국사에서 끊깁니다.
+   실행 : 시트 위 🔐 상담시스템 관리 → ⑧  (또는 편집기에서 모의고사등급컷)
+   ══════════════════════════════════════════════════════════ */
+var MOCK_CUT_TITLE_ = '▼ 예상 등급컷 (그 등급 최저 원점수)';
+var MOCK_CUT_FIXED_ = { '영어': [90, 80, 70, 60, 50, 40, 30, 20], '한국사': [40, 35, 30, 25, 20, 15, 10, 5] };
+
+function menuMockCuts() { showMsg_('모의고사 예상 등급컷', setupMockCuts_()); }
+function 모의고사등급컷() { Logger.log(String(setupMockCuts_()).replace(/<br>/g, '\n').replace(/<[^>]+>/g, '')); }
+
+function setupMockCuts_() {
+  var ss = getSpreadsheet_();
+  if (!ss) return '❌ 스프레드시트를 열 수 없습니다.';
+  var out = [];
+  MOCK_SHEETS.forEach(function (cfg) {
+    var sh = findSheet_(ss, cfg.name, cfg.keywords);
+    if (!sh) { out.push('· <b>' + cfg.name + '</b> : 탭이 없어 건너뜀'); return; }
+    out.push(mockCutsOne_(sh));
+  });
+  return out.join('<br>') +
+    '<br><br>📌 각 탭 오른쪽 표의 <b>국어·수학·통합사회·통합과학</b> 줄에 예상 등급컷(그 등급 최저점) 8칸을 적으면<br>' +
+    '비어 있던 등급 칸이 저절로 채워집니다. 정식 등급이 나오면 등급 칸에 그대로 덮어 적으세요.';
+}
+
+function mockCutsOne_(sh) {
+  var v = sh.getDataRange().getValues();
+  var r1 = v[0] || [], r2 = v[1] || [];
+  var width = Math.max(r1.length, r2.length);
+
+  // 1) 표 자리 : 이미 있으면 그 자리 · 없으면 머리글 맨 오른쪽에서 한 칸 띄움
+  var cut0 = -1, lastHead = -1;
+  for (var c = 0; c < width; c++) {
+    if (String(r1[c] || '').indexOf('예상 등급컷') !== -1) { cut0 = c; break; }
+    if (String(r1[c] || '').trim() !== '' || String(r2[c] || '').trim() !== '') lastHead = c;
+  }
+  var made = false;
+  if (cut0 === -1) {
+    cut0 = lastHead + 2;
+    // ⚠️ 그 자리(1~9행 · 9칸)에 무엇이든 적혀 있으면 덮어쓰지 않고 오른쪽 빈 곳으로 옮깁니다
+    var busy = function (c0) {
+      for (var rr = 0; rr < Math.min(v.length, 3 + MOCK_SUBJECTS.length + 1); rr++)
+        for (var cc = c0; cc < c0 + 9; cc++) if (String((v[rr] || [])[cc] == null ? '' : v[rr][cc]).trim() !== '') return true;
+      return false;
+    };
+    while (busy(cut0)) cut0++;
+    var need = cut0 + 9;
+    if (sh.getMaxColumns() < need) sh.insertColumnsAfter(sh.getMaxColumns(), need - sh.getMaxColumns());
+    var tbl = [[MOCK_CUT_TITLE_, '', '', '', '', '', '', '', ''],
+               ['과목', '1등급', '2등급', '3등급', '4등급', '5등급', '6등급', '7등급', '8등급']];
+    MOCK_SUBJECTS.forEach(function (sub) {
+      var row = [sub], fx = MOCK_CUT_FIXED_[sub];
+      for (var k = 0; k < 8; k++) row.push(fx ? fx[k] : '');
+      tbl.push(row);
+    });
+    sh.getRange(1, cut0 + 1, tbl.length, 9).setValues(tbl);
+    sh.getRange(1, cut0 + 1, 1, 9).merge().setFontWeight('bold').setBackground('#fde68a');
+    sh.getRange(2, cut0 + 1, 1, 9).setFontWeight('bold').setBackground('#fef3c7').setHorizontalAlignment('center');
+    sh.getRange(3, cut0 + 1, MOCK_SUBJECTS.length, 1).setFontWeight('bold');
+    sh.getRange(3, cut0 + 2, MOCK_SUBJECTS.length, 8).setBackground('#fffbeb').setHorizontalAlignment('center');
+    sh.getRange(3 + MOCK_SUBJECTS.length, cut0 + 1)
+      .setValue('8칸을 모두 적으면 비어 있던 등급 칸이 저절로 채워집니다 · 정식 등급이 나오면 등급 칸에 덮어 적으세요');
+    made = true;
+  }
+
+  // 2) 등급 칸 수식 — 통째로 비었거나 우리 수식만 든 열에만
+  var info = analyzeMockSheet_(v);
+  var studs = [];
+  for (var r = info.startRow; r < v.length; r++) {
+    if (!isNaN(toInt_(v[r][0])) && !isNaN(toInt_(v[r][1]))) studs.push(r);
+  }
+  var filled = [], kept = [], miss = [];
+  if (!studs.length) return '· <b>' + sh.getName() + '</b> : 등급컷 표 ' + (made ? '만듦' : '이미 있음') + ' · 학생 줄이 없어 수식은 안 넣음';
+  var first = studs[0], last = studs[studs.length - 1];
+
+  MOCK_SUBJECTS.forEach(function (sub, si) {
+    var col = info.cols[sub] || {};
+    if (!(col.s >= 0) || !(col.g >= 0)) { miss.push(sub); return; }
+    var cutRow = 3 + si;                                      // 표에서 그 과목 줄 (1부터)
+    var cutRef = '$' + colName_(cut0 + 2) + '$' + cutRow + ':$' + colName_(cut0 + 9) + '$' + cutRow;
+    var rng = sh.getRange(first + 1, col.g + 1, last - first + 1, 1);
+    var fs = rng.getFormulas();
+    var ok = true;
+    for (var i = 0; i < fs.length && ok; i++) {
+      var val = v[first + i] ? v[first + i][col.g] : '';
+      var f = String(fs[i][0] || '');
+      if (f) { if (f.indexOf(cutRef) === -1) ok = false; }   // 다른 수식이 있음 → 건드리지 않음
+      else if (String(val == null ? '' : val).trim() !== '') ok = false;   // 값이 있음 → 건드리지 않음
+    }
+    if (!ok) { kept.push(sub); return; }
+    var raw = colName_(col.s + 1);
+    var out = [];
+    for (var j = first; j <= last; j++) {
+      var isStud = studs.indexOf(j) !== -1, R = j + 1;
+      out.push([isStud
+        ? '=IF(AND(ISNUMBER(' + raw + R + '),COUNT(' + cutRef + ')=8),COUNTIF(' + cutRef + ',">"&' + raw + R + ')+1,"")'
+        : '']);
+    }
+    rng.setFormulas(out);
+    filled.push(sub);
+  });
+
+  return '· <b>' + sh.getName() + '</b> : 등급컷 표 ' + (made ? '<b>새로 만듦</b> (' + colName_(cut0 + 1) + '1)' : '이미 있음 (' + colName_(cut0 + 1) + '1)') +
+         (filled.length ? ' · 수식 넣음 <b>' + filled.join('·') + '</b>' : '') +
+         (kept.length ? ' · 그대로 둠(이미 등급 있음) ' + kept.join('·') : '') +
+         (miss.length ? ' · 열을 못 찾음 ' + miss.join('·') : '');
 }
 
 
