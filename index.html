@@ -4882,6 +4882,9 @@ let gradeNaesinExam='최종'; // '1차' | '2차' | '최종'  (변경: 6개 분�
 let gNaesinDistSubj='공통국어'; // 과목별 반별 등급인원 탭
 let gradeMockMonth='m3';
 let gradeMockDistMonth='m3';
+let gMockTopN=3;            // ⑥ 잘 본 학생 50명 : 3 = 국영수 합 · 5 = 국영수탐 합 (2026.10.21 사용자 요청)
+let gMockMoveSub='국어';    // ⑦ 직전 회차 대비 등급이 오른·내린 학생 : 과목 탭
+let gMockMoveShown={up:50,down:50};   // ⑦ 보이는 줄 수 — 칸 맨 아래까지 내리면 50명씩 더
 
 document.getElementById('gradeSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeTab=b.getAttribute('data-g');[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));renderGrade();});
 
@@ -5087,6 +5090,82 @@ function drawGradeNaesinCharts(arr,sem,bans,classGradeAvg,gradeAll){
   }
 }
 
+/* ===== 모의고사 ⑥ 잘 본 학생 50명 · ⑦ 직전 회차 대비 등급이 오른·내린 학생 (2026.10.21 사용자 요청) ===== */
+const MOCK_TOP_N=50, MOCK_MOVE_STEP=50, MOCK_MOVE_SUBS=['국어','수학','영어','통합사회','통합과학'];
+// 같은 값은 같은 등수 (1, 2, 2, 4 …)
+function rankBy(list,val){let r=0,prevV=null;return list.map((x,i)=>{const v=val(x);if(i===0||v!==prevV){r=i+1;prevV=v;}return r;});}
+// ⑥ — 고른 합(국영수 / 국영수탐)이 높은 순 · 그 과목을 모두 본 학생만 (mockSum 이 null 이면 빠짐) · 50등까지 (50등과 같은 점수는 함께)
+function mockTopHtml(arr,mk){
+  const n=gMockTopN, other=n===3?5:3;
+  const list=arr.map(s=>({s,a:mockSum(s,mk,n),b:mockSum(s,mk,other)})).filter(x=>x.a!=null)
+    .sort((x,y)=>(y.a-x.a)||((y.b==null?-1:y.b)-(x.b==null?-1:x.b))||(x.s.ban-y.s.ban)||(x.s.num-y.s.num));
+  const rk=rankBy(list,x=>x.a);
+  const cut=list.filter((x,i)=>rk[i]<=MOCK_TOP_N);
+  const cell=(s,k)=>{const o=s.mock[mk][k];if(!o||o.raw==null)return '<td class="mut">-</td>';
+    return '<td>'+fmt(o.raw)+(o.grade!=null?'<span class="mut">('+o.grade+')</span>':'')+'</td>';};
+  const sumTd=(v,on)=>'<td'+(on?' class="raw" style="color:#1d4ed8"':'')+'>'+(v==null?'<span class="mut">-</span>':fmt(v))+'</td>';
+  const rows=cut.map((x,i)=>{const s3=n===3?x.a:x.b, s5=n===5?x.a:x.b;
+    return '<tr><td>'+rk[i]+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+'</td><td>'+x.s.ban+'반</td>'+
+      sumTd(s3,n===3)+sumTd(s5,n===5)+MOCK_MOVE_SUBS.map(k=>cell(x.s,k)).join('')+'</tr>';}).join('');
+  return '<div class="sec"><span class="ico"><i data-lucide="star"></i></span><h2>⑥ 잘 본 학생 '+MOCK_TOP_N+'명</h2>'+
+      '<span class="seg sm" id="gMockTopSeg" style="margin-left:auto;"><button data-n="3"'+(n===3?' class="on"':'')+'>국영수 합</button><button data-n="5"'+(n===5?' class="on"':'')+'>국영수탐 합</button></span></div>'+
+    '<div class="sub" style="margin-left:0;"><b>'+(n===3?'국어+수학+영어':'국어+수학+영어+통합사회+통합과학')+' 원점수 합</b>이 높은 순서입니다. 그 과목을 모두 본 학생만 셉니다 ('+list.length+'명 중). 같은 점수는 같은 등수 · '+MOCK_TOP_N+'등과 같은 점수는 함께 보입니다. 과목 칸 = 원점수(등급).</div>'+
+    (cut.length?'<div class="tscroll tall"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th><th>국영수<br><span class="mut">/300</span></th><th>국영수탐<br><span class="mut">/400</span></th>'+
+      MOCK_MOVE_SUBS.map(k=>'<th>'+k+'<br><span class="mut">원점수(등급)</span></th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div>'
+      :'<div class="notice">이 달에 '+(n===3?'국어·수학·영어':'국어·수학·영어·통합사회·통합과학')+' 원점수를 모두 가진 학생이 없습니다.</div>');
+}
+// ⑦ — 과목마다 따로 (사용자 결정) · 두 회차 모두 그 과목 등급이 있는 학생만 · 등급 차이가 큰 순
+function mockMoveLists(arr,mk,prevKey,sub){
+  const both=[];
+  arr.forEach(s=>{const a=s.mock[prevKey]&&s.mock[prevKey][sub], b=s.mock[mk]&&s.mock[mk][sub];
+    if(a&&b&&a.grade!=null&&b.grade!=null)both.push({s,pg:a.grade,cg:b.grade,pr:a.raw,cr:b.raw,d:a.grade-b.grade});});
+  const tie=(x,y)=>(x.s.ban-y.s.ban)||(x.s.num-y.s.num);
+  const up=both.filter(x=>x.d>0).sort((x,y)=>(y.d-x.d)||(x.cg-y.cg)||((y.cr==null?-1:y.cr)-(x.cr==null?-1:x.cr))||tie(x,y));
+  const down=both.filter(x=>x.d<0).sort((x,y)=>(x.d-y.d)||(y.cg-x.cg)||((x.cr==null?1e9:x.cr)-(y.cr==null?1e9:y.cr))||tie(x,y));
+  return {both:both.length,up,down,same:both.length-up.length-down.length};
+}
+function mockMoveRows(list,shown){
+  const rk=rankBy(list,x=>x.d);
+  return list.slice(0,shown).map((x,i)=>'<tr><td>'+rk[i]+'</td><td class="name">'+hak(x.s)+' '+esc(x.s.name)+'</td><td>'+x.s.ban+'반</td>'+
+    '<td>'+x.pg+' → <b>'+x.cg+'</b></td><td><span class="'+(x.d>0?'du':'dd')+'">'+(x.d>0?'▲':'▼')+Math.abs(x.d)+'</span></td>'+
+    '<td>'+fmt(x.pr)+' → '+fmt(x.cr)+'</td></tr>').join('');
+}
+function mockMoveHtml(arr,mk,prev){
+  const head='<div class="sec"><span class="ico"><i data-lucide="trending-up"></i></span><h2>⑦ 직전 모의고사 대비 등급이 오른 · 내린 학생</h2>'+
+    '<span class="seg sm" id="gMockMoveSeg" style="margin-left:auto;">'+MOCK_MOVE_SUBS.map(k=>'<button data-s="'+k+'"'+(gMockMoveSub===k?' class="on"':'')+'>'+k+'</button>').join('')+'</span></div>';
+  if(!prev)return head+'<div class="notice">이 달보다 앞선 모의고사가 없어 견줄 수 없습니다.</div>';
+  const L=mockMoveLists(arr,mk,prev.key,gMockMoveSub);
+  const cur=MOCK_MONTHS.find(x=>x.key===mk).label;
+  const box=(kind,list,title,col)=>{const shown=Math.min(gMockMoveShown[kind],list.length);
+    return '<div><div style="font-weight:800;color:'+col+';margin:4px 0 6px;">'+title+' '+list.length+'명'+
+      (list.length>shown?' <span class="mut">· 지금 '+shown+'명 · 아래로 내리면 '+MOCK_MOVE_STEP+'명씩 더</span>':'')+'</div>'+
+      (list.length?'<div class="tscroll tall" id="gMockMove-'+kind+'" data-kind="'+kind+'"><table><thead><tr><th>순위</th><th class="name">학번 (이름)</th><th>반</th><th>등급<br><span class="mut">'+prev.label+' → '+cur+'</span></th><th>변화</th><th>원점수<br><span class="mut">'+prev.label+' → '+cur+'</span></th></tr></thead><tbody>'+mockMoveRows(list,shown)+'</tbody></table></div>'
+        :'<div class="notice">없습니다.</div>')+'</div>';};
+  return head+'<div class="sub" style="margin-left:0;"><b>'+prev.label+' → '+cur+'</b> · <b>'+gMockMoveSub+'</b> 등급을 견줍니다. 두 회차 모두 '+gMockMoveSub+' 등급이 있는 학생 '+L.both+'명 중 · 같은 등급 '+L.same+'명. 등급 차이가 큰 순서이고, 같으면 이번 등급이 좋은 학생이 앞입니다.</div>'+
+    (L.both?'<div class="twocol">'+box('up',L.up,'▲ 등급이 오른 학생','#2563eb')+box('down',L.down,'▼ 등급이 내린 학생','#dc2626')+'</div>'
+      :'<div class="notice">'+prev.label+'·'+cur+' 두 회차 모두 '+gMockMoveSub+' 등급이 있는 학생이 없습니다 (등급이 아직 없는 달은 견줄 수 없습니다).</div>');
+}
+function bindMockTopMove(arr,mk,prev){
+  const tw=document.getElementById('gMockTopWrap'), mw=document.getElementById('gMockMoveWrap');
+  const drawTop=()=>{if(!tw)return;tw.innerHTML=mockTopHtml(arr,mk);icons();
+    const seg=document.getElementById('gMockTopSeg');if(seg)seg.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gMockTopN=+b.getAttribute('data-n');drawTop();});};
+  const drawMove=()=>{if(!mw)return;mw.innerHTML=mockMoveHtml(arr,mk,prev);icons();
+    const seg=document.getElementById('gMockMoveSeg');if(seg)seg.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+      gMockMoveSub=b.getAttribute('data-s');gMockMoveShown={up:MOCK_MOVE_STEP,down:MOCK_MOVE_STEP};drawMove();});
+    if(!prev)return;
+    const L=mockMoveLists(arr,mk,prev.key,gMockMoveSub);
+    ['up','down'].forEach(kind=>{const box=document.getElementById('gMockMove-'+kind);if(!box)return;
+      box.addEventListener('scroll',()=>{const list=L[kind];
+        if(gMockMoveShown[kind]>=list.length)return;
+        if(box.scrollTop+box.clientHeight<box.scrollHeight-24)return;
+        gMockMoveShown[kind]+=MOCK_MOVE_STEP;
+        const top=box.scrollTop;box.querySelector('tbody').innerHTML=mockMoveRows(list,gMockMoveShown[kind]);box.scrollTop=top;
+        const t=box.previousElementSibling;if(t){const shown=Math.min(gMockMoveShown[kind],list.length);const m=t.querySelector('.mut');
+          if(m){if(list.length>shown)m.textContent='· 지금 '+shown+'명 · 아래로 내리면 '+MOCK_MOVE_STEP+'명씩 더';else m.remove();}}
+      });});};
+  drawTop();drawMove();
+}
+
 /* ===== 모의고사 탭 ===== */
 function renderGradeMock(){
   const arr=allStudents();const bans=[...new Set(arr.map(s=>s.ban))].sort((a,b)=>a-b);
@@ -5176,9 +5255,14 @@ function renderGradeMock(){
     secHTML('⑤ 반별 × 과목별 평균점수','bar-chart-3')+'<div class="sub" style="margin-left:0;">원점수 평균. 국·수·영 100점, 통합사회·통합과학·한국사 50점 만점입니다. <b>색은 그 과목 학년 평균과 견준 것입니다 — <span style="color:#2563eb">평균보다 높으면 파랑</span> · <span style="color:#dc2626">낮으면 빨강</span>, 차이가 클수록 진합니다</b> (평균과 같으면 흰색).</div>'+
     '<div class="tscroll"><table><thead><tr><th class="name">학급</th>'+MOCK_SUBJECTS.map(u=>'<th>'+u.key+'<span class="mut">/'+u.max+'</span></th>').join('')+'</tr></thead><tbody>'+csRows+csTotal+'</tbody></table></div>'+
 
+    '<div id="gMockTopWrap"></div>'+
+    '<div id="gMockMoveWrap"></div>'+
+
     '<div class="disc">※ 모의고사 표준점수·백분위·등급은 학년 전체 분포 기반 추정치이며 정식 발표 후 확정됩니다. 9·10월은 미실시 시 "대기"로 표시되며 입력 시 자동 분석됩니다.</div></div>';
 
   bindGradeMockSeg();
+  gMockMoveShown={up:MOCK_MOVE_STEP,down:MOCK_MOVE_STEP};
+  bindMockTopMove(arr,mk,prev);
   // dist 토글
   const distSeg=document.getElementById('gMockDistSeg');if(distSeg)distSeg.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeMockDistMonth=b.getAttribute('data-m');renderGrade();});
   // 차트
@@ -5262,7 +5346,10 @@ function renderGradeMockAll(monthSeg){
   MOCK_SUBJECTS.forEach((u,ui)=>{
     MM.forEach((mm,mi)=>{
       const d=gcount(mm.key,u.key), tot=d.slice(1,10).reduce((a,b)=>a+b,0);
-      let c='';for(let g=1;g<=9;g++)c+='<td>'+(tot?d[g]+pctOf(d[g],tot):'<span class="mut">-</span>')+'</td>';
+      // 1등급 앞에 1~4등급 합 (2026.10.21 사용자 요청) — 인원 (비율)
+      const top4=d[1]+d[2]+d[3]+d[4];
+      let c='<td>'+(tot?top4+pctOf(top4,tot):'<span class="mut">-</span>')+'</td>';
+      for(let g=1;g<=9;g++)c+='<td>'+(tot?d[g]+pctOf(d[g],tot):'<span class="mut">-</span>')+'</td>';
       rows4+='<tr'+(mi===0&&ui>0?' style="border-top:2px solid var(--border)"':'')+'>'+
         (mi===0?'<td class="name" rowspan="'+MM.length+'" style="color:'+u.color+'">'+u.key+'</td>':'')+
         '<td class="mut">'+mm.label+'</td>'+c+'</tr>';
@@ -5310,7 +5397,7 @@ function renderGradeMockAll(monthSeg){
 
     secHTML('④ 과목별 등급 인원 (9등급)','table')+
     '<div class="sub" style="margin-left:0;">과목마다 3·6·9·10월을 차례로 놓았습니다. 인원 (비율).</div>'+
-    '<div class="tscroll"><table><thead><tr><th class="name">과목</th><th>회차</th>'+
+    '<div class="tscroll"><table><thead><tr><th class="name">과목</th><th>회차</th><th>1~4등급</th>'+
       [1,2,3,4,5,6,7,8,9].map(g=>'<th>'+g+'등급</th>').join('')+'</tr></thead><tbody>'+rows4+'</tbody></table></div>'+
 
     secHTML('⑤ 반별 × 과목별 평균점수','bar-chart-3')+
