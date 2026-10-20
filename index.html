@@ -5385,6 +5385,11 @@ function yrBase(y,bs){let a5=[],a9=[];NAESIN_DEF.forEach((d,si)=>{if(d.base!==bs
 const MOCK_ALL_G=['국어','수학','영어','통합사회','통합과학'], MOCK_ALL_P=['국어','수학','통합사회','통합과학'];
 function mockAll(s,mk){const m=(s.mock&&s.mock[mk])||{};const avg=(ks,f)=>{const a=ks.map(k=>m[k]&&m[k][f]).filter(v=>v!=null);return a.length?a.reduce((x,z)=>x+z,0)/a.length:null;};
   return {g:avg(MOCK_ALL_G,'grade'),p:avg(MOCK_ALL_P,'pct')};}
+// 모의고사 원점수 합 (2026.10.20 사용자 요청 — 성적 데이터 열람 모의 표에 「국영수」·「국영수탐」 칸 · 누르면 합이 높은 순)
+//   국영수 = 국어+수학+영어 (300점) · 국영수탐 = 국영수 + 통합사회+통합과학 (400점) · 한국사는 넣지 않음
+//   ⚠️ 그 과목을 **모두 본 학생만** 합을 냅니다 (하나라도 비면 `-` · 정렬 맨 뒤) — 결시 과목이 있는 학생이 낮은 합으로 섞이지 않게
+const MOCK_SUM={3:['국어','수학','영어'],5:['국어','수학','영어','통합사회','통합과학']};
+function mockSum(s,mk,n){const m=(s.mock&&s.mock[mk])||{};let t=0;for(const k of MOCK_SUM[n]){const o=m[k];if(!o||o.raw==null)return null;t+=o.raw;}return Math.round(t*10)/10;}
 function dataGetVal(s,key){
   if(key==='name')return s.ban*1000+s.num;
   if(key.indexOf('yr|')===0){const y=s.yr;if(!y)return null;const t=key.split('|'),w=t[t.length-1]==='9'?1:0;  // yr|all|5 · yr|s1|9 · yr|si|3|5
@@ -5414,6 +5419,7 @@ function dataGetVal(s,key){
   if(t[0]==='counsel'){const o=s.counsel[dataNaesinSem][t[1]];return o?o[t[2]]:null;}
   if(t[0]==='mock'){const o=s.mock[dataMockMonth][t[1]];return o?o[t[2]]:null;}
   if(t[0]==='mockAll'){const v=mockAll(s,dataMockMonth);return t[1]==='g'?v.g:v.p;}
+  if(t[0]==='mockSum')return mockSum(s,dataMockMonth,+t[1]);
   return null;
 }
 
@@ -5437,6 +5443,8 @@ function dataTieVal(s,key){
     return null;}
   if(t[0]==='mock'&&t[2]==='grade'){const o=s.mock[dataMockMonth][t[1]];return o?neg(o.raw):null;}
   if(t[0]==='mockAll'&&t[1]==='g')return neg(mockAll(s,dataMockMonth).p);
+  // 합(점수)은 큰 쪽이 좋은 값이라 같은 방향(곱하기 SS.dir)으로 두려면 그대로 돌려줍니다
+  if(t[0]==='mockSum')return mockSum(s,dataMockMonth,t[1]==='3'?5:3);
   return null;
 }
 
@@ -5525,16 +5533,19 @@ function renderDataTable(){
     const allTh='<th rowspan="2" class="dual'+((SS.key==='mockAll|g'||SS.key==='mockAll|p')?' sorted':'')+'">전체<br>'+msb('등급','mockAll|g')+'<br>('+msb('백분위','mockAll|p')+')</th>';
     const allTd=s=>{const v=mockAll(s,mk);if(v.g==null&&v.p==null)return '<td class="mut">-</td>';
       return '<td class="g59">'+(v.g==null?'<span class="mut">-</span>':'<b class="g5t">'+v.g.toFixed(2)+'</b>')+(v.p==null?'':' <span class="g9t">('+v.p.toFixed(2)+')</span>')+'</td>';};
-    h+='<thead><tr class="grp">'+nameTh+allTh+MOCK_SUBJECTS.map(u=>'<th colspan="'+(u.rel?4:2)+'">'+u.key+'</th>').join('')+'</tr><tr>'+
+    // 국영수 · 국영수탐 (원점수 합 · 처음 누르면 높은 순 ▼)
+    const sumTh=(label,n,max)=>'<th rowspan="2" class="sortable'+(SS.key==='mockSum|'+n?' sorted':'')+'" data-sort="mockSum|'+n+'">'+label+aw('mockSum|'+n)+'<br><span class="mut">/'+max+'</span></th>';
+    const sumTd=(s,n)=>{const v=mockSum(s,mk,n);return v==null?'<td class="mut">-</td>':'<td class="raw">'+fmt(v)+'</td>';};
+    h+='<thead><tr class="grp">'+nameTh+sumTh('국영수',3,300)+sumTh('국영수탐',5,400)+allTh+MOCK_SUBJECTS.map(u=>'<th colspan="'+(u.rel?4:2)+'">'+u.key+'</th>').join('')+'</tr><tr>'+
       MOCK_SUBJECTS.map(u=>u.rel?(sth('원점','mock|'+u.key+'|raw')+sth('표준','mock|'+u.key+'|std')+sth('백분위','mock|'+u.key+'|pct')+sth('등급','mock|'+u.key+'|grade')):(sth('원점','mock|'+u.key+'|raw')+sth('등급','mock|'+u.key+'|grade'))).join('')+'</tr></thead><tbody>';
-    arr.forEach((s,ri)=>{h+='<tr><td class="name">'+snCell(ri)+hak(s)+' '+esc(s.name)+'</td>'+allTd(s)+MOCK_SUBJECTS.map(u=>{const o=s.mock[mk][u.key]||{};return u.rel?('<td class="raw">'+fmt(o.raw)+'</td><td class="mut">'+fmt(o.std)+'</td><td>'+fmt(o.pct)+'</td><td>'+gb(o.grade)+'</td>'):('<td class="raw">'+fmt(o.raw)+'</td><td>'+gb(o.grade)+'</td>');}).join('')+'</tr>';});
+    arr.forEach((s,ri)=>{h+='<tr><td class="name">'+snCell(ri)+hak(s)+' '+esc(s.name)+'</td>'+sumTd(s,3)+sumTd(s,5)+allTd(s)+MOCK_SUBJECTS.map(u=>{const o=s.mock[mk][u.key]||{};return u.rel?('<td class="raw">'+fmt(o.raw)+'</td><td class="mut">'+fmt(o.std)+'</td><td>'+fmt(o.pct)+'</td><td>'+gb(o.grade)+'</td>'):('<td class="raw">'+fmt(o.raw)+'</td><td>'+gb(o.grade)+'</td>');}).join('')+'</tr>';});
     h+='</tbody>';
   }
   const ctx=dataTab==='naesin'?(dataNaesinSem==='year'?'학년 (지금까지 본 내신을 합친 결과 · 과목마다 학기말이 끝났으면 최종등급, 진행 중이면 1차 고사 또는 1·2차 변환점 · 개별 상담의 「전체 평균」 과 같은 규칙)':(SEMESTERS.find(x=>x.key===dataNaesinSem).label+' '+dataNaesinView)):MOCK_MONTHS.find(x=>x.key===dataMockMonth).label;
-  h+='</table></div><div class="sub" style="margin:8px 0 0;">표시 '+arr.length+'명'+(dataBan?' · '+dataBan+'반':'')+(dataSearch?' · "'+esc(dataSearch)+'"':'')+' · '+ctx+' · 열 제목을 한 번 누르면 <b>오름차순 ▲</b>, 한 번 더 누르면 <b>내림차순 ▼</b> · 등급 칸은 「5등급」·「9등급」 글자를 <b>각각</b> 눌러 정렬</div></div>';
+  h+='</table></div><div class="sub" style="margin:8px 0 0;">표시 '+arr.length+'명'+(dataBan?' · '+dataBan+'반':'')+(dataSearch?' · "'+esc(dataSearch)+'"':'')+' · '+ctx+' · 열 제목을 한 번 누르면 <b>오름차순 ▲</b>, 한 번 더 누르면 <b>내림차순 ▼</b>'+(dataTab==='mock'?' (국영수·국영수탐은 처음 누르면 <b>합이 높은 순 ▼</b> · 그 과목을 모두 본 학생만 합계)':'')+' · 등급 칸은 「5등급」·「9등급」 글자를 <b>각각</b> 눌러 정렬</div></div>';
   box.innerHTML=h;
 
-  box.querySelector('table').addEventListener('click',e=>{const th=e.target.closest('[data-sort]');if(!th)return;const k=th.getAttribute('data-sort');if(dataSort.key===k)dataSort.dir*=-1;else{dataSort.key=k;dataSort.dir=1;}renderDataTable();});
+  box.querySelector('table').addEventListener('click',e=>{const th=e.target.closest('[data-sort]');if(!th)return;const k=th.getAttribute('data-sort');if(dataSort.key===k)dataSort.dir*=-1;else{dataSort.key=k;dataSort.dir=k.indexOf('mockSum|')===0?-1:1;}renderDataTable();});  // 국영수·국영수탐은 처음 누르면 높은 순
   icons();
 }
 /* ═══════════ 불러오기 ═══════════ */
