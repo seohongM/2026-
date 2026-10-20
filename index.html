@@ -1360,6 +1360,28 @@ function subjectLabels() {
  * 서버가 보낸 숫자 배열을 화면이 쓰던 학생 모양으로 되돌립니다.
  * 계산은 전부 서버에서 끝났고, 여기서는 이름표만 붙입니다.
  */
+/* ── 모의고사 : 원점수가 빈 칸의 등급은 쓰지 않습니다 ─────────────────
+ * 2026.10.20 사용자 결정 「등급에서 빼기」 — 10월 시트에서 원점수가 모두 빈 학생(결시)에게
+ * 영어·한국사 9등급이 적혀 있었습니다 (빈 점수를 0점으로 읽는 수식으로 보임). 그 9등급이 등급 인원·평균을 끌어내렸습니다.
+ * 내신의 「시험 점수가 없으면 등급도 없음」 과 같은 규칙. 개별 상담·통합 성적 관리 모두 여기서 거릅니다.
+ * ⚠️ 그 달 그 과목에 **원점수가 한 명이라도 있을 때만** 거릅니다 — 원점수 칸이 아예 없는 시트(등급만 적는 학교)는 그대로. */
+let MOCK_RAWCOL = null, MOCK_RAWCOL_SRC = null;
+function mockRawColHas(src, mk, ui) {
+    if (MOCK_RAWCOL_SRC !== src) {
+        MOCK_RAWCOL_SRC = src; MOCK_RAWCOL = {};
+        ((src && src.students) || []).forEach(st => Object.keys(st.m || {}).forEach(k => {
+            const a = st.m[k] || [];
+            for (let i = 0; i * 4 < a.length; i++) if (!mockBlank(a[i * 4])) MOCK_RAWCOL[k + '|' + i] = 1;
+        }));
+    }
+    return !!MOCK_RAWCOL[mk + '|' + ui];
+}
+function mockBlank(v) { return v == null || String(v).trim() === '' || String(v).trim() === '-'; }
+/** 그 칸의 등급 (원점수가 비었으면 '') */
+function mockGradeOf(src, arr, mk, ui) {
+    return (mockBlank(arr[ui * 4]) && mockRawColHas(src, mk, ui)) ? '' : arr[ui * 4 + 3];
+}
+
 function hydrate(row) {
     const g = row.g || [], d = row.d || [], s = row.s || [], tg = row.tg || [];
     const SUBJ = (ALL && ALL.subjects) ? ALL.subjects : [];
@@ -1419,7 +1441,7 @@ function hydrate(row) {
             score:   V(arr[ui * 4 + 0]) === '' ? '-' : String(arr[ui * 4 + 0]),
             std:     V(arr[ui * 4 + 1]) === '' ? '-' : String(arr[ui * 4 + 1]),
             percent: V(arr[ui * 4 + 2]) === '' ? '-' : String(arr[ui * 4 + 2]),
-            grade:   V(arr[ui * 4 + 3]) === '' ? '-' : String(arr[ui * 4 + 3])
+            grade:   V(mockGradeOf(ALL, arr, mm.key, ui)) === '' ? '-' : String(mockGradeOf(ALL, arr, mm.key, ui))   // 원점수 없으면 등급 없음
         }));
     });
 
@@ -4546,19 +4568,22 @@ function heatDiv(val,mid,spread){
 function spreadOf(vals,mid){let m=0;vals.forEach(v=>{if(v!=null&&mid!=null)m=Math.max(m,Math.abs(v-mid));});return m;}
 // 반별 평균등급 — 학년 평균과의 차이 막대 (2026.10.02 사용자가 시안 A 고름)
 //   막대 = 학년 평균 − 반 평균 (등급은 작을수록 좋으므로 + 가 좋음) · 파랑 = 좋음 / 빨강 = 낮음 · 끝에 「2.90 (+0.10)」
-function classDiffChart(el,bans,vals,avg){
+function classDiffChart(el,bans,vals,avg,opt){
+  // opt.score = 점수(높을수록 좋음 · 2026.10.20 — 등급이 없는 달의 ③ 원점수 막대). 없으면 등급(낮을수록 좋음)
+  const SC=!!(opt&&opt.score), DG=SC?1:2, UNIT=SC?'점':'등급';
+  const df=v=>SC?v-avg:avg-v;
   // 막대 끝에 두 줄 : 반 평균 / (차이) — 좁은 그래프에서도 옆 막대 글자와 안 겹치게
   const lbl={id:'diffLbl',afterDatasetsDraw(c){const x=c.ctx;x.save();x.textAlign='center';x.fillStyle='#334155';
-    c.getDatasetMeta(0).data.forEach((e,i)=>{const v=vals[i];if(v==null||avg==null)return;const d=avg-v,up=d>=0;
+    c.getDatasetMeta(0).data.forEach((e,i)=>{const v=vals[i];if(v==null||avg==null)return;const d=df(v),up=d>=0;
       const y1=up?e.y-20:e.y+15, y2=up?e.y-6:e.y+29;
-      x.font='700 12px Pretendard, sans-serif';x.fillText(v.toFixed(2),e.x,y1);
-      x.font='600 11px Pretendard, sans-serif';x.fillText('('+(up?'+':'−')+Math.abs(d).toFixed(2)+')',e.x,y2);});x.restore();}};
-  return new Chart(el,{type:'bar',data:{labels:bans.map(b=>b+'반'),datasets:[{label:'학년 평균 대비',data:vals.map(v=>v==null||avg==null?null:avg-v),
-      backgroundColor:vals.map(v=>v!=null&&avg!=null&&avg-v>=0?'#2563eb':'#dc2626'),borderRadius:4,maxBarThickness:46}]},
+      x.font='700 12px Pretendard, sans-serif';x.fillText(v.toFixed(DG),e.x,y1);
+      x.font='600 11px Pretendard, sans-serif';x.fillText('('+(up?'+':'−')+Math.abs(d).toFixed(DG)+')',e.x,y2);});x.restore();}};
+  return new Chart(el,{type:'bar',data:{labels:bans.map(b=>b+'반'),datasets:[{label:'학년 평균 대비',data:vals.map(v=>v==null||avg==null?null:df(v)),
+      backgroundColor:vals.map(v=>v!=null&&avg!=null&&df(v)>=0?'#2563eb':'#dc2626'),borderRadius:4,maxBarThickness:46}]},
     options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:30,bottom:20,left:4,right:8}},plugins:{legend:{display:false},
-      tooltip:{callbacks:{label:t=>{const v=vals[t.dataIndex];const d=avg-v;return v.toFixed(2)+'등급 · 학년 평균('+avg.toFixed(2)+')보다 '+Math.abs(d).toFixed(2)+(d>=0?' 좋음':' 낮음');}}}},
-      scales:{y:{grace:'35%',title:{display:true,text:'학년 평균'+(avg!=null?'('+avg.toFixed(2)+')':'')+'보다 좋음 ↑ / 낮음 ↓',font:{family:'Pretendard',size:11}},
-        ticks:{font:{family:'Pretendard'},callback:v=>(v>0?'+':'')+(+v).toFixed(2)},grid:{color:c=>c.tick.value===0?'#64748b':'#eef2f6',lineWidth:c=>c.tick.value===0?1.5:1}},
+      tooltip:{callbacks:{label:t=>{const v=vals[t.dataIndex];const d=df(v);return v.toFixed(DG)+UNIT+' · 학년 평균('+avg.toFixed(DG)+')보다 '+Math.abs(d).toFixed(DG)+(d>=0?(SC?' 높음':' 좋음'):' 낮음');}}}},
+      scales:{y:{grace:'35%',title:{display:true,text:'학년 평균'+(avg!=null?'('+avg.toFixed(DG)+')':'')+(SC?'보다 높음 ↑ / 낮음 ↓':'보다 좋음 ↑ / 낮음 ↓'),font:{family:'Pretendard',size:11}},
+        ticks:{font:{family:'Pretendard'},callback:v=>(v>0?'+':'')+(+v).toFixed(DG)},grid:{color:c=>c.tick.value===0?'#64748b':'#eef2f6',lineWidth:c=>c.tick.value===0?1.5:1}},
         x:{ticks:{font:{family:'Pretendard'}},grid:{display:false}}}},plugins:[lbl]});
 }
 function ach(a){return a==null?'<span class="mut">-</span>':'<span class="ach">'+esc(a)+'</span>';}
@@ -4630,7 +4655,7 @@ function fillFromServer(d){
           raw:  numOrNull(arr[ui*4]),
           std:  u.rel?numOrNull(arr[ui*4+1]):null,
           pct:  u.rel?numOrNull(arr[ui*4+2]):null,
-          grade:numOrNull(arr[ui*4+3])
+          grade:numOrNull(mockGradeOf(d,arr,mm.key,ui))   // 원점수 없으면 등급 없음 (결시 9등급 거름)
         };
       });
     });
@@ -5091,6 +5116,15 @@ function renderGradeMock(){
   const idx=MOCK_MONTHS.findIndex(x=>x.key===mk);
   let prev=null;for(let i=idx-1;i>=0;i--){if(mockMonthHasAny(MOCK_MONTHS[i].key)){prev=MOCK_MONTHS[i];break;}}
 
+  // 이 달에 **원점수는 있는데 등급이 하나도 없는 과목** (2026.10 의 10월 가채점 : 국어·수학·통합사회·통합과학)
+  //   → ④ 표는 「등급 없음」 · ③ 은 국·수·영·사·과 중 하나라도 그러면 원점수(국영수탐 합) 막대로 (2026.10.20 사용자 결정)
+  const hasRaw=key=>arr.some(s=>{const o=s.mock[mk][key];return o&&o.raw!=null;});
+  const hasGrade=key=>arr.some(s=>{const o=s.mock[mk][key];return o&&o.grade!=null;});
+  const noGrade=MOCK_SUBJECTS.filter(u=>hasRaw(u.key)&&!hasGrade(u.key)).map(u=>u.key);
+  const rawMode=MOCK_ALL_G.some(k=>noGrade.includes(k));
+  const gradedSubs=MOCK_SUBJECTS.filter(u=>hasGrade(u.key)).map(u=>u.key);
+  const classRawAvg=b=>{const v=arr.filter(s=>s.ban===b).map(s=>mockSum(s,mk,5)).filter(x=>x!=null);return v.length?v.reduce((a,x)=>a+x,0)/v.length:null;};
+  const rawAll=(()=>{const v=arr.map(s=>mockSum(s,mk,5)).filter(x=>x!=null);return v.length?v.reduce((a,x)=>a+x,0)/v.length:null;})();
   // 전체 평균등급(국영수탐 전체)
   let allG=[];arr.forEach(s=>MOCK_SUBJECTS.forEach(u=>{const o=s.mock[mk][u.key];if(o&&o.grade!=null)allG.push(o.grade);}));
   const gradeMean=allG.length?allG.reduce((a,b)=>a+b,0)/allG.length:null;
@@ -5106,7 +5140,9 @@ function renderGradeMock(){
   }).join('');
 
   // ② 등급 분포표 (9등급) — 인원(비율) (변경10)
-  let gRows=MOCK_SUBJECTS.map(u=>{const d=gcount(u.key);const tot=d.slice(1,10).reduce((a,b)=>a+b,0);let c='';for(let g=1;g<=9;g++)c+='<td>'+d[g]+pctOf(d[g],tot)+'</td>';return '<tr><td class="name" style="color:'+u.color+'">'+u.key+'</td>'+c+'</tr>';}).join('');
+  let gRows=MOCK_SUBJECTS.map(u=>{
+    if(noGrade.includes(u.key))return '<tr><td class="name" style="color:'+u.color+'">'+u.key+'</td><td colspan="9" class="mut">이 달 등급 없음 (가채점 · 원점수만 있음)</td></tr>';
+    const d=gcount(u.key);const tot=d.slice(1,10).reduce((a,b)=>a+b,0);let c='';for(let g=1;g<=9;g++)c+='<td>'+d[g]+pctOf(d[g],tot)+'</td>';return '<tr><td class="name" style="color:'+u.color+'">'+u.key+'</td>'+c+'</tr>';}).join('');
 
   // ⑤ 반별 × 과목별 평균점수 (과목 열별 히트맵: 상위 반 진함)
   const mClassAvg={};MOCK_SUBJECTS.forEach(u=>{mClassAvg[u.key]={};bans.forEach(b=>{const v=arr.filter(s=>s.ban===b).map(s=>s.mock[mk][u.key]).filter(o=>o&&o.raw!=null).map(o=>o.raw);mClassAvg[u.key][b]=v.length?v.reduce((a,x)=>a+x,0)/v.length:null;});});
@@ -5117,7 +5153,7 @@ function renderGradeMock(){
     '<div class="rhead grade-head"><div class="who" style="font-size:23px;">모의고사 분석 <small>'+MOCK_MONTHS.find(x=>x.key===mk).label+' 전국연합</small></div><div class="mut" style="align-self:flex-end;">응시 '+nStu+'명 · '+bans.length+'개 반'+(released?'':' · 가채점(등급)')+'</div></div>'+
 
     '<div class="stat4" style="margin-top:16px;">'+
-      statHTML('전체 평균등급',fmt(gradeMean,2),'6과목 9등급','','#2563eb')+
+      statHTML('전체 평균등급',fmt(gradeMean,2),gradedSubs.length===MOCK_SUBJECTS.length?'6과목 9등급':(gradedSubs.length?gradedSubs.join('·')+' '+gradedSubs.length+'과목만 (나머지 등급 없음)':'등급 없음'),'','#2563eb')+
       statHTML('응시 인원',nStu+'명',MOCK_MONTHS.find(x=>x.key===mk).label,'','#4f46e5')+
       statHTML('직전 회차',prev?prev.label:'-','추이 비교 기준','','#16a34a')+
       statHTML('표준점수·백분위',released?'있음':'가채점','등급 위주','','#d97706')+
@@ -5128,7 +5164,10 @@ function renderGradeMock(){
 
     '<div class="twocol" style="margin-top:6px;">'+
       '<div>'+'<div class="sec"><span class="ico"><i data-lucide="pie-chart"></i></span><h2>② 국·수·영 등급 분포</h2><span class="seg sm" id="gMockDistSeg" style="margin-left:auto;">'+MOCK_MONTHS.filter(mm=>mockMonthHasAny(mm.key)).map(mm=>'<button data-m="'+mm.key+'"'+(gradeMockDistMonth===mm.key?' class="on"':'')+'>'+mm.label+'</button>').join('')+'</span></div>'+'<div class="chartbox"><canvas id="gMockDist"></canvas></div></div>'+
-      '<div>'+secHTML('③ 반별 평균등급','users')+'<div class="hint">학년 평균과 견준 차이 — <b style="color:#2563eb">위(파랑) = 좋음</b> · <b style="color:#dc2626">아래(빨강) = 낮음</b></div><div class="chartbox"><canvas id="gMockClass"></canvas></div></div>'+
+      '<div>'+(rawMode
+        ? secHTML('③ 반별 국영수탐 평균 (원점수)','users')+'<div class="hint">'+noGrade.join('·')+' 등급이 없어(가채점) <b>국영수탐 원점수 합(400점)</b>으로 견줍니다 — <b style="color:#2563eb">위(파랑) = 높음</b> · <b style="color:#dc2626">아래(빨강) = 낮음</b></div>'
+        : secHTML('③ 반별 평균등급','users')+'<div class="hint">학년 평균과 견준 차이 — <b style="color:#2563eb">위(파랑) = 좋음</b> · <b style="color:#dc2626">아래(빨강) = 낮음</b></div>')+
+        '<div class="chartbox"><canvas id="gMockClass"></canvas></div></div>'+
     '</div>'+
 
     secHTML('④ 과목별 등급 인원 (9등급)','table')+'<div class="sub" style="margin-left:0;">인원 (비율)</div>'+
@@ -5143,12 +5182,12 @@ function renderGradeMock(){
   // dist 토글
   const distSeg=document.getElementById('gMockDistSeg');if(distSeg)distSeg.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeMockDistMonth=b.getAttribute('data-m');renderGrade();});
   // 차트
-  drawGradeMockCharts(arr,bans,gcount,classGradeAvg,gradeMean);
+  drawGradeMockCharts(arr,bans,gcount,rawMode?classRawAvg:classGradeAvg,rawMode?rawAll:gradeMean,rawMode);
   icons();
 }
 function bindGradeMockSeg(){const el=document.getElementById('gMockSeg');if(el)el.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;gradeMockMonth=b.getAttribute('data-m');if(gradeMockMonth!=='all')gradeMockDistMonth=gradeMockMonth;renderGrade();});}
 
-function drawGradeMockCharts(arr,bans,gcount,classGradeAvg,gradeMean){
+function drawGradeMockCharts(arr,bans,gcount,classGradeAvg,gradeMean,rawMode){
   if(typeof Chart==='undefined')return;
   // ② 국수영 등급 분포 (선택 월)
   const dm=mockMonthHasAny(gradeMockDistMonth)?gradeMockDistMonth:gradeMockMonth;
@@ -5165,7 +5204,7 @@ function drawGradeMockCharts(arr,bans,gcount,classGradeAvg,gradeMean){
   // ③ 반별 평균등급 — 선그래프
   const ctx2=document.getElementById('gMockClass');
   if(ctx2){if(charts.gmClass)charts.gmClass.destroy();
-    charts.gmClass=classDiffChart(ctx2,bans,bans.map(b=>classGradeAvg(b)),gradeMean);
+    charts.gmClass=classDiffChart(ctx2,bans,bans.map(b=>classGradeAvg(b)),gradeMean,rawMode?{score:true}:null);   // rawMode = 원점수 합(높을수록 좋음)
   }
 }
 
