@@ -3735,7 +3735,8 @@ function setupMockCuts_() {
   });
   return out.join('<br>') +
     '<br><br>📌 각 탭 오른쪽 표의 <b>국어·수학·통합사회·통합과학</b> 줄에 예상 등급컷(그 등급 최저점) 8칸을 적으면<br>' +
-    '비어 있던 등급 칸이 저절로 채워집니다. 정식 등급이 나오면 등급 칸에 그대로 덮어 적으세요.';
+    '비어 있던 등급 칸이 저절로 채워집니다. 정식 등급이 나오면 등급 칸에 그대로 덮어 적으세요.<br>' +
+    '📌 <b>영어·한국사</b>는 절대평가 컷을 미리 적어 두었고, 등급 칸은 <b>늘 이 표를 따릅니다</b> (원점수가 빈 학생은 빈칸).';
 }
 
 function mockCutsOne_(sh) {
@@ -3774,7 +3775,7 @@ function mockCutsOne_(sh) {
     sh.getRange(3, cut0 + 1, MOCK_SUBJECTS.length, 1).setFontWeight('bold');
     sh.getRange(3, cut0 + 2, MOCK_SUBJECTS.length, 8).setBackground('#fffbeb').setHorizontalAlignment('center');
     sh.getRange(3 + MOCK_SUBJECTS.length, cut0 + 1)
-      .setValue('8칸을 모두 적으면 비어 있던 등급 칸이 저절로 채워집니다 · 정식 등급이 나오면 등급 칸에 덮어 적으세요');
+      .setValue('8칸을 모두 적으면 비어 있던 등급 칸이 저절로 채워집니다 · 정식 등급이 나오면 등급 칸에 덮어 적으세요 · 영어·한국사는 늘 이 표를 따릅니다');
     made = true;
   }
 
@@ -3795,8 +3796,10 @@ function mockCutsOne_(sh) {
     var cutRef = '$' + colName_(cut0 + 2) + '$' + cutRow + ':$' + colName_(cut0 + 9) + '$' + cutRow;
     var rng = sh.getRange(first + 1, col.g + 1, last - first + 1, 1);
     var fs = rng.getFormulas();
+    // 영어·한국사(절대평가 · 컷을 미리 채움)는 이미 등급이 적혀 있어도 늘 표를 따릅니다 (2026.10.20 사용자 결정 「모든 달 표를 따르게」)
+    var fixed = !!MOCK_CUT_FIXED_[sub];
     var ok = true;
-    for (var i = 0; i < fs.length && ok; i++) {
+    for (var i = 0; i < fs.length && ok && !fixed; i++) {
       var val = v[first + i] ? v[first + i][col.g] : '';
       var f = String(fs[i][0] || '');
       if (f) { if (f.indexOf(cutRef) === -1) ok = false; }   // 다른 수식이 있음 → 건드리지 않음
@@ -3804,15 +3807,21 @@ function mockCutsOne_(sh) {
     }
     if (!ok) { kept.push(sub); return; }
     var raw = colName_(col.s + 1);
-    var out = [];
-    for (var j = first; j <= last; j++) {
-      var isStud = studs.indexOf(j) !== -1, R = j + 1;
-      out.push([isStud
-        ? '=IF(AND(ISNUMBER(' + raw + R + '),COUNT(' + cutRef + ')=8),COUNTIF(' + cutRef + ',">"&' + raw + R + ')+1,"")'
-        : '']);
+    var swapped = 0;
+    // 학생 줄만 씁니다 (사이에 낀 다른 줄은 그대로) — 이어진 학생 줄끼리 한 번에
+    for (var a = 0; a < studs.length; ) {
+      var b = a;
+      while (b + 1 < studs.length && studs[b + 1] === studs[b] + 1) b++;
+      var out = [];
+      for (var j = studs[a]; j <= studs[b]; j++) {
+        var R = j + 1, f0 = String(fs[j - first][0] || ''), v0 = v[j] ? v[j][col.g] : '';
+        if (f0.indexOf(cutRef) === -1 && (f0 || String(v0 == null ? '' : v0).trim() !== '')) swapped++;
+        out.push(['=IF(AND(ISNUMBER(' + raw + R + '),COUNT(' + cutRef + ')=8),COUNTIF(' + cutRef + ',">"&' + raw + R + ')+1,"")']);
+      }
+      sh.getRange(studs[a] + 1, col.g + 1, out.length, 1).setFormulas(out);
+      a = b + 1;
     }
-    rng.setFormulas(out);
-    filled.push(sub);
+    filled.push(sub + (swapped ? '(적혀 있던 등급 ' + swapped + '칸 → 표 기준)' : ''));
   });
 
   return '· <b>' + sh.getName() + '</b> : 등급컷 표 ' + (made ? '<b>새로 만듦</b> (' + colName_(cut0 + 1) + '1)' : '이미 있음 (' + colName_(cut0 + 1) + '1)') +
