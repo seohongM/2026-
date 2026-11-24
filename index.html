@@ -5726,7 +5726,10 @@ function renderDataTable(){
    · 화면 = 전교생 표 + 줄을 누르면 바로 아래에 그 학생 그래프·상담 제안 (사용자 결정)
    ══════════════════════════════════════════════════════════ */
 const TRK_DROP_ENT=20, TRK_DROP_RECENT=15, TRK_RISE=20, TRK_WEAK=2;
-let trkBan='all', trkOnlyNeed=false, trkSort='hak', trkOpen=null, trkEnt=null;
+let trkBan='all', trkOnlyNeed=false, trkSort='hak', trkDir=1, trkOpen=null, trkEnt=null;
+// 정렬 단추 (2026.11.24 사용자 요청 「누르면 오름차순 · 내림차순으로 바뀌게」) — [값, 처음 차례(1 = 오름 ▲ · -1 = 내림 ▼)]
+//   같은 단추를 한 번 더 누르면 거꾸로. 화살표는 단추 이름의 값 기준 (내린 폭 · 오른 폭 · 상담 수). 값이 없는 학생은 늘 맨 뒤.
+const TRK_SORTS={hak:[r=>r.s.ban*1000+r.s.num,1], ent:[r=>r.ent?r.ent.rank:null,1], down:[r=>r.dEnt,-1], up:[r=>r.dEnt==null?null:-r.dEnt,-1], need:[r=>r.tags.length,-1]};
 
 // 내신 시험 차례 — 학기마다 1차 · 2차 · 학기말 (점수가 들어온 것만). 오른·내린 학생(mvExamSlots)은 끝난 학기를 학기말 한 칸으로 줄이지만,
 // 추적 관찰은 「시험마다」 라서 셋 다 보여 줍니다. 마지막 두 칸(1학기 학기말 → 2학기 1차)은 오른·내린 학생과 같은 짝입니다.
@@ -5840,12 +5843,8 @@ function renderTrack(){
   const bans=[...new Set(recs.map(r=>r.s.ban))].sort((a,b)=>a-b);
   let list=recs.filter(r=>trkBan==='all'||r.s.ban===+trkBan);
   if(trkOnlyNeed)list=list.filter(r=>r.tags.length);
-  const key=r=>r.dEnt==null?null:r.dEnt;
-  if(trkSort==='down')list.sort((a,b)=>(key(a)==null)-(key(b)==null)||(key(b)-key(a))||a.s.ban-b.s.ban||a.s.num-b.s.num);
-  else if(trkSort==='up')list.sort((a,b)=>(key(a)==null)-(key(b)==null)||(key(a)-key(b))||a.s.ban-b.s.ban||a.s.num-b.s.num);
-  else if(trkSort==='ent')list.sort((a,b)=>(!a.ent)-(!b.ent)||(a.ent&&b.ent?a.ent.rank-b.ent.rank:0)||a.s.ban-b.s.ban||a.s.num-b.s.num);   // 입학 석차 순 (2026.11.24 사용자 요청) · 입학 성적 없는 학생 맨 뒤
-  else if(trkSort==='need')list.sort((a,b)=>b.tags.length-a.tags.length||a.s.ban-b.s.ban||a.s.num-b.s.num);
-  else list.sort((a,b)=>a.s.ban-b.s.ban||a.s.num-b.s.num);
+  const key=(TRK_SORTS[trkSort]||TRK_SORTS.hak)[0];
+  list.sort((a,b)=>{const x=key(a),y=key(b);return (x==null)-(y==null)||(x!=null&&y!=null?(x-y)*trkDir:0)||a.s.ban-b.s.ban||a.s.num-b.s.num;});
   const nNeed=recs.filter(r=>r.tags.length).length, nEnt=recs.filter(r=>r.ent).length;
   let note='';
   if(!trkEnt)note='<div class="notice">입학 성적이 아직 안 보입니다 — Apps Script 의 Code.gs 를 새 버전으로 배포하면 시트 「입학성적」 을 함께 읽습니다 (배포 → 배포 관리 → 연필 → 새 버전 → 배포). 지금은 내신 시험 석차만 나옵니다.</div>';
@@ -5863,16 +5862,16 @@ function renderTrack(){
       '<div class="mut" style="align-self:flex-end;">입학 성적 '+nEnt+'명 · 상담 필요 '+nNeed+'명</div></div>'+note+
     '<div class="controls" style="margin-top:14px;gap:10px;flex-wrap:wrap;">'+
       '<select id="trkBan" class="trk-sel"><option value="all">전체 반</option>'+bans.map(b=>'<option value="'+b+'"'+(String(trkBan)===String(b)?' selected':'')+'>'+b+'반</option>').join('')+'</select>'+
-      '<span class="seg sm" id="trkSort">'+[['hak','학번 순'],['ent','입학 석차 순'],['down','입학보다 많이 내린 순'],['up','입학보다 많이 오른 순'],['need','상담 필요 많은 순']].map(([v,l])=>'<button data-s="'+v+'"'+(trkSort===v?' class="on"':'')+'>'+l+'</button>').join('')+'</span>'+
+      '<span class="seg sm" id="trkSort">'+[['hak','학번 순'],['ent','입학 석차 순'],['down','입학보다 많이 내린 순'],['up','입학보다 많이 오른 순'],['need','상담 필요 많은 순']].map(([v,l])=>'<button data-s="'+v+'"'+(trkSort===v?' class="on"':'')+'>'+l+(trkSort===v?(trkDir>0?' ▲':' ▼'):'')+'</button>').join('')+'</span>'+
       '<label class="trk-chk"><input type="checkbox" id="trkNeed"'+(trkOnlyNeed?' checked':'')+'> 상담이 필요한 학생만</label>'+
     '</div>'+
     '<div class="sub" style="margin-left:0;">칸 = <b>학년 석차/인원 (상위 %)</b>. 시험 석차는 「오른·내린 학생」·개별 상담 평균 줄과 같은 계산(그 시험 과목을 모두 본 학생끼리 석차백분율 평균 순)입니다. '+
       '<b>합산 석차</b> = '+(combo?esc(combo.labels.join(' + '))+' 의 '+combo.n+'과목을 모두 넣은 석차 (모두 본 학생끼리)':'합칠 시험이 없습니다')+'. '+
-      '입학 인원과 시험 인원이 달라 <b>상위 %</b> 로 견줍니다 — 「입학 대비」 = 입학 → 합산 석차, 상위 %p · 등수 (<span class="du">▲ 오름</span> · <span class="dd">▼ 내림</span>). <b>줄을 누르면</b> 그 학생의 변화 그래프와 상담 제안이 아래에 열립니다.</div>'+
+      '입학 인원과 시험 인원이 달라 <b>상위 %</b> 로 견줍니다 — 「입학 대비」 = 입학 → 합산 석차, 상위 %p · 등수 (<span class="du">▲ 오름</span> · <span class="dd">▼ 내림</span>). <b>줄을 누르면</b> 그 학생의 변화 그래프와 상담 제안이 아래에 열립니다. 정렬 단추를 <b>한 번 더 누르면</b> 차례가 거꾸로 바뀝니다 (▲ 오름차순 · ▼ 내림차순).</div>'+
     '<div class="tscroll tall" style="max-height:640px;"><table class="trk-tab">'+head+'<tbody>'+(body||'<tr><td colspan="'+(cols+1)+'" class="mut">해당하는 학생이 없습니다.</td></tr>')+'</tbody></table></div></div>';
   document.getElementById('trkBan').addEventListener('change',e=>{trkBan=e.target.value;trkOpen=null;renderTrack();});
   document.getElementById('trkNeed').addEventListener('change',e=>{trkOnlyNeed=e.target.checked;trkOpen=null;renderTrack();});
-  document.getElementById('trkSort').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;trkSort=b.getAttribute('data-s');renderTrack();});
+  document.getElementById('trkSort').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const v=b.getAttribute('data-s');if(v===trkSort)trkDir=-trkDir;else{trkSort=v;trkDir=(TRK_SORTS[v]||[0,1])[1];}renderTrack();});
   box.querySelector('tbody').addEventListener('click',e=>{if(e.target.closest('.trk-det'))return;const tr=e.target.closest('tr.trk-row');if(!tr)return;
     const k=tr.getAttribute('data-k');trkOpen=trkOpen===k?null:k;renderTrack();});
   if(trkOpen){const r=list.find(x=>x.s.ban+'-'+x.s.num===trkOpen);if(r)trkDrawChart(r,slots);}
