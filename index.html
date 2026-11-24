@@ -5816,6 +5816,7 @@ function renderTrack(){
   const key=r=>r.dEnt==null?null:r.dEnt;
   if(trkSort==='down')list.sort((a,b)=>(key(a)==null)-(key(b)==null)||(key(b)-key(a))||a.s.ban-b.s.ban||a.s.num-b.s.num);
   else if(trkSort==='up')list.sort((a,b)=>(key(a)==null)-(key(b)==null)||(key(a)-key(b))||a.s.ban-b.s.ban||a.s.num-b.s.num);
+  else if(trkSort==='ent')list.sort((a,b)=>(!a.ent)-(!b.ent)||(a.ent&&b.ent?a.ent.rank-b.ent.rank:0)||a.s.ban-b.s.ban||a.s.num-b.s.num);   // 입학 석차 순 (2026.11.24 사용자 요청) · 입학 성적 없는 학생 맨 뒤
   else if(trkSort==='need')list.sort((a,b)=>b.tags.length-a.tags.length||a.s.ban-b.s.ban||a.s.num-b.s.num);
   else list.sort((a,b)=>a.s.ban-b.s.ban||a.s.num-b.s.num);
   const nNeed=recs.filter(r=>r.tags.length).length, nEnt=recs.filter(r=>r.ent).length;
@@ -5834,7 +5835,7 @@ function renderTrack(){
       '<div class="mut" style="align-self:flex-end;">입학 성적 '+nEnt+'명 · 상담 필요 '+nNeed+'명</div></div>'+note+
     '<div class="controls" style="margin-top:14px;gap:10px;flex-wrap:wrap;">'+
       '<select id="trkBan" class="trk-sel"><option value="all">전체 반</option>'+bans.map(b=>'<option value="'+b+'"'+(String(trkBan)===String(b)?' selected':'')+'>'+b+'반</option>').join('')+'</select>'+
-      '<span class="seg sm" id="trkSort">'+[['hak','학번 순'],['down','입학보다 많이 내린 순'],['up','입학보다 많이 오른 순'],['need','상담 필요 많은 순']].map(([v,l])=>'<button data-s="'+v+'"'+(trkSort===v?' class="on"':'')+'>'+l+'</button>').join('')+'</span>'+
+      '<span class="seg sm" id="trkSort">'+[['hak','학번 순'],['ent','입학 석차 순'],['down','입학보다 많이 내린 순'],['up','입학보다 많이 오른 순'],['need','상담 필요 많은 순']].map(([v,l])=>'<button data-s="'+v+'"'+(trkSort===v?' class="on"':'')+'>'+l+'</button>').join('')+'</span>'+
       '<label class="trk-chk"><input type="checkbox" id="trkNeed"'+(trkOnlyNeed?' checked':'')+'> 상담이 필요한 학생만</label>'+
     '</div>'+
     '<div class="sub" style="margin-left:0;">칸 = <b>학년 석차/인원 (상위 %)</b>. 시험 석차는 「오른·내린 학생」·개별 상담 평균 줄과 같은 계산(그 시험 과목을 모두 본 학생끼리 석차백분율 평균 순)입니다. '+
