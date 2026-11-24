@@ -5739,12 +5739,31 @@ function trkSlots(){
   return out;
 }
 const trkTop=(rank,total)=>(rank&&total)?rank/total*100:null;
+
+// 합산 석차 (2026.11.24 사용자 요청 「비교군은 1학기 학기말과 2학기 1차를 넣은 석차」 → 「두 시험을 합친 석차 하나」 · 「따로 칸도」)
+//   시험 = mvExamSlots() (오른·내린 학생과 같은 차례 — 지금 1학기 학기말 + 2학기 1차 · 2학기 2차가 들어오면 저절로 1학기 학기말 + 2학기 1차 + 2학기 2차)
+//   과목 = 시험마다 학생 절반 이상이 본 과목(mvCommonKeys)을 모두 모음 (지금 6 + 7 = 13개)
+//   과목마다 그 시험 점수가 있는 학생끼리 석차백분율 → **13개 평균**이 작을수록 앞 · 학생 = 그 과목을 모두 본 학생끼리 (mvExamRank 와 같은 규칙)
+function trkCombo(){
+  const rows=(ALL&&ALL.students)||[], slots=mvExamSlots();
+  const parts=[];
+  slots.forEach((sl,j)=>{const maps=rows.map(r=>mvExamScores(r,sl)), ks=mvCommonKeys(maps);
+    ks.forEach(k=>{const vs=maps.map(m=>m[k]?m[k][0]:null).filter(v=>v!==null);
+      parts.push({j,k,maps,f:v=>{let hi=0,eq=0;vs.forEach(x=>{if(x>v)hi++;else if(x===v)eq++;});return (hi+1+(eq-1)/2)/vs.length*100;}});});});
+  if(!parts.length)return null;
+  const pop=[];
+  rows.forEach((row,i)=>{if(!parts.every(q=>q.maps[i][q.k]))return;
+    pop.push({i,p:Math.round(parts.reduce((a,q)=>a+q.f(q.maps[i][q.k][0]),0)/parts.length*1e6)/1e6});});
+  mvRank(pop,r=>-r.p,'rank');
+  const by={};pop.forEach(r=>{by[r.i]=r;});
+  return {by,total:pop.length,n:parts.length,labels:slots.map(s=>s.label)};
+}
 const trkPct=v=>v==null?'-':'상위 '+(v<10?v.toFixed(1):Math.round(v))+'%';
 
 // 전교생 기록 — 학생마다 {s, ent:{rank,total,top,score}, ex:[{rank,total,top}|null …], latest, prev, dEnt, dRecent, tags}
 function trkBuild(){
   const rows=(ALL&&ALL.students)||[], slots=trkSlots();
-  const ranks=slots.map(sl=>mvExamRank(sl));
+  const ranks=slots.map(sl=>mvExamRank(sl)), combo=trkCombo();
   const INFO=(ALL&&ALL.subjectInfo)||[], SUBJ=(ALL&&ALL.subjects)||[];
   const entTotal=trkEnt&&trkEnt.n?trkEnt.n:0;
   const recs=[];
@@ -5756,7 +5775,10 @@ function trkBuild(){
     let li=-1;for(let k=ex.length-1;k>=0;k--)if(ex[k]){li=k;break;}
     let pi=-1;for(let k=li-1;k>=0;k--)if(ex[k]){pi=k;break;}
     const latest=li>=0?ex[li]:null, prev=pi>=0?ex[pi]:null;
-    const dEnt=(ent&&ent.top!=null&&latest)?latest.top-ent.top:null;          // + = 내려감 (상위 % 가 커짐)
+    const cr=combo&&combo.by[i], cmb=cr?{rank:cr.rank,total:combo.total,top:trkTop(cr.rank,combo.total)}:null;
+    // 입학 대비 = 입학 → **합산 석차** (2026.11.24 사용자 결정 · 상담 「성적 하락」·「격려·진로 상향」 도 이 값)
+    const dEnt=(ent&&ent.top!=null&&cmb)?cmb.top-ent.top:null;               // + = 내려감 (상위 % 가 커짐)
+    const dRank=(ent&&cmb)?ent.rank-cmb.rank:null;                           // + = 올라감 (등수가 작아짐)
     const dRecent=(prev&&latest)?latest.top-prev.top:null;
     const tags=[];
     if(dEnt!=null&&dEnt>=TRK_DROP_ENT)tags.push({k:'dropEnt',t:'성적 하락 상담',c:'red'});
@@ -5768,29 +5790,34 @@ function trkBuild(){
       if(ks.length>=3)ks.forEach(k=>{const others=ks.filter(x=>x!==k).map(x=>m[x][1]);const avg=others.reduce((a,b)=>a+b,0)/others.length;
         const gap=m[k][1]-avg;if(gap>=TRK_WEAK){const info=INFO[k]||{};weak.push({name:info.b||String(SUBJ[k]||'').replace(/[12]$/,''),g:m[k][1],avg:avg,gap:gap});}});}
     weak.forEach(w=>tags.push({k:'weak',t:w.name+' 학습 상담',c:'amber',w:w}));
-    recs.push({s,i,ent,ex,latest,prev,li,pi,dEnt,dRecent,tags,weak});
+    recs.push({s,i,ent,ex,cmb,latest,prev,li,pi,dEnt,dRank,dRecent,tags,weak});
   });
-  return {slots,recs};
+  return {slots,recs,combo};
 }
 
 const trkTagHtml=t=>'<span class="trk-tag trk-'+t.c+'">'+esc(t.t)+'</span>';
 function trkCell(x){return x?('<b>'+x.rank+'</b><span class="mut">/'+x.total+'</span><span class="cellsub">'+trkPct(x.top)+'</span>'):'<span class="mut">-</span>';}
-function trkDelta(d){if(d==null)return '<span class="dz">-</span>';const v=Math.round(d);if(v===0)return '<span class="dz">―</span>';
-  return '<span class="'+(v<0?'du':'dd')+'">'+(v<0?'▲':'▼')+Math.abs(v)+'%p</span>';}
+// 입학 대비 칸 — 상위 %p · 등수 (2026.11.24 사용자 요청 「퍼센트 옆에 등수도」). 등수 = 입학 석차 − 합산 석차 (+ = 올라감)
+function trkDelta(d,dr){if(d==null)return '<span class="dz">-</span>';const v=Math.round(d);
+  const p=v===0?'<span class="dz">―</span>':'<span class="'+(v<0?'du':'dd')+'">'+(v<0?'▲':'▼')+Math.abs(v)+'%p</span>';
+  const q=dr==null?'':(dr===0?'<span class="dz"> · ―</span>':'<span class="'+(dr>0?'du':'dd')+'"> · '+(dr>0?'▲':'▼')+Math.abs(dr)+'등</span>');
+  return p+q;}
 
 // 줄을 눌렀을 때 — 그 학생의 변화 그래프 + 상담 제안
-function trkDetailHtml(r,slots){
+function trkDetailHtml(r,slots,combo){
   const L=[], fromTo=(a,b)=>trkPct(a)+' → '+trkPct(b);
+  const cName=combo?'합산 석차('+combo.labels.join('+')+')':'합산 석차';
+  const entCmb=()=>'입학 때 '+r.ent.rank+'/'+r.ent.total+'등('+trkPct(r.ent.top)+') → '+cName+' '+r.cmb.rank+'/'+r.cmb.total+'등('+trkPct(r.cmb.top)+')';
   const lastLabel=r.li>=0?slots[r.li].label:'';
   r.tags.forEach(t=>{
-    if(t.k==='dropEnt')L.push([t,'입학 때 '+fromTo(r.ent.top,r.latest.top)+' ('+lastLabel+') — 입학 때보다 많이 내려갔습니다. 고등학교 공부 양·공부 방법에 적응했는지, 생활 습관(잠·휴대폰), 친구·가정의 어려움이 없는지 함께 확인해 보세요.']);
+    if(t.k==='dropEnt')L.push([t,entCmb()+' — 입학 때보다 많이 내려갔습니다. 고등학교 공부 양·공부 방법에 적응했는지, 생활 습관(잠·휴대폰), 친구·가정의 어려움이 없는지 함께 확인해 보세요.']);
     if(t.k==='dropRecent')L.push([t,slots[r.pi].label+' '+fromTo(r.prev.top,r.latest.top)+' — 바로 앞 시험보다 크게 내려갔습니다. 이번 시험 준비 과정, 컨디션·결시, 최근에 생긴 고민이 있는지 확인해 보세요.']);
-    if(t.k==='rise')L.push([t,'입학 때 '+fromTo(r.ent.top,r.latest.top)+' — 입학 때보다 크게 올랐습니다. 칭찬·격려와 함께 희망 진로·목표 대학을 한 단계 높여 볼 수 있는지 이야기해 보세요.']);
+    if(t.k==='rise')L.push([t,entCmb()+' — 입학 때보다 크게 올랐습니다. 칭찬·격려와 함께 희망 진로·목표 대학을 한 단계 높여 볼 수 있는지 이야기해 보세요.']);
     if(t.k==='weak')L.push([t,lastLabel+' '+t.w.name+' '+t.w.g+'등급 — 다른 과목 평균('+t.w.avg.toFixed(1)+'등급)보다 '+t.w.gap.toFixed(1)+'등급 낮습니다. 그 과목 공부 방법·기초가 부족한 곳, 수업을 따라가는지 확인해 보세요.']);
   });
   const sug=L.length?L.map(([t,txt])=>'<div class="trk-sug">'+trkTagHtml(t)+'<span>'+esc(txt)+'</span></div>').join('')
     :'<div class="trk-sug"><span class="mut" style="font-size:13px;">기준에 걸리는 큰 변화가 없습니다'+(r.ent?'':' (입학 성적이 없어 입학 대비는 견주지 못했습니다)')+'.</span></div>';
-  const crit='<div class="mut" style="margin-top:6px;">기준 : 입학보다 상위 '+TRK_DROP_ENT+'%p 이상 내려감 · 바로 앞 시험보다 '+TRK_DROP_RECENT+'%p 이상 내려감 · 입학보다 '+TRK_RISE+'%p 이상 오름 · 가장 최근 시험에서 한 과목이 다른 과목 평균보다 '+TRK_WEAK+'등급 이상 낮음</div>';
+  const crit='<div class="mut" style="margin-top:6px;">기준 : 입학보다 합산 석차가 상위 '+TRK_DROP_ENT+'%p 이상 내려감 · 바로 앞 시험보다 '+TRK_DROP_RECENT+'%p 이상 내려감 · 입학보다 합산 석차가 '+TRK_RISE+'%p 이상 오름 · 가장 최근 시험에서 한 과목이 다른 과목 평균보다 '+TRK_WEAK+'등급 이상 낮음</div>';
   return '<div class="trk-det-in"><div class="trk-chart"><canvas id="trkChart"></canvas></div><div class="trk-side">'+
     '<div style="font-weight:800;margin-bottom:6px;">'+esc(r.s.name)+' · 필요한 상담</div>'+sug+crit+
     '<button class="btn" style="margin-top:10px;" onclick="trkGo('+r.s.ban+','+r.s.num+')">개별 상담 화면으로 →</button></div></div>';
@@ -5809,7 +5836,7 @@ function trkDrawChart(r,slots){
 
 function renderTrack(){
   const box=document.getElementById('trackBox'); if(!box)return;
-  const {slots,recs}=trkBuild();
+  const {slots,recs,combo}=trkBuild();
   const bans=[...new Set(recs.map(r=>r.s.ban))].sort((a,b)=>a-b);
   let list=recs.filter(r=>trkBan==='all'||r.s.ban===+trkBan);
   if(trkOnlyNeed)list=list.filter(r=>r.tags.length);
@@ -5823,13 +5850,14 @@ function renderTrack(){
   let note='';
   if(!trkEnt)note='<div class="notice">입학 성적이 아직 안 보입니다 — Apps Script 의 Code.gs 를 새 버전으로 배포하면 시트 「입학성적」 을 함께 읽습니다 (배포 → 배포 관리 → 연필 → 새 버전 → 배포). 지금은 내신 시험 석차만 나옵니다.</div>';
   else if(trkEnt.missing)note='<div class="notice">시트에서 「입학성적」 탭을 찾지 못했습니다 (탭 이름에 「입학」 이 들어가야 합니다). 지금은 내신 시험 석차만 나옵니다.</div>';
-  const cols=4+slots.length;
+  const cols=5+slots.length;
   const head='<thead><tr><th class="name">학번 (이름)</th><th>반</th><th>입학 석차</th>'+slots.map(s=>'<th>'+esc(s.label)+'</th>').join('')+
-    '<th>입학 대비<br><span class="mut">최근 시험</span></th><th class="txt">상담 필요</th></tr></thead>';
+    '<th>합산 석차<br><span class="mut">'+(combo?esc(combo.labels.join(' + ')):'-')+'</span></th>'+
+    '<th>입학 대비<br><span class="mut">합산 석차</span></th><th class="txt">상담 필요</th></tr></thead>';
   const body=list.map(r=>{const k=r.s.ban+'-'+r.s.num, open=trkOpen===k;
     return '<tr class="trk-row'+(open?' on':'')+'" data-k="'+k+'"><td class="name">'+hak(r.s)+' '+esc(r.s.name)+'</td><td>'+r.s.ban+'반</td><td>'+trkCell(r.ent)+'</td>'+
-      r.ex.map(trkCell).map(c=>'<td>'+c+'</td>').join('')+'<td>'+trkDelta(r.dEnt)+'</td><td class="txt">'+(r.tags.length?r.tags.map(trkTagHtml).join(' '):'<span class="mut">-</span>')+'</td></tr>'+
-      (open?'<tr class="trk-det"><td colspan="'+(cols+1)+'">'+trkDetailHtml(r,slots)+'</td></tr>':'');}).join('');
+      r.ex.map(trkCell).map(c=>'<td>'+c+'</td>').join('')+'<td>'+trkCell(r.cmb)+'</td><td>'+trkDelta(r.dEnt,r.dRank)+'</td><td class="txt">'+(r.tags.length?r.tags.map(trkTagHtml).join(' '):'<span class="mut">-</span>')+'</td></tr>'+
+      (open?'<tr class="trk-det"><td colspan="'+(cols+1)+'">'+trkDetailHtml(r,slots,combo)+'</td></tr>':'');}).join('');
   box.innerHTML='<div class="panel glass">'+
     '<div class="rhead grade-head"><div class="who" style="font-size:23px;">학생 추적 관찰 <small>입학 → 내신 시험마다 학년 석차</small></div>'+
       '<div class="mut" style="align-self:flex-end;">입학 성적 '+nEnt+'명 · 상담 필요 '+nNeed+'명</div></div>'+note+
@@ -5839,7 +5867,8 @@ function renderTrack(){
       '<label class="trk-chk"><input type="checkbox" id="trkNeed"'+(trkOnlyNeed?' checked':'')+'> 상담이 필요한 학생만</label>'+
     '</div>'+
     '<div class="sub" style="margin-left:0;">칸 = <b>학년 석차/인원 (상위 %)</b>. 시험 석차는 「오른·내린 학생」·개별 상담 평균 줄과 같은 계산(그 시험 과목을 모두 본 학생끼리 석차백분율 평균 순)입니다. '+
-      '입학 인원과 시험 인원이 달라 <b>상위 %</b> 로 견줍니다 — 「입학 대비」 = 입학 → 가장 최근 시험 (<span class="du">▲ 오름</span> · <span class="dd">▼ 내림</span>). <b>줄을 누르면</b> 그 학생의 변화 그래프와 상담 제안이 아래에 열립니다.</div>'+
+      '<b>합산 석차</b> = '+(combo?esc(combo.labels.join(' + '))+' 의 '+combo.n+'과목을 모두 넣은 석차 (모두 본 학생끼리)':'합칠 시험이 없습니다')+'. '+
+      '입학 인원과 시험 인원이 달라 <b>상위 %</b> 로 견줍니다 — 「입학 대비」 = 입학 → 합산 석차, 상위 %p · 등수 (<span class="du">▲ 오름</span> · <span class="dd">▼ 내림</span>). <b>줄을 누르면</b> 그 학생의 변화 그래프와 상담 제안이 아래에 열립니다.</div>'+
     '<div class="tscroll tall" style="max-height:640px;"><table class="trk-tab">'+head+'<tbody>'+(body||'<tr><td colspan="'+(cols+1)+'" class="mut">해당하는 학생이 없습니다.</td></tr>')+'</tbody></table></div></div>';
   document.getElementById('trkBan').addEventListener('change',e=>{trkBan=e.target.value;trkOpen=null;renderTrack();});
   document.getElementById('trkNeed').addEventListener('change',e=>{trkOnlyNeed=e.target.checked;trkOpen=null;renderTrack();});
